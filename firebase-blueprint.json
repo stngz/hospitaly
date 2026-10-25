@@ -1,0 +1,157 @@
+{
+  "entities": {
+    "Property": {
+      "title": "Property",
+      "description": "Hospitality establishment or lodge",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "description": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "coverImageUrl": { "type": "string" },
+        "primaryColor": { "type": "string" },
+        "secondaryColor": { "type": "string" },
+        "accentColor": { "type": "string" },
+        "contactPhone": { "type": "string" },
+        "contactEmail": { "type": "string" },
+        "address": { "type": "string" },
+        "city": { "type": "string" },
+        "country": { "type": "string" },
+        "timezone": { "type": "string" },
+        "currency": { "type": "string" },
+        "wifiName": { "type": "string" },
+        "wifiPassword": { "type": "string" },
+        "checkInTime": { "type": "string" },
+        "checkOutTime": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "suspended"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "slug"]
+    },
+    "Room": {
+      "title": "Room",
+      "description": "Room, chalet, or suite in a property",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "propertyId": { "type": "string" },
+        "roomNumber": { "type": "string" },
+        "roomType": { "type": "string" },
+        "status": { "type": "string", "enum": ["available", "occupied", "maintenance", "unavailable"] },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "propertyId", "roomNumber"]
+    },
+    "QRCodeRecord": {
+      "title": "QRCodeRecord",
+      "description": "Physical QR token mapped to room or location",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "propertyId": { "type": "string" },
+        "roomId": { "type": "string" },
+        "locationType": { "type": "string", "enum": ["room", "restaurant", "pool", "reception", "spa", "gym", "other"] },
+        "token": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "revoked", "disabled"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "propertyId", "token", "status"]
+    },
+    "ServiceRequest": {
+      "title": "ServiceRequest",
+      "description": "Service request or in-room dining order",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "propertyId": { "type": "string" },
+        "roomId": { "type": "string" },
+        "roomNumber": { "type": "string" },
+        "category": { "type": "string", "enum": ["housekeeping", "maintenance", "dining", "concierge", "transport", "other"] },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"] },
+        "status": { "type": "string", "enum": ["pending", "acknowledged", "in_progress", "completed", "cancelled"] },
+        "assignedTo": {
+          "type": "object",
+          "properties": {
+            "uid": { "type": "string" },
+            "name": { "type": "string" }
+          }
+        },
+        "guestName": { "type": "string" },
+        "guestPhone": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "completedAt": { "type": "string" }
+      },
+      "required": ["id", "propertyId", "roomId", "roomNumber", "category", "title", "status"]
+    },
+    "DiningItem": {
+      "title": "DiningItem",
+      "description": "Menu dish or cocktail item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "propertyId": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string", "enum": ["breakfast", "lunch", "dinner", "drinks", "dessert"] },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "dietary": { "type": "array", "items": { "type": "string" } },
+        "imageUrl": { "type": "string" },
+        "available": { "type": "boolean" }
+      },
+      "required": ["id", "propertyId", "name", "price", "category"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Staff or management user profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "propertyId": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["guest", "staff", "manager", "admin"] },
+        "department": { "type": "string", "enum": ["housekeeping", "maintenance", "concierge", "reception", "restaurant", "management", "other"] },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "propertyId", "name", "role", "department"]
+    }
+  },
+  "firestore": {
+    "/properties/{propertyId}": {
+      "entity": "Property",
+      "description": "Lodge and hotel properties"
+    },
+    "/rooms/{roomId}": {
+      "entity": "Room",
+      "description": "Rooms and chalets"
+    },
+    "/qrCodes/{qrId}": {
+      "entity": "QRCodeRecord",
+      "description": "Physical QR tokens mapped to rooms"
+    },
+    "/requests/{requestId}": {
+      "entity": "ServiceRequest",
+      "description": "Real-time service orders and guest requests"
+    },
+    "/dining/{diningId}": {
+      "entity": "DiningItem",
+      "description": "In-room dining items"
+    },
+    "/users/{userId}": {
+      "entity": "UserProfile",
+      "description": "Staff user profiles"
+    }
+  }
+}

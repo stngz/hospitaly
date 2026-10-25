@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isPlatformAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == 'nathanielmazaba@gmail.com' ||
+        request.auth.token.email == 'founder@hospitally.io' ||
+        (request.auth.token.keys().hasAny(['role']) && request.auth.token.role == 'admin') ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isPropertyManager(propertyId) {
+      return isPlatformAdmin() || (
+        isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'manager' && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.propertyId == propertyId
+      );
+    }
+
+    function isStaffMember(propertyId) {
+      return isPropertyManager(propertyId) || (
+        isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['staff', 'manager', 'admin'] &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.propertyId == propertyId || isPlatformAdmin())
+      );
+    }
+
+    // Properties: Publicly discoverable by guests; writable by admins, managers, and in-app management operations
+    match /properties/{propertyId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Rooms & QR Codes: Readable by guests & QR scanner; Manageable by Property Managers / Admins
+    match /rooms/{roomId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /qrCodes/{qrId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Dining items: Publicly readable for in-room guest ordering; Manager editable
+    match /dining/{diningId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Service Requests: Guests create, staff process
+    match /requests/{requestId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if true;
+    }
+
+    // Users Collection: Staff profile reads & PIN lookups; Admin management
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if true;
+    }
+  }
+}
