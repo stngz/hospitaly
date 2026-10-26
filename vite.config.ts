@@ -11,6 +11,20 @@ export default defineConfig(() => {
         '@': path.resolve('.'),
       },
     },
+    build: {
+      chunkSizeWarningLimit: 1600,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('firebase')) return 'firebase';
+              if (id.includes('lucide-react')) return 'lucide';
+              if (id.includes('react') || id.includes('scheduler')) return 'vendor';
+            }
+          },
+        },
+      },
+    },
     server: {
       allowedHosts: true as const,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
