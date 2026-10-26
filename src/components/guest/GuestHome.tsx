@@ -35,7 +35,8 @@ import {
   Zap,
   ArrowRight,
   Radio,
-  Send
+  Send,
+  Building2
 } from 'lucide-react';
 
 interface GuestHomeProps {
@@ -243,6 +244,15 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => onNavigate('staff-login')}
+              className="px-2.5 py-1.5 rounded-full bg-white/10 hover:bg-white/20 active:scale-[0.92] backdrop-blur-md border border-white/20 text-stone-200 hover:text-white text-[11px] font-mono flex items-center gap-1 shadow-xs transition-all cursor-pointer"
+              title="Staff & Management Access"
+            >
+              <Building2 className="w-3.5 h-3.5 text-amber-300" />
+              <span>Staff / HQ</span>
+            </button>
+
             <button
               onClick={() => setIsNightstandOpen(true)}
               className="p-2 rounded-full bg-white/10 hover:bg-white/20 active:scale-[0.92] backdrop-blur-md border border-white/20 text-amber-200 shadow-xs transition-all"

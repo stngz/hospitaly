@@ -770,7 +770,8 @@ export const dbService = {
 
   // QR Codes - stable snapshot
   getQRCodeByToken: (token: string): QRCodeRecord | undefined => {
-    return cache.qrCodes.find((q) => q.token === token && q.status === 'active');
+    const clean = token.trim().toUpperCase();
+    return cache.qrCodes.find((q) => q.token.trim().toUpperCase() === clean && q.status === 'active');
   },
   getQRCodeByRoomId: (roomId: string): QRCodeRecord | undefined => {
     return cache.qrCodes.find((q) => q.roomId === roomId && q.status === 'active');

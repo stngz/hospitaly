@@ -41,7 +41,9 @@ import {
   EyeOff,
   MessageSquare,
   Volume2,
-  Radio
+  Radio,
+  Camera,
+  Upload
 } from 'lucide-react';
 
 interface StaffDashboardProps {
@@ -237,6 +239,23 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   };
 
   // Dining actions
+  const handleImageFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        alert('Please choose an image under 2MB.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          setNewDiningImage(reader.result);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleCreateDining = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDiningName.trim() || !newDiningPrice.trim()) return;
@@ -749,6 +768,47 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                             <span className="text-emerald-900 font-semibold">Attended by: {req.assignedTo.name}</span>
                           </>
                         )}
+                      </div>
+
+                      {/* Staff Assignment Selector for Reception / Manager */}
+                      <div className="flex items-center gap-2 pt-2 border-t border-stone-100 flex-wrap">
+                        <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wide flex items-center gap-1 font-mono">
+                          <UserCheck className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Assign Staff:</span>
+                        </span>
+                        <select
+                          value={req.assignedTo?.uid || ''}
+                          onChange={(e) => {
+                            const staffUid = e.target.value;
+                            if (!staffUid) {
+                              dbService.updateRequestStatus(req.id, req.status, undefined);
+                            } else {
+                              const selectedMember = availableStaff.find((s) => s.id === staffUid);
+                              if (selectedMember) {
+                                dbService.updateRequestStatus(req.id, req.status === 'pending' ? 'acknowledged' : req.status, {
+                                  uid: selectedMember.id,
+                                  name: selectedMember.name,
+                                });
+                                notificationService.notify({
+                                  title: 'Staff Assigned',
+                                  subtitle: `${selectedMember.name} assigned to Room ${req.roomNumber}`,
+                                  roomNumber: req.roomNumber,
+                                  category: req.category,
+                                });
+                              }
+                            }
+                          }}
+                          className="text-xs bg-stone-50 border border-stone-200 rounded-lg px-2.5 py-1 text-stone-800 font-medium focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                        >
+                          <option value="">-- Unassigned (Select Staff) --</option>
+                          {availableStaff
+                            .filter((s) => !currentProperty || s.propertyId === currentProperty.id || s.role === 'admin')
+                            .map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name} ({s.role === 'manager' ? 'GM' : s.department.toUpperCase()})
+                              </option>
+                            ))}
+                        </select>
                       </div>
                     </div>
 
@@ -1661,12 +1721,44 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
-                  Image URL (Optional)
+                  Dish / Menu Photo
                 </label>
+                
+                {/* File Upload Button */}
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="cursor-pointer px-3.5 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold rounded-xl border border-stone-200 flex items-center gap-1.5 transition-colors">
+                    <Camera className="w-3.5 h-3.5 text-stone-600" />
+                    <span>Upload Image or Photo</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  {newDiningImage && (
+                    <button
+                      type="button"
+                      onClick={() => setNewDiningImage('')}
+                      className="text-xs text-rose-600 hover:underline cursor-pointer"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+
+                {/* Image Preview Thumbnail */}
+                {newDiningImage && (
+                  <div className="mb-2 relative w-20 h-20 rounded-xl overflow-hidden border border-stone-200 shadow-2xs">
+                    <img src={newDiningImage} alt="Preview" className="w-full h-full object-cover" />
+                  </div>
+                )}
+
+                {/* Or Image URL */}
                 <input
                   type="url"
-                  placeholder="https://images.unsplash.com/..."
-                  value={newDiningImage}
+                  placeholder="Or paste web image URL: https://..."
+                  value={newDiningImage.startsWith('data:') ? '' : newDiningImage}
                   onChange={(e) => setNewDiningImage(e.target.value)}
                   className="w-full px-3.5 py-2 text-xs rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900"
                 />

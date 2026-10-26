@@ -74,7 +74,13 @@ export const TenantProvider: React.FC<{
     dbService.getAllRooms
   );
 
-  // Auto-resolve QR tokens from window location on load or when properties sync
+  const qrCodes = useSyncExternalStore(
+    subscribeToStore,
+    dbService.getAllQRCodes,
+    dbService.getAllQRCodes
+  );
+
+  // Auto-resolve QR tokens from window location on load or when properties/qrCodes sync
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -86,7 +92,8 @@ export const TenantProvider: React.FC<{
         }
       }
       if (token) {
-        const qr = dbService.getQRCodeByToken(token.trim());
+        const clean = token.trim().toUpperCase();
+        const qr = qrCodes.find((q) => q.token.trim().toUpperCase() === clean && q.status === 'active');
         if (qr) {
           setIsInvalidToken(false);
           const targetProp = properties.find((p) => p.id === qr.propertyId);
@@ -96,13 +103,13 @@ export const TenantProvider: React.FC<{
               setRoomId(qr.roomId);
             }
           }
-        } else {
+        } else if (qrCodes.length > 0) {
           setIsInvalidToken(true);
           setRoomId(undefined);
         }
       }
     }
-  }, [properties, rooms]);
+  }, [properties, rooms, qrCodes]);
 
   const property =
     properties.find((p) => p.slug === propertySlug) ||

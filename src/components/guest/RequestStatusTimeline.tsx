@@ -111,27 +111,20 @@ export const RequestStatusTimeline: React.FC<RequestStatusTimelineProps> = ({
     setShowConfirmCancel(false);
   };
 
-  // Step advancement simulator (allows testing the full Uber-like live staff dispatch)
-  const handleSimulateAdvance = () => {
+  const [followUpSent, setFollowUpSent] = useState(false);
+
+  // Guest follow-up notification (pings reception without advancing the stage)
+  const handleSendFollowUp = () => {
     if (!req) return;
     notificationService.triggerHaptic('medium');
-
-    if (req.status === 'pending') {
-      dbService.updateRequestStatus(req.id, 'acknowledged', {
-        uid: 'staff_elena',
-        name: 'Elena Mwamba (Front Desk)',
-      });
-    } else if (req.status === 'acknowledged') {
-      dbService.updateRequestStatus(req.id, 'in_progress', {
-        uid: 'staff_joshua',
-        name: 'Joshua K. (In-Room Attendant)',
-      });
-    } else if (req.status === 'in_progress') {
-      dbService.updateRequestStatus(req.id, 'completed', {
-        uid: 'staff_joshua',
-        name: 'Joshua K. (In-Room Attendant)',
-      });
-    }
+    notificationService.notify({
+      title: `Order Follow-Up: Room ${req.roomNumber}`,
+      subtitle: `Guest in ${req.roomNumber} requested an update on order "${req.title}".`,
+      roomNumber: req.roomNumber,
+      category: req.category,
+    });
+    setFollowUpSent(true);
+    setTimeout(() => setFollowUpSent(false), 4000);
   };
 
   const toggleSound = () => {
@@ -266,41 +259,59 @@ export const RequestStatusTimeline: React.FC<RequestStatusTimelineProps> = ({
           </div>
         </div>
 
-        {/* 3. ASSIGNED STAFF DISPATCHER CARD (Like Uber Driver Card) */}
+        {/* 3. ASSIGNED STAFF DISPATCHER CARD */}
         {!isCancelled && (
           <div className="bg-white rounded-3xl p-4.5 border border-stone-900/[0.08] shadow-diffused flex items-center justify-between">
             <div className="flex items-center gap-3.5">
-              <div className="relative">
-                <div className="w-12 h-12 rounded-2xl bg-stone-900 text-amber-300 flex items-center justify-center font-bold text-sm shadow-sm border border-stone-800">
-                  {req.assignedTo 
-                    ? req.assignedTo.name.split(' ').map(n => n[0]).slice(0, 2).join('')
-                    : 'HP'}
-                </div>
-                <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center">
-                  <Check className="w-2.5 h-2.5 text-white stroke-[3]" />
-                </span>
-              </div>
+              {req.assignedTo ? (
+                <>
+                  <div className="relative">
+                    <div className="w-12 h-12 rounded-2xl bg-stone-900 text-amber-300 flex items-center justify-center font-bold text-sm shadow-sm border border-stone-800">
+                      {req.assignedTo.name.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                    </div>
+                    <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center">
+                      <Check className="w-2.5 h-2.5 text-white stroke-[3]" />
+                    </span>
+                  </div>
 
-              <div>
-                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-stone-400 block">
-                  Assigned Attendant
-                </span>
-                <p className="text-sm font-bold text-stone-900">
-                  {req.assignedTo?.name || 'Duty Hospitality Team'}
-                </p>
-                <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-stone-500">
-                  <span className="font-semibold text-amber-800">★ 4.9</span>
-                  <span>&bull;</span>
-                  <span>In-Room Specialist</span>
-                </div>
-              </div>
+                  <div>
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-800 block">
+                      Assigned Attendant
+                    </span>
+                    <p className="text-sm font-bold text-stone-900">
+                      {req.assignedTo.name}
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-stone-500">
+                      <span>On-duty operational staff</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-800 flex items-center justify-center font-bold text-sm shadow-2xs border border-amber-200">
+                    <Clock className="w-5 h-5 text-amber-700 animate-pulse" />
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-800 block">
+                      Staff Assignment
+                    </span>
+                    <p className="text-xs font-bold text-stone-900">
+                      Awaiting Reception Assignment
+                    </p>
+                    <p className="text-[11px] text-stone-500 mt-0.5">
+                      Reception is dispatching an attendant shortly
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsMessageModalOpen(true)}
                 className="p-2.5 rounded-2xl bg-stone-100 hover:bg-stone-200/80 active:scale-[0.93] transition-all text-stone-700"
-                title="Send note to staff"
+                title="Send note to reception"
               >
                 <MessageSquare className="w-4 h-4" />
               </button>
@@ -436,27 +447,41 @@ export const RequestStatusTimeline: React.FC<RequestStatusTimelineProps> = ({
           )}
         </div>
 
-        {/* 7. INTERACTIVE DEMO SIMULATOR BUTTON (Allows user to test the Uber experience right now!) */}
+        {/* 7. GUEST FOLLOW-UP / PING RECEPTION ACTION */}
         {!isCancelled && !isCompleted && (
-          <div className="p-3.5 bg-amber-50/60 rounded-2xl border border-amber-200/70 flex items-center justify-between shadow-2xs">
-            <div className="flex items-center gap-2">
-              <Zap className="w-4 h-4 text-amber-800 shrink-0" />
+          <div className="p-3.5 bg-amber-50/70 rounded-2xl border border-amber-200/80 flex items-center justify-between shadow-2xs">
+            <div className="flex items-center gap-2.5">
+              <BellRing className="w-4 h-4 text-amber-800 shrink-0" />
               <div>
                 <span className="text-xs font-bold text-stone-900 block leading-tight">
-                  Simulate Hotel Dispatch
+                  Need a Status Update?
                 </span>
-                <span className="text-[10px] text-stone-500">
-                  Advance to next staff stage & sound
+                <span className="text-[10px] text-stone-600">
+                  Notify reception if your order is taking longer than expected.
                 </span>
               </div>
             </div>
 
             <button
-              onClick={handleSimulateAdvance}
-              className="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 active:scale-[0.95] text-stone-950 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-1 select-none"
+              onClick={handleSendFollowUp}
+              disabled={followUpSent}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center gap-1.5 select-none cursor-pointer ${
+                followUpSent
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-stone-900 hover:bg-stone-850 active:scale-[0.95] text-amber-300'
+              }`}
             >
-              <span>Advance Stage</span>
-              <Navigation className="w-3 h-3 rotate-90" />
+              {followUpSent ? (
+                <>
+                  <Check className="w-3 h-3" />
+                  <span>Notified</span>
+                </>
+              ) : (
+                <>
+                  <BellRing className="w-3 h-3" />
+                  <span>Notify Desk</span>
+                </>
+              )}
             </button>
           </div>
         )}
