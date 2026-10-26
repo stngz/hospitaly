@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { dbService, subscribeToStore } from '../../lib/store';
 import { notificationService } from '../../lib/notifications';
 import { ServiceRequest, RequestStatus, Room, DiningItem, UserProfile, StaffDepartment } from '../../types';
+import { QRCodeView } from '../common/QRCodeView';
 import { 
   Check, 
   Clock, 
@@ -1493,10 +1494,10 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               </div>
 
               <div className="my-3 inline-block p-3 bg-white rounded-2xl shadow-xl border-2 border-amber-300/30">
-                <img 
-                  src={qrImageUrl} 
-                  alt={`QR for Room ${qrPlaqueRoom.roomNumber}`}
-                  className="w-48 h-48 mx-auto"
+                <QRCodeView
+                  value={qrDataUrl || selectedPlaqueQR.token}
+                  size={192}
+                  className="mx-auto"
                 />
               </div>
 
@@ -1511,12 +1512,6 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                   {qrPlaqueRoom.roomType}
                 </p>
               </div>
-
-              {qrPlaqueRoom.currentGuestName && (
-                <div className="mt-2 px-3 py-1 bg-white/10 rounded-full inline-block text-[11px] text-amber-200">
-                  Reserved for: <strong>{qrPlaqueRoom.currentGuestName}</strong>
-                </div>
-              )}
 
               <div className="mt-4 pt-3 border-t border-white/15 text-[10px] text-stone-300 space-y-1">
                 <p className="font-semibold text-white tracking-wider uppercase">

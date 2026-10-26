@@ -27,17 +27,17 @@ import {
   SEED_STAFF_USERS, 
   INITIAL_REQUESTS, 
   SEED_DINING_ITEMS 
-} from './seeds/zambeziHeights';
+} from './seeds/rocksApartments';
 import { notificationService } from './notifications';
 
 const STORAGE_KEYS = {
-  PROPERTIES: 'hospitally_properties_v1',
-  ROOMS: 'hospitally_rooms_v1',
-  QR_CODES: 'hospitally_qrcodes_v1',
-  USERS: 'hospitally_users_v1',
-  REQUESTS: 'hospitally_requests_v1',
-  DINING: 'hospitally_dining_v1',
-  CURRENT_USER: 'hospitally_current_user_v1',
+  PROPERTIES: 'hospitally_properties_v3',
+  ROOMS: 'hospitally_rooms_v3',
+  QR_CODES: 'hospitally_qrcodes_v3',
+  USERS: 'hospitally_users_v3',
+  REQUESTS: 'hospitally_requests_v3',
+  DINING: 'hospitally_dining_v3',
+  CURRENT_USER: 'hospitally_current_user_v3',
 };
 
 // In-memory cache holding identical references until modified
@@ -77,7 +77,9 @@ function loadInitialCache(): StoreCache {
     }
   }
 
-  const rawProps = read<Property[]>(STORAGE_KEYS.PROPERTIES, SEED_PROPERTIES);
+  const obsoletePropIds = new Set(['prop_zambezi_01', 'prop_luangwa_02']);
+
+  const rawProps = read<Property[]>(STORAGE_KEYS.PROPERTIES, SEED_PROPERTIES).filter(p => !obsoletePropIds.has(p.id));
   const mergedProps = [...rawProps];
   SEED_PROPERTIES.forEach((sp) => {
     const idx = mergedProps.findIndex((p) => p.id === sp.id);
@@ -96,7 +98,7 @@ function loadInitialCache(): StoreCache {
     }
   });
 
-  const rawRooms = read<Room[]>(STORAGE_KEYS.ROOMS, SEED_ROOMS);
+  const rawRooms = read<Room[]>(STORAGE_KEYS.ROOMS, SEED_ROOMS).filter(r => !obsoletePropIds.has(r.propertyId));
   const mergedRooms = [...rawRooms];
   SEED_ROOMS.forEach((sr) => {
     if (!mergedRooms.some((r) => r.id === sr.id)) {
@@ -104,7 +106,7 @@ function loadInitialCache(): StoreCache {
     }
   });
 
-  const rawQRs = read<QRCodeRecord[]>(STORAGE_KEYS.QR_CODES, SEED_QR_CODES);
+  const rawQRs = read<QRCodeRecord[]>(STORAGE_KEYS.QR_CODES, SEED_QR_CODES).filter(q => !obsoletePropIds.has(q.propertyId));
   const mergedQRs = [...rawQRs];
   SEED_QR_CODES.forEach((sq) => {
     if (!mergedQRs.some((q) => q.id === sq.id)) {
@@ -112,7 +114,7 @@ function loadInitialCache(): StoreCache {
     }
   });
 
-  const rawUsers = read<UserProfile[]>(STORAGE_KEYS.USERS, SEED_STAFF_USERS);
+  const rawUsers = read<UserProfile[]>(STORAGE_KEYS.USERS, SEED_STAFF_USERS).filter(u => !obsoletePropIds.has(u.propertyId) || u.role === 'admin');
   const mergedUsers = [...rawUsers];
   SEED_STAFF_USERS.forEach((seedUser) => {
     const idx = mergedUsers.findIndex((u) => u.id === seedUser.id);
@@ -127,7 +129,7 @@ function loadInitialCache(): StoreCache {
     }
   });
 
-  const rawDining = read<DiningItem[]>(STORAGE_KEYS.DINING, SEED_DINING_ITEMS);
+  const rawDining = read<DiningItem[]>(STORAGE_KEYS.DINING, SEED_DINING_ITEMS).filter(d => !obsoletePropIds.has(d.propertyId));
   const mergedDining = [...rawDining];
   SEED_DINING_ITEMS.forEach((sd) => {
     if (!mergedDining.some((d) => d.id === sd.id)) {
@@ -135,7 +137,7 @@ function loadInitialCache(): StoreCache {
     }
   });
 
-  const rawRequests = read<ServiceRequest[]>(STORAGE_KEYS.REQUESTS, INITIAL_REQUESTS);
+  const rawRequests = read<ServiceRequest[]>(STORAGE_KEYS.REQUESTS, INITIAL_REQUESTS).filter(r => !obsoletePropIds.has(r.propertyId));
   const mergedRequests = [...rawRequests];
   INITIAL_REQUESTS.forEach((sreq) => {
     if (!mergedRequests.some((r) => r.id === sreq.id)) {
@@ -203,13 +205,18 @@ export function initFirestoreListeners() {
   if (isFirestoreListening || typeof window === 'undefined') return;
   isFirestoreListening = true;
 
+  const obsoletePropIds = new Set(['prop_zambezi_01', 'prop_luangwa_02']);
+
   try {
     const requestsCol = collection(db, 'requests');
     onSnapshot(requestsCol, (snapshot) => {
       if (!snapshot.empty) {
         const firestoreList: ServiceRequest[] = [];
         snapshot.forEach((docSnap) => {
-          firestoreList.push(docSnap.data() as ServiceRequest);
+          const data = docSnap.data() as ServiceRequest;
+          if (data && !obsoletePropIds.has(data.propertyId)) {
+            firestoreList.push(data);
+          }
         });
 
         // Merge with cache, sorting by newest first
@@ -231,7 +238,10 @@ export function initFirestoreListeners() {
       if (!snapshot.empty) {
         const firestoreRooms: Room[] = [];
         snapshot.forEach((docSnap) => {
-          firestoreRooms.push(docSnap.data() as Room);
+          const data = docSnap.data() as Room;
+          if (data && !obsoletePropIds.has(data.propertyId)) {
+            firestoreRooms.push(data);
+          }
         });
         cache = {
           ...cache,
@@ -249,7 +259,10 @@ export function initFirestoreListeners() {
       if (!snapshot.empty) {
         const firestoreQRs: QRCodeRecord[] = [];
         snapshot.forEach((docSnap) => {
-          firestoreQRs.push(docSnap.data() as QRCodeRecord);
+          const data = docSnap.data() as QRCodeRecord;
+          if (data && !obsoletePropIds.has(data.propertyId)) {
+            firestoreQRs.push(data);
+          }
         });
         cache = {
           ...cache,
@@ -267,7 +280,10 @@ export function initFirestoreListeners() {
       if (!snapshot.empty) {
         const list: Property[] = [];
         snapshot.forEach((docSnap) => {
-          list.push(docSnap.data() as Property);
+          const data = docSnap.data() as Property;
+          if (data && !obsoletePropIds.has(data.id)) {
+            list.push(data);
+          }
         });
         cache = { ...cache, properties: list };
         persist(STORAGE_KEYS.PROPERTIES, cache.properties);
@@ -282,7 +298,10 @@ export function initFirestoreListeners() {
       if (!snapshot.empty) {
         const list: UserProfile[] = [];
         snapshot.forEach((docSnap) => {
-          list.push(docSnap.data() as UserProfile);
+          const data = docSnap.data() as UserProfile;
+          if (data && (!obsoletePropIds.has(data.propertyId) || data.role === 'admin')) {
+            list.push(data);
+          }
         });
         cache = { ...cache, users: list };
         persist(STORAGE_KEYS.USERS, cache.users);
@@ -297,7 +316,10 @@ export function initFirestoreListeners() {
       if (!snapshot.empty) {
         const list: DiningItem[] = [];
         snapshot.forEach((docSnap) => {
-          list.push(docSnap.data() as DiningItem);
+          const data = docSnap.data() as DiningItem;
+          if (data && !obsoletePropIds.has(data.propertyId)) {
+            list.push(data);
+          }
         });
         cache = { ...cache, dining: list };
         persist(STORAGE_KEYS.DINING, cache.dining);
@@ -307,7 +329,7 @@ export function initFirestoreListeners() {
       console.warn('Firestore live dining listener note:', err);
     });
 
-    // Also seed Firestore initial data in background if empty
+    // Also seed Firestore initial data in background if empty or needs cleanup
     seedFirestoreInitialData();
   } catch (err) {
     console.warn('Could not initialize Firestore listener:', err);
@@ -315,11 +337,48 @@ export function initFirestoreListeners() {
 }
 
 async function seedFirestoreInitialData() {
-  if (typeof window !== 'undefined' && localStorage.getItem('hospitally_cloud_seeded_v1')) {
+  const SEED_VERSION_KEY = 'hospitally_cloud_seeded_rocks_v3';
+  if (typeof window !== 'undefined' && localStorage.getItem(SEED_VERSION_KEY)) {
     return;
   }
   try {
-    // Seed properties
+    // Purge obsolete Zambezi / Luangwa docs from Firestore
+    const obsoleteDocs = [
+      { col: 'properties', id: 'prop_zambezi_01' },
+      { col: 'properties', id: 'prop_luangwa_02' },
+      { col: 'rooms', id: 'room_101' },
+      { col: 'rooms', id: 'room_102' },
+      { col: 'rooms', id: 'room_201' },
+      { col: 'rooms', id: 'room_204' },
+      { col: 'rooms', id: 'room_301' },
+      { col: 'rooms', id: 'room_302' },
+      { col: 'qrCodes', id: 'qr_101' },
+      { col: 'qrCodes', id: 'qr_204' },
+      { col: 'qrCodes', id: 'qr_pool' },
+      { col: 'qrCodes', id: 'qr_luangwa_301' },
+      { col: 'dining', id: 'dine_1' },
+      { col: 'dining', id: 'dine_2' },
+      { col: 'dining', id: 'dine_3' },
+      { col: 'dining', id: 'dine_4' },
+      { col: 'dining', id: 'dine_rocks_5' },
+      { col: 'requests', id: 'req_001' },
+      { col: 'requests', id: 'req_002' },
+      { col: 'requests', id: 'req_003' },
+      { col: 'users', id: 'staff_kondwani' },
+      { col: 'users', id: 'staff_mary' },
+      { col: 'users', id: 'staff_james' },
+      { col: 'users', id: 'staff_chileshe' },
+    ];
+
+    for (const item of obsoleteDocs) {
+      try {
+        await deleteDoc(doc(db, item.col, item.id));
+      } catch (delErr) {
+        // Silently skip if doesn't exist or unpermitted
+      }
+    }
+
+    // Seed Rocks Apartments properties
     for (const p of SEED_PROPERTIES) {
       await setDoc(doc(db, 'properties', p.id), p, { merge: true });
     }
@@ -343,10 +402,11 @@ async function seedFirestoreInitialData() {
     for (const req of INITIAL_REQUESTS) {
       await setDoc(doc(db, 'requests', req.id), req, { merge: true });
     }
+
     if (typeof window !== 'undefined') {
-      localStorage.setItem('hospitally_cloud_seeded_v1', 'true');
+      localStorage.setItem(SEED_VERSION_KEY, 'true');
     }
-    console.log('Firebase Firestore successfully synced with Hospitally data');
+    console.log('Firebase Firestore successfully synced with Rocks Apartments pilot data');
   } catch (e) {
     console.info('Firestore seed note:', e);
   }

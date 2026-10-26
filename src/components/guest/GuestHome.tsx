@@ -53,7 +53,7 @@ interface BedsideReceptor {
 }
 
 export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
-  const { property, room } = useTenant();
+  const { property, room, isInvalidToken } = useTenant();
 
   const [copiedWifi, setCopiedWifi] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
@@ -152,9 +152,14 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
     );
   }
 
-  const activeRequests = allRequests.filter(
-    (r) => r.propertyId === property.id && (!room || r.roomId === room.id) && (r.status === 'pending' || r.status === 'in_progress' || r.status === 'acknowledged')
-  );
+  const activeRequests = room
+    ? allRequests.filter(
+        (r) =>
+          r.propertyId === property.id &&
+          r.roomId === room.id &&
+          (r.status === 'pending' || r.status === 'in_progress' || r.status === 'acknowledged')
+      )
+    : [];
 
   const latestActiveRequest = activeRequests[0];
 
@@ -284,6 +289,19 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
 
       {/* 2. SLEEK OVERLAPPING CONTENT SHEET */}
       <div className="relative -mt-6 rounded-t-3xl bg-[#FDFBF7] px-5 pt-6 z-20 space-y-6 pb-32 shadow-sm">
+        
+        {/* Invalid QR / Unrecognized Key Alert */}
+        {isInvalidToken && (
+          <div className="p-3.5 bg-rose-950 text-white rounded-2xl border border-rose-800 shadow-sm flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+            <div className="text-xs">
+              <span className="font-semibold block text-rose-200">Unrecognized Room Token</span>
+              <span className="text-stone-300 text-[11px]">
+                Please scan the official QR plaque in your room to activate bedside dispatch.
+              </span>
+            </div>
+          </div>
+        )}
         
         {/* a) UBER-STYLE LIVE ACTIVITY BAR (If an order is currently active!) */}
         {latestActiveRequest && (

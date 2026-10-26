@@ -25,12 +25,10 @@ export const GuestRequestsList: React.FC<GuestRequestsListProps> = ({
     dbService.getAllRequests
   );
 
-  // Filter requests belonging to this property and room
-  const roomRequests = allRequests.filter((r) => {
-    if (property && r.propertyId !== property.id) return false;
-    if (room && r.roomId !== room.id) return false;
-    return true;
-  });
+  // Filter requests strictly belonging to this checked-in room (prevents stranger privacy leak)
+  const roomRequests = room 
+    ? allRequests.filter((r) => r.propertyId === property?.id && r.roomId === room.id)
+    : [];
 
   return (
     <div className="min-h-dvh bg-[#FDFBF7] text-stone-900 p-5 pb-28 selection:bg-amber-100">

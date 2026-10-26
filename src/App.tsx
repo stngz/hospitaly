@@ -15,9 +15,8 @@ import { GuestDiningMenu } from './components/guest/GuestDiningMenu';
 import { StaffDashboard } from './components/staff/StaffDashboard';
 import { SuperAdminDashboard } from './components/admin/SuperAdminDashboard';
 import { QRModal } from './components/common/QRModal';
-import { PinLoginGate } from './components/auth/PinLoginGate';
+import { LoginGate } from './components/auth/LoginGate';
 import { InAppNotificationBanner } from './components/common/InAppNotificationBanner';
-import { notificationService } from './lib/notifications';
 import { 
   QrCode, 
   Crown, 
@@ -26,12 +25,11 @@ import {
   Terminal, 
   X, 
   LogOut, 
-  ShieldCheck 
 } from 'lucide-react';
 import { UserProfile } from './types';
 
 function AppContent() {
-  const { property, room, setPropertySlug, setRoomId } = useTenant();
+  const { property, setPropertySlug, setRoomId } = useTenant();
   const { user, signInAs, signOut } = useAuth();
 
   // Initialize live Firestore synchronization on app mount
@@ -42,22 +40,46 @@ function AppContent() {
   // 4-Tier Portal: 'admin' (Tier 1) | 'staff' (Tier 2 & 3) | 'guest' (Tier 4)
   const [activePortal, setActivePortal] = useState<'admin' | 'staff' | 'guest'>('guest');
 
-  // Dedicated PIN Gate state for secure login before unlocking dashboards
+  // Dedicated Login Gate state for secure login before unlocking dashboards
   const [pendingPortal, setPendingPortal] = useState<'admin' | 'staff' | null>(null);
 
-  // Collapsible Floating Dev Mode Bar (Hidden by default in bottom-left corner)
+  // Collapsible Floating Dev Mode Bar (Available exclusively during local dev)
   const [isDevBarOpen, setIsDevBarOpen] = useState(false);
 
   // Guest view router: 'home' | 'request' | 'status' | 'my-requests' | 'dining'
   const [guestView, setGuestView] = useState<'home' | 'request' | 'status' | 'my-requests' | 'dining'>('home');
-  const [activeRequestId, setActiveRequestId] = useState<string>('req_001');
+  const [activeRequestId, setActiveRequestId] = useState<string>('req_rocks_01');
   const [requestPrefill, setRequestPrefill] = useState<{ category?: string; item?: string }>({});
   
   // QR modal state
   const [isQRModalOpen, setIsQRModalOpen] = useState(false);
 
+  // Support direct path routes like /hq, /admin, /staff
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname.toLowerCase();
+      if (path === '/hq' || path === '/admin') {
+        if (user?.role === 'admin') {
+          setActivePortal('admin');
+        } else {
+          setPendingPortal('admin');
+        }
+      } else if (path === '/staff') {
+        if (user && (user.role === 'staff' || user.role === 'manager' || user.role === 'admin')) {
+          setActivePortal('staff');
+        } else {
+          setPendingPortal('staff');
+        }
+      }
+    }
+  }, [user]);
+
   const handleGuestNavigate = (view: string, data?: any) => {
-    if (view === 'request') {
+    if (view === 'staff-login') {
+      handleRequestPortalSwitch('staff');
+    } else if (view === 'admin-login') {
+      handleRequestPortalSwitch('admin');
+    } else if (view === 'request') {
       setRequestPrefill(data || {});
       setGuestView('request');
     } else if (view === 'status' && data?.requestId) {
@@ -114,9 +136,9 @@ function AppContent() {
     }
   };
 
-  const handlePinSuccess = (authenticatedUser: UserProfile) => {
+  const handleLoginSuccess = (authenticatedUser: UserProfile) => {
     signInAs(authenticatedUser);
-    if (pendingPortal === 'admin') {
+    if (authenticatedUser.role === 'admin') {
       setActivePortal('admin');
     } else {
       setActivePortal('staff');
@@ -124,7 +146,7 @@ function AppContent() {
     setPendingPortal(null);
   };
 
-  const handlePinCancel = () => {
+  const handleLoginCancel = () => {
     setPendingPortal(null);
     setActivePortal('guest');
   };
@@ -140,16 +162,16 @@ function AppContent() {
         }}
       />
 
-      {/* 1. DEDICATED PIN LOGIN GATE (If user selected Staff or Admin without active matching role) */}
+      {/* 1. DEDICATED LOGIN GATE (Tier 1 Email for Admin, Tier 2/3 Email & PIN for Staff/GM) */}
       {pendingPortal && (
-        <PinLoginGate
+        <LoginGate
           targetRole={pendingPortal}
-          onSuccess={handlePinSuccess}
-          onCancel={handlePinCancel}
+          onSuccess={handleLoginSuccess}
+          onCancel={handleLoginCancel}
         />
       )}
 
-      {/* 2. MAIN ACTIVE VIEW (When no PIN Gate is active) */}
+      {/* 2. MAIN ACTIVE VIEW (When no Login Gate is active) */}
       {!pendingPortal && (
         <>
           {activePortal === 'admin' && (
@@ -234,121 +256,123 @@ function AppContent() {
         </>
       )}
 
-      {/* 3. COLLAPSIBLE FLOATING DEV MODE BUTTON (Bottom-Left Corner) */}
-      <aside aria-label="Developer utilities" className="fixed bottom-3 left-3 z-50">
-        {!isDevBarOpen ? (
-          <button
-            onClick={() => setIsDevBarOpen(true)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-stone-900/90 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-900 text-stone-300 [@media(hover:hover)_and_(pointer:fine)]:hover:text-white border border-white/[0.12] shadow-elevated backdrop-blur-md transition-[background-color,border-color,transform] duration-160 ease-[cubic-bezier(0.16,1,0.3,1)] text-xs font-mono active:scale-[0.96] group"
-            title="Open 4-Tier Role Architecture Switcher"
-          >
-            <Terminal className="w-3.5 h-3.5 text-amber-400 group-hover:rotate-12 transition-transform duration-200" />
-            <span className="font-semibold">Dev Mode</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          </button>
-        ) : (
-          <div className="bg-stone-950 text-stone-200 rounded-2xl p-4 shadow-modal border border-white/[0.12] w-80 backdrop-blur-xl sheet-slide-up-animate space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-white/[0.08]">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-xs font-bold text-white font-mono uppercase tracking-wider">
-                  Dev Portal Switcher
-                </span>
+      {/* 3. DEV MODE SWITCHER: Stripped completely in production builds */}
+      {import.meta.env.DEV && (
+        <aside aria-label="Developer utilities" className="fixed bottom-3 left-3 z-50">
+          {!isDevBarOpen ? (
+            <button
+              onClick={() => setIsDevBarOpen(true)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-stone-900/90 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-900 text-stone-300 [@media(hover:hover)_and_(pointer:fine)]:hover:text-white border border-white/[0.12] shadow-elevated backdrop-blur-md transition-[background-color,border-color,transform] duration-160 ease-[cubic-bezier(0.16,1,0.3,1)] text-xs font-mono active:scale-[0.96] group cursor-pointer"
+              title="Open 4-Tier Role Architecture Switcher"
+            >
+              <Terminal className="w-3.5 h-3.5 text-amber-400 group-hover:rotate-12 transition-transform duration-200" />
+              <span className="font-semibold">Dev Mode</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            </button>
+          ) : (
+            <div className="bg-stone-950 text-stone-200 rounded-2xl p-4 shadow-modal border border-white/[0.12] w-80 backdrop-blur-xl sheet-slide-up-animate space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b border-white/[0.08]">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-xs font-bold text-white font-mono uppercase tracking-wider">
+                    Dev Portal Switcher
+                  </span>
+                </div>
+                <button
+                  onClick={() => setIsDevBarOpen(false)}
+                  className="p-1 rounded-lg text-stone-400 hover:text-white hover:bg-stone-850 active:scale-[0.92] transition-colors cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
               </div>
-              <button
-                onClick={() => setIsDevBarOpen(false)}
-                className="p-1 rounded-lg text-stone-400 [@media(hover:hover)_and_(pointer:fine)]:hover:text-white [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-850 active:scale-[0.92] transition-[background-color,color,transform] duration-140"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
 
-            {/* Current user badge */}
-            <div className="bg-stone-900/80 p-2.5 rounded-xl border border-white/[0.08] flex items-center justify-between text-[11px]">
-              <div>
-                <span className="text-stone-400 block text-[10px] uppercase font-bold">Active User:</span>
-                <span className="font-semibold text-white">
-                  {user ? `${user.name} (${user.role})` : 'Guest Session (Unauthenticated)'}
-                </span>
+              {/* Current user badge */}
+              <div className="bg-stone-900/80 p-2.5 rounded-xl border border-white/[0.08] flex items-center justify-between text-[11px]">
+                <div>
+                  <span className="text-stone-400 block text-[10px] uppercase font-bold">Active User:</span>
+                  <span className="font-semibold text-white">
+                    {user ? `${user.name} (${user.role})` : 'Guest Session (Unauthenticated)'}
+                  </span>
+                </div>
+                {user && (
+                  <button
+                    onClick={() => {
+                      signOut();
+                      setActivePortal('guest');
+                    }}
+                    title="Sign Out"
+                    className="p-1 text-stone-400 hover:text-rose-400 hover:bg-stone-800 rounded active:scale-[0.92] transition-colors cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
-              {user && (
+
+              {/* Portal Switch Buttons */}
+              <div className="space-y-1.5">
+                <button
+                  onClick={() => handleRequestPortalSwitch('admin')}
+                  className={`w-full p-2.5 rounded-xl text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer ${
+                    activePortal === 'admin'
+                      ? 'bg-amber-400 text-stone-950 font-bold shadow-xs'
+                      : 'bg-stone-900 hover:bg-stone-850 text-stone-300'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Crown className="w-3.5 h-3.5" />
+                    <span>Founder Admin (Tier 1)</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-amber-300">Firebase Auth</span>
+                </button>
+
+                <button
+                  onClick={() => handleRequestPortalSwitch('staff')}
+                  className={`w-full p-2.5 rounded-xl text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer ${
+                    activePortal === 'staff'
+                      ? 'bg-emerald-800 text-white font-bold shadow-xs'
+                      : 'bg-stone-900 hover:bg-stone-850 text-stone-300'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Staff / Manager (Tier 2 & 3)</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-stone-400">PIN / Email</span>
+                </button>
+
+                <button
+                  onClick={() => handleRequestPortalSwitch('guest')}
+                  className={`w-full p-2.5 rounded-xl text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer ${
+                    activePortal === 'guest'
+                      ? 'bg-emerald-800 text-white font-bold shadow-xs'
+                      : 'bg-stone-900 hover:bg-stone-850 text-stone-300'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Smartphone className="w-3.5 h-3.5" />
+                    <span>Guest Mobile View (Tier 4)</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-emerald-400">Public</span>
+                </button>
+              </div>
+
+              {/* QR Simulation Trigger */}
+              <div className="pt-2 border-t border-white/[0.08]">
                 <button
                   onClick={() => {
-                    signOut();
-                    setActivePortal('guest');
+                    setIsQRModalOpen(true);
+                    setIsDevBarOpen(false);
                   }}
-                  title="Sign Out"
-                  className="p-1 text-stone-400 [@media(hover:hover)_and_(pointer:fine)]:hover:text-rose-400 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-800 rounded active:scale-[0.92] transition-colors"
+                  className="w-full p-2 rounded-xl bg-stone-900 hover:bg-stone-850 text-amber-300 border border-white/[0.08] text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-[0.98] transition-all cursor-pointer"
                 >
-                  <LogOut className="w-3.5 h-3.5" />
+                  <QrCode className="w-3.5 h-3.5" />
+                  <span>Simulate In-Room QR Scan</span>
                 </button>
-              )}
+              </div>
             </div>
-
-            {/* Portal Switch Buttons */}
-            <div className="space-y-1.5">
-              <button
-                onClick={() => handleRequestPortalSwitch('admin')}
-                className={`w-full p-2.5 rounded-xl text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-                  activePortal === 'admin'
-                    ? 'bg-amber-400 text-stone-950 font-bold shadow-xs'
-                    : 'bg-stone-900 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-850 text-stone-300'
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  <Crown className="w-3.5 h-3.5" />
-                  <span>Founder Admin (Tier 1)</span>
-                </span>
-                <span className="text-[10px] font-mono text-stone-400">PIN 7777</span>
-              </button>
-
-              <button
-                onClick={() => handleRequestPortalSwitch('staff')}
-                className={`w-full p-2.5 rounded-xl text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-                  activePortal === 'staff'
-                    ? 'bg-emerald-800 text-white font-bold shadow-xs'
-                    : 'bg-stone-900 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-850 text-stone-300'
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  <Users className="w-3.5 h-3.5" />
-                  <span>Staff / Manager (Tier 2 & 3)</span>
-                </span>
-                <span className="text-[10px] font-mono text-stone-400">PIN 1234</span>
-              </button>
-
-              <button
-                onClick={() => handleRequestPortalSwitch('guest')}
-                className={`w-full p-2.5 rounded-xl text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-                  activePortal === 'guest'
-                    ? 'bg-emerald-800 text-white font-bold shadow-xs'
-                    : 'bg-stone-900 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-850 text-stone-300'
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  <Smartphone className="w-3.5 h-3.5" />
-                  <span>Guest Mobile View (Tier 4)</span>
-                </span>
-                <span className="text-[10px] font-mono text-emerald-400">Public</span>
-              </button>
-            </div>
-
-            {/* QR Simulation Trigger */}
-            <div className="pt-2 border-t border-white/[0.08]">
-              <button
-                onClick={() => {
-                  setIsQRModalOpen(true);
-                  setIsDevBarOpen(false);
-                }}
-                className="w-full p-2 rounded-xl bg-stone-900 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-850 text-amber-300 border border-white/[0.08] text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-[0.98] transition-[background-color,transform] duration-140"
-              >
-                <QrCode className="w-3.5 h-3.5" />
-                <span>Simulate In-Room QR Scan</span>
-              </button>
-            </div>
-          </div>
-        )}
-      </aside>
+          )}
+        </aside>
+      )}
 
       {/* QR Simulation Modal */}
       <QRModal
