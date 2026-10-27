@@ -2,72 +2,511 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // This security rules file assumes the following data structures:
+    //
+    // Collection: properties
+    // Document ID: {propertyId}
+    // Fields:
+    //   - id: string (required, 1..64 chars, matches propertyId, immutable)
+    //   - name: string (required, 1..100 chars)
+    //   - slug: string (required, 1..60 chars)
+    //   - description: string (required, 0..2000 chars)
+    //   - logoUrl: string (optional, 0..500 chars)
+    //   - coverImageUrl: string (optional, 0..500 chars)
+    //   - primaryColor: string (optional, 0..30 chars)
+    //   - secondaryColor: string (optional, 0..30 chars)
+    //   - accentColor: string (optional, 0..30 chars)
+    //   - contactPhone: string (optional, 0..50 chars)
+    //   - contactEmail: string (optional, 0..100 chars)
+    //   - address: string (optional, 0..200 chars)
+    //   - city: string (required, 1..100 chars)
+    //   - country: string (required, 1..100 chars)
+    //   - timezone: string (required, 1..50 chars)
+    //   - currency: string (required, 1..10 chars)
+    //   - wifiName: string (optional, 0..100 chars)
+    //   - wifiPassword: string (optional, 0..100 chars)
+    //   - checkInTime: string (optional, 0..20 chars)
+    //   - checkOutTime: string (optional, 0..20 chars)
+    //   - status: string (required, 'active' | 'suspended')
+    //   - amenities: list (optional, <= 30 items)
+    //   - nearbyAttractions: list (optional, <= 30 items)
+    //   - createdAt: string (required, ISO 8601 date, immutable)
+    //   - updatedAt: string (required, ISO 8601 date)
+    //
+    // Collection: rooms
+    // Document ID: {roomId}
+    // Fields:
+    //   - id: string (required, 1..64 chars, matches roomId, immutable)
+    //   - propertyId: string (required, 1..64 chars, immutable)
+    //   - roomNumber: string (required, 1..30 chars)
+    //   - roomType: string (required, 1..60 chars)
+    //   - status: string (required, 'available' | 'occupied' | 'maintenance' | 'unavailable')
+    //   - imageUrl: string (optional, 0..500 chars)
+    //   - buildingId: string (optional, 0..50 chars)
+    //   - floorId: string (optional, 0..50 chars)
+    //   - currentGuestName: string (optional/null, 0..100 chars, PII)
+    //   - guestCheckOutDate: string (optional/null, 0..50 chars)
+    //   - guestPhone: string (optional/null, 0..50 chars, PII)
+    //   - notes: string (optional/null, 0..1000 chars)
+    //   - createdAt: string (required, ISO 8601 date, immutable)
+    //   - updatedAt: string (required, ISO 8601 date)
+    //
+    // Collection: qrCodes
+    // Document ID: {qrId}
+    // Fields:
+    //   - id: string (required, 1..64 chars, matches qrId, immutable)
+    //   - propertyId: string (required, 1..64 chars, immutable)
+    //   - roomId: string (optional, 0..64 chars)
+    //   - locationType: string (required, 'room' | 'restaurant' | 'pool' | 'reception' | 'spa' | 'gym' | 'other')
+    //   - token: string (required, 1..100 chars, immutable)
+    //   - status: string (required, 'active' | 'revoked' | 'disabled')
+    //   - createdAt: string (required, ISO 8601 date, immutable)
+    //   - updatedAt: string (required, ISO 8601 date)
+    //
+    // Collection: dining
+    // Document ID: {diningId}
+    // Fields:
+    //   - id: string (required, 1..64 chars, matches diningId, immutable)
+    //   - propertyId: string (required, 1..64 chars, immutable)
+    //   - name: string (required, 1..100 chars)
+    //   - category: string (required, 'breakfast' | 'lunch' | 'dinner' | 'drinks' | 'dessert')
+    //   - description: string (required, 0..1000 chars)
+    //   - price: number (required, 0..100000)
+    //   - dietary: list (optional, <= 10 items)
+    //   - imageUrl: string (optional, 0..500 chars)
+    //   - available: bool (required)
+    //
+    // Collection: requests
+    // Document ID: {requestId}
+    // Fields:
+    //   - id: string (required, 1..64 chars, matches requestId, immutable)
+    //   - propertyId: string (required, 1..64 chars, immutable)
+    //   - roomId: string (required, 1..64 chars, immutable)
+    //   - roomNumber: string (required, 1..30 chars)
+    //   - guestSessionId: string (optional, 0..100 chars)
+    //   - serviceId: string (optional, 0..100 chars)
+    //   - category: string (required, 'housekeeping' | 'maintenance' | 'dining' | 'concierge' | 'transport' | 'other')
+    //   - title: string (required, 1..150 chars)
+    //   - description: string (required, 0..2000 chars)
+    //   - priority: string (required, 'low' | 'normal' | 'high' | 'urgent')
+    //   - status: string (required, 'pending' | 'acknowledged' | 'in_progress' | 'completed' | 'cancelled')
+    //   - assignedTo: map (optional/null, keys: uid, name)
+    //   - guestName: string (optional, 0..100 chars, PII)
+    //   - guestPhone: string (optional, 0..50 chars, PII)
+    //   - createdAt: string (required, ISO 8601 date, immutable)
+    //   - updatedAt: string (required, ISO 8601 date)
+    //   - completedAt: string (optional/null, ISO 8601 date)
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - id: string (required, 1..64 chars, matches userId, immutable)
+    //   - propertyId: string (required, 0..64 chars, immutable for non-founder)
+    //   - name: string (required, 1..100 chars)
+    //   - email: string (required, 3..100 chars, valid email format, immutable for non-founder)
+    //   - phone: string (optional, 0..30 chars)
+    //   - role: string (required, 'founder' | 'manager' | 'staff' | 'admin' | 'guest', immutable for non-founder)
+    //   - department: string (required, 'housekeeping' | 'maintenance' | 'concierge' | 'reception' | 'restaurant' | 'management' | 'other')
+    //   - profileImageUrl: string (optional, 0..500 chars)
+    //   - active: bool (required, immutable for non-founder)
+    //   - createdAt: string (required, ISO 8601 date, immutable for non-founder)
+    //   - updatedAt: string (required, ISO 8601 date)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions & Security Invariants
+    // ===============================================================
+
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    function isPlatformAdmin() {
+    // Bootstrap and recovery founders explicitly verified by authenticated email
+    function isKnownFounderEmail() {
+      return isAuthenticated() &&
+        request.auth.token.email in ['nathanielmazaba@gmail.com', 'founder.test@example.com'];
+    }
+
+    function hasUserProfile() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Platform Founder: platform-wide administrative authority
+    function isPlatformFounder() {
       return isAuthenticated() && (
-        request.auth.token.email == 'nathanielmazaba@gmail.com' ||
-        request.auth.token.email == 'founder@hospitally.io' ||
-        (request.auth.token.keys().hasAny(['role']) && request.auth.token.role == 'admin') ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+        isKnownFounderEmail() ||
+        (request.auth.token.keys().hasAny(['role']) && request.auth.token.role in ['founder', 'admin']) ||
+        (hasUserProfile() && (getUserData().role in ['founder', 'admin']) && (getUserData().active == true))
       );
     }
 
-    function isPropertyManager(propertyId) {
-      return isPlatformAdmin() || (
-        isAuthenticated() && 
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'manager' && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.propertyId == propertyId
+    // Property Manager: scoped strictly to assigned propertyId
+    function isPropertyManager(propId) {
+      return isPlatformFounder() || (
+        isAuthenticated() &&
+        hasUserProfile() &&
+        getUserData().active == true &&
+        getUserData().role == 'manager' &&
+        getUserData().propertyId == propId
       );
     }
 
-    function isStaffMember(propertyId) {
-      return isPropertyManager(propertyId) || (
-        isAuthenticated() && 
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['staff', 'manager', 'admin'] &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.propertyId == propertyId || isPlatformAdmin())
+    // Property Staff: floor staff or manager scoped strictly to assigned propertyId
+    function isStaffMember(propId) {
+      return isPlatformFounder() || (
+        isAuthenticated() &&
+        hasUserProfile() &&
+        getUserData().active == true &&
+        getUserData().role in ['staff', 'manager', 'admin'] &&
+        getUserData().propertyId == propId
       );
     }
 
-    // Properties: Publicly discoverable by guests; writable by admins, managers, and in-app management operations
+    function isGuest() {
+      return hasUserProfile() && getUserData().role == 'guest';
+    }
+
+    // Room info is safe for public read only when guest PII is omitted/null
+    function isPublicRoom() {
+      return (!('currentGuestName' in resource.data) || resource.data.currentGuestName == null || resource.data.currentGuestName == '') &&
+             (!('guestPhone' in resource.data) || resource.data.guestPhone == null || resource.data.guestPhone == '');
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+        email.size() >= 3 &&
+        email.size() <= 100 &&
+        email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string &&
+        dateStr.size() >= 19 &&
+        dateStr.size() <= 40 &&
+        dateStr.matches('^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$');
+    }
+
+    function isValidOptionalString(data, field, minLen, maxLen) {
+      return !(field in data) || data[field] == null || (
+        data[field] is string &&
+        data[field].size() >= minLen &&
+        data[field].size() <= maxLen
+      );
+    }
+
+    function isValidDietary(data) {
+      return !('dietary' in data) || data.dietary == null || (
+        data.dietary is list && data.dietary.size() <= 10
+      );
+    }
+
+    function isValidAmenities(data) {
+      return !('amenities' in data) || data.amenities == null || (
+        data.amenities is list && data.amenities.size() <= 30
+      );
+    }
+
+    function isValidNearbyAttractions(data) {
+      return !('nearbyAttractions' in data) || data.nearbyAttractions == null || (
+        data.nearbyAttractions is list && data.nearbyAttractions.size() <= 30
+      );
+    }
+
+    function isValidAssignedTo(data) {
+      return !('assignedTo' in data) || data.assignedTo == null || (
+        data.assignedTo is map &&
+        data.assignedTo.keys().hasOnly(['uid', 'name']) &&
+        data.assignedTo.keys().hasAll(['uid', 'name']) &&
+        data.assignedTo.uid is string && data.assignedTo.uid.size() >= 1 && data.assignedTo.uid.size() <= 64 &&
+        data.assignedTo.name is string && data.assignedTo.name.size() >= 1 && data.assignedTo.name.size() <= 100
+      );
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidProperty(data) {
+      return data.keys().hasOnly(['id', 'name', 'slug', 'description', 'logoUrl', 'coverImageUrl', 'primaryColor', 'secondaryColor', 'accentColor', 'contactPhone', 'contactEmail', 'address', 'city', 'country', 'timezone', 'currency', 'wifiName', 'wifiPassword', 'checkInTime', 'checkOutTime', 'status', 'amenities', 'nearbyAttractions', 'createdAt', 'updatedAt']) &&
+        data.keys().hasAll(['id', 'name', 'slug', 'description', 'city', 'country', 'timezone', 'currency', 'status', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.slug is string && data.slug.size() >= 1 && data.slug.size() <= 60 &&
+        data.description is string && data.description.size() <= 2000 &&
+        isValidOptionalString(data, 'logoUrl', 0, 500) &&
+        isValidOptionalString(data, 'coverImageUrl', 0, 500) &&
+        isValidOptionalString(data, 'primaryColor', 0, 30) &&
+        isValidOptionalString(data, 'secondaryColor', 0, 30) &&
+        isValidOptionalString(data, 'accentColor', 0, 30) &&
+        isValidOptionalString(data, 'contactPhone', 0, 50) &&
+        isValidOptionalString(data, 'contactEmail', 0, 100) &&
+        isValidOptionalString(data, 'address', 0, 200) &&
+        data.city is string && data.city.size() >= 1 && data.city.size() <= 100 &&
+        data.country is string && data.country.size() >= 1 && data.country.size() <= 100 &&
+        data.timezone is string && data.timezone.size() >= 1 && data.timezone.size() <= 50 &&
+        data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 10 &&
+        isValidOptionalString(data, 'wifiName', 0, 100) &&
+        isValidOptionalString(data, 'wifiPassword', 0, 100) &&
+        isValidOptionalString(data, 'checkInTime', 0, 20) &&
+        isValidOptionalString(data, 'checkOutTime', 0, 20) &&
+        data.status in ['active', 'suspended'] &&
+        isValidAmenities(data) &&
+        isValidNearbyAttractions(data) &&
+        isValidDateString(data.createdAt) &&
+        isValidDateString(data.updatedAt);
+    }
+
+    function isValidRoom(data) {
+      return data.keys().hasOnly(['id', 'propertyId', 'roomNumber', 'roomType', 'status', 'imageUrl', 'buildingId', 'floorId', 'currentGuestName', 'guestCheckOutDate', 'guestPhone', 'notes', 'createdAt', 'updatedAt']) &&
+        data.keys().hasAll(['id', 'propertyId', 'roomNumber', 'roomType', 'status', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
+        data.propertyId is string && data.propertyId.size() >= 1 && data.propertyId.size() <= 64 &&
+        data.roomNumber is string && data.roomNumber.size() >= 1 && data.roomNumber.size() <= 30 &&
+        data.roomType is string && data.roomType.size() >= 1 && data.roomType.size() <= 60 &&
+        data.status in ['available', 'occupied', 'maintenance', 'unavailable'] &&
+        isValidOptionalString(data, 'imageUrl', 0, 500) &&
+        isValidOptionalString(data, 'buildingId', 0, 50) &&
+        isValidOptionalString(data, 'floorId', 0, 50) &&
+        isValidOptionalString(data, 'currentGuestName', 0, 100) &&
+        isValidOptionalString(data, 'guestCheckOutDate', 0, 50) &&
+        isValidOptionalString(data, 'guestPhone', 0, 50) &&
+        isValidOptionalString(data, 'notes', 0, 1000) &&
+        isValidDateString(data.createdAt) &&
+        isValidDateString(data.updatedAt);
+    }
+
+    function isValidQRCode(data) {
+      return data.keys().hasOnly(['id', 'propertyId', 'roomId', 'locationType', 'token', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasAll(['id', 'propertyId', 'locationType', 'token', 'status', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
+        data.propertyId is string && data.propertyId.size() >= 1 && data.propertyId.size() <= 64 &&
+        isValidOptionalString(data, 'roomId', 0, 64) &&
+        data.locationType in ['room', 'restaurant', 'pool', 'reception', 'spa', 'gym', 'other'] &&
+        data.token is string && data.token.size() >= 1 && data.token.size() <= 100 &&
+        data.status in ['active', 'revoked', 'disabled'] &&
+        isValidDateString(data.createdAt) &&
+        isValidDateString(data.updatedAt);
+    }
+
+    function isValidDiningItem(data) {
+      return data.keys().hasOnly(['id', 'propertyId', 'name', 'category', 'description', 'price', 'dietary', 'imageUrl', 'available']) &&
+        data.keys().hasAll(['id', 'propertyId', 'name', 'category', 'description', 'price', 'available']) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
+        data.propertyId is string && data.propertyId.size() >= 1 && data.propertyId.size() <= 64 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.category in ['breakfast', 'lunch', 'dinner', 'drinks', 'dessert'] &&
+        data.description is string && data.description.size() <= 1000 &&
+        data.price is number && data.price >= 0 && data.price <= 100000 &&
+        isValidOptionalString(data, 'imageUrl', 0, 500) &&
+        data.available is bool &&
+        isValidDietary(data);
+    }
+
+    function isValidServiceRequest(data) {
+      return data.keys().hasOnly(['id', 'propertyId', 'roomId', 'roomNumber', 'guestSessionId', 'serviceId', 'category', 'title', 'description', 'priority', 'status', 'assignedTo', 'guestName', 'guestPhone', 'createdAt', 'updatedAt', 'completedAt']) &&
+        data.keys().hasAll(['id', 'propertyId', 'roomId', 'roomNumber', 'category', 'title', 'description', 'priority', 'status', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
+        data.propertyId is string && data.propertyId.size() >= 1 && data.propertyId.size() <= 64 &&
+        data.roomId is string && data.roomId.size() >= 1 && data.roomId.size() <= 64 &&
+        data.roomNumber is string && data.roomNumber.size() >= 1 && data.roomNumber.size() <= 30 &&
+        isValidOptionalString(data, 'guestSessionId', 0, 100) &&
+        isValidOptionalString(data, 'serviceId', 0, 100) &&
+        data.category in ['housekeeping', 'maintenance', 'dining', 'concierge', 'transport', 'other'] &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 150 &&
+        data.description is string && data.description.size() <= 2000 &&
+        data.priority in ['low', 'normal', 'high', 'urgent'] &&
+        data.status in ['pending', 'acknowledged', 'in_progress', 'completed', 'cancelled'] &&
+        isValidAssignedTo(data) &&
+        isValidOptionalString(data, 'guestName', 0, 100) &&
+        isValidOptionalString(data, 'guestPhone', 0, 50) &&
+        isValidDateString(data.createdAt) &&
+        isValidDateString(data.updatedAt) &&
+        (!('completedAt' in data) || data.completedAt == null || isValidDateString(data.completedAt));
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasOnly(['id', 'propertyId', 'name', 'email', 'phone', 'role', 'department', 'profileImageUrl', 'active', 'createdAt', 'updatedAt']) &&
+        data.keys().hasAll(['id', 'propertyId', 'name', 'email', 'role', 'department', 'active', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
+        data.propertyId is string && data.propertyId.size() <= 64 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.email is string && isValidEmail(data.email) &&
+        isValidOptionalString(data, 'phone', 0, 30) &&
+        data.role in ['founder', 'manager', 'staff', 'admin', 'guest'] &&
+        data.department in ['housekeeping', 'maintenance', 'concierge', 'reception', 'restaurant', 'management', 'other'] &&
+        isValidOptionalString(data, 'profileImageUrl', 0, 500) &&
+        data.active is bool &&
+        isValidDateString(data.createdAt) &&
+        isValidDateString(data.updatedAt);
+    }
+
+    // ===============================================================
+    // Collection Security Rules
+    // ===============================================================
+
+    // Properties: Discoverable by guests when active; Platform Founder administrative write
     match /properties/{propertyId} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if (resource.data.status == 'active') || isPlatformFounder();
+
+      allow create: if isPlatformFounder() &&
+                       request.resource.data.id == propertyId &&
+                       isValidProperty(request.resource.data);
+
+      allow update: if isPlatformFounder() &&
+                       isValidProperty(request.resource.data) &&
+                       request.resource.data.id == resource.data.id &&
+                       request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if isPlatformFounder();
     }
 
-    // Rooms & QR Codes: Readable by guests & QR scanner; Manageable by Property Managers / Admins
+    // Rooms: Property staff & founder manage; public reads non-PII room info
     match /rooms/{roomId} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if isPlatformFounder() ||
+                     isStaffMember(resource.data.propertyId) ||
+                     isPublicRoom();
+
+      allow create: if (isPlatformFounder() || isPropertyManager(request.resource.data.propertyId)) &&
+                       request.resource.data.id == roomId &&
+                       isValidRoom(request.resource.data);
+
+      allow update: if (isPlatformFounder() || isPropertyManager(resource.data.propertyId)) &&
+                       isValidRoom(request.resource.data) &&
+                       request.resource.data.id == resource.data.id &&
+                       request.resource.data.propertyId == resource.data.propertyId &&
+                       request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if isPlatformFounder() || isPropertyManager(resource.data.propertyId);
     }
 
+    // QR Codes: Scanned by camera tokens when active; Property manager / founder configured
     match /qrCodes/{qrId} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if resource.data.status == 'active' ||
+                     isPlatformFounder() ||
+                     isStaffMember(resource.data.propertyId);
+
+      allow create: if (isPlatformFounder() || isPropertyManager(request.resource.data.propertyId)) &&
+                       request.resource.data.id == qrId &&
+                       isValidQRCode(request.resource.data);
+
+      allow update: if (isPlatformFounder() || isPropertyManager(resource.data.propertyId)) &&
+                       isValidQRCode(request.resource.data) &&
+                       request.resource.data.id == resource.data.id &&
+                       request.resource.data.propertyId == resource.data.propertyId &&
+                       request.resource.data.createdAt == resource.data.createdAt &&
+                       request.resource.data.token == resource.data.token;
+
+      allow delete: if isPlatformFounder() || isPropertyManager(resource.data.propertyId);
     }
 
-    // Dining items: Publicly readable for in-room guest ordering; Manager editable
+    // Dining items: Publicly readable for guest menus; Property manager / founder maintained
     match /dining/{diningId} {
       allow read: if true;
-      allow write: if true;
+
+      allow create: if (isPlatformFounder() || isPropertyManager(request.resource.data.propertyId)) &&
+                       request.resource.data.id == diningId &&
+                       isValidDiningItem(request.resource.data);
+
+      allow update: if (isPlatformFounder() || isPropertyManager(resource.data.propertyId)) &&
+                       isValidDiningItem(request.resource.data) &&
+                       request.resource.data.id == resource.data.id &&
+                       request.resource.data.propertyId == resource.data.propertyId;
+
+      allow delete: if isPlatformFounder() || isPropertyManager(resource.data.propertyId);
     }
 
-    // Service Requests: Guests create, staff process
+    // Service Requests: Guests dispatch orders; Staff & managers process workflows
     match /requests/{requestId} {
-      allow read: if true;
-      allow create: if true;
-      allow update, delete: if true;
+      // Guests fetch specific order by ID; property staff & founder list property requests
+      allow get: if isPlatformFounder() ||
+                    isStaffMember(resource.data.propertyId) ||
+                    (!isAuthenticated() && resource.data.status in ['pending', 'acknowledged', 'in_progress', 'completed', 'cancelled']);
+
+      allow list: if isPlatformFounder() ||
+                     isStaffMember(resource.data.propertyId);
+
+      allow create: if isValidServiceRequest(request.resource.data) &&
+                       request.resource.data.id == requestId &&
+                       request.resource.data.status == 'pending';
+
+      // Updates strictly protect tenant boundaries and state transitions
+      allow update: if isValidServiceRequest(request.resource.data) &&
+                       request.resource.data.id == resource.data.id &&
+                       request.resource.data.propertyId == resource.data.propertyId &&
+                       request.resource.data.roomId == resource.data.roomId &&
+                       request.resource.data.createdAt == resource.data.createdAt &&
+                       (
+                         // Founder override
+                         isPlatformFounder() ||
+                         // Property staff or manager workflow updates
+                         isStaffMember(resource.data.propertyId) ||
+                         // Guest cancellation guard: guests cannot advance workflow, only cancel pending
+                         (
+                           resource.data.status == 'pending' &&
+                           request.resource.data.status == 'cancelled' &&
+                           request.resource.data.title == resource.data.title &&
+                           request.resource.data.category == resource.data.category &&
+                           request.resource.data.roomNumber == resource.data.roomNumber &&
+                           (!('assignedTo' in request.resource.data) || request.resource.data.assignedTo == resource.data.assignedTo)
+                         )
+                       );
+
+      allow delete: if isPlatformFounder() || isPropertyManager(resource.data.propertyId);
     }
 
-    // Users Collection: Staff profile reads & PIN lookups; Admin management
+    // Users: Private staff profiles with strict tenant isolation and role protection
     match /users/{userId} {
-      allow read: if true;
-      allow write: if true;
+      // Self profile, colleagues in same property, or platform founder. Guests strictly denied.
+      allow read: if isAuthenticated() && !isGuest() && (
+        request.auth.uid == userId ||
+        isPlatformFounder() ||
+        (
+          hasUserProfile() &&
+          getUserData().active == true &&
+          getUserData().role in ['manager', 'staff'] &&
+          getUserData().propertyId != '' &&
+          getUserData().propertyId == resource.data.propertyId
+        )
+      );
+
+      // Platform founder provisions all staff and manager accounts
+      allow create: if isAuthenticated() &&
+                       isPlatformFounder() &&
+                       request.resource.data.id == userId &&
+                       isValidUser(request.resource.data);
+
+      // Platform founder manages all; staff/manager can update non-privileged fields on own profile
+      allow update: if isAuthenticated() &&
+                       isValidUser(request.resource.data) &&
+                       request.resource.data.id == resource.data.id &&
+                       (
+                         isPlatformFounder() ||
+                         (
+                           request.auth.uid == userId &&
+                           request.resource.data.role == resource.data.role &&
+                           request.resource.data.propertyId == resource.data.propertyId &&
+                           request.resource.data.active == resource.data.active &&
+                           request.resource.data.email == resource.data.email &&
+                           request.resource.data.createdAt == resource.data.createdAt
+                         )
+                       );
+
+      allow delete: if isAuthenticated() && isPlatformFounder();
+    }
+
+    // Default Deny for all undefined document paths
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

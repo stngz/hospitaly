@@ -201,15 +201,18 @@ function persist<T>(key: string, val: T) {
 
 // Attach live Firestore real-time listeners
 let isFirestoreListening = false;
-let unsubscribeUsersListener: (() => void) | null = null;
+let authUnsubscribers: (() => void)[] = [];
 
 export function syncAuthenticatedUserListeners(user: UserProfile | null) {
   if (typeof window === 'undefined') return;
 
-  if (unsubscribeUsersListener) {
-    unsubscribeUsersListener();
-    unsubscribeUsersListener = null;
-  }
+  // Clean up any existing authenticated listeners
+  authUnsubscribers.forEach((unsub) => {
+    try {
+      unsub();
+    } catch {}
+  });
+  authUnsubscribers = [];
 
   if (!user || user.role === 'guest') {
     cache = { ...cache, users: [] };
@@ -220,12 +223,13 @@ export function syncAuthenticatedUserListeners(user: UserProfile | null) {
   const obsoletePropIds = new Set(['prop_zambezi_01', 'prop_luangwa_02']);
 
   try {
+    // 1. Authenticated Users listener (Founder gets all; Manager/Staff strictly scoped to propertyId)
     const usersQuery =
       user.role === 'founder'
         ? collection(db, 'users')
         : query(collection(db, 'users'), where('propertyId', '==', user.propertyId));
 
-    unsubscribeUsersListener = onSnapshot(
+    const unsubUsers = onSnapshot(
       usersQuery,
       (snapshot) => {
         const list: UserProfile[] = [];
@@ -245,8 +249,64 @@ export function syncAuthenticatedUserListeners(user: UserProfile | null) {
         console.warn('Firestore live users listener note:', err);
       }
     );
+    authUnsubscribers.push(unsubUsers);
+
+    // 2. Authenticated Requests listener (Founder gets all; Manager/Staff strictly scoped to propertyId)
+    const requestsQuery =
+      user.role === 'founder'
+        ? collection(db, 'requests')
+        : query(collection(db, 'requests'), where('propertyId', '==', user.propertyId));
+
+    const unsubRequests = onSnapshot(
+      requestsQuery,
+      (snapshot) => {
+        const firestoreList: ServiceRequest[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as ServiceRequest;
+          if (data && !obsoletePropIds.has(data.propertyId)) {
+            firestoreList.push(data);
+          }
+        });
+        firestoreList.sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        cache = { ...cache, requests: firestoreList };
+        persist(STORAGE_KEYS.REQUESTS, cache.requests);
+        notify();
+      },
+      (err) => {
+        console.warn('Firestore live requests listener warning:', err);
+      }
+    );
+    authUnsubscribers.push(unsubRequests);
+
+    // 3. Authenticated Rooms listener (Founder gets all; Manager/Staff strictly scoped to propertyId)
+    const roomsQuery =
+      user.role === 'founder'
+        ? collection(db, 'rooms')
+        : query(collection(db, 'rooms'), where('propertyId', '==', user.propertyId));
+
+    const unsubRooms = onSnapshot(
+      roomsQuery,
+      (snapshot) => {
+        const firestoreRooms: Room[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as Room;
+          if (data && !obsoletePropIds.has(data.propertyId)) {
+            firestoreRooms.push(data);
+          }
+        });
+        cache = { ...cache, rooms: firestoreRooms };
+        persist(STORAGE_KEYS.ROOMS, cache.rooms);
+        notify();
+      },
+      (err) => {
+        console.warn('Firestore live rooms listener warning:', err);
+      }
+    );
+    authUnsubscribers.push(unsubRooms);
   } catch (err) {
-    console.warn('Could not attach authenticated users listener:', err);
+    console.warn('Could not attach authenticated listeners:', err);
   }
 }
 
@@ -257,109 +317,76 @@ export function initFirestoreListeners() {
   const obsoletePropIds = new Set(['prop_zambezi_01', 'prop_luangwa_02']);
 
   try {
-    const requestsCol = collection(db, 'requests');
-    onSnapshot(requestsCol, (snapshot) => {
-      if (!snapshot.empty) {
-        const firestoreList: ServiceRequest[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data() as ServiceRequest;
-          if (data && !obsoletePropIds.has(data.propertyId)) {
-            firestoreList.push(data);
-          }
-        });
-
-        firestoreList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-        cache = {
-          ...cache,
-          requests: firestoreList,
-        };
-        persist(STORAGE_KEYS.REQUESTS, cache.requests);
-        notify();
-      }
-    }, (err) => {
-      console.warn('Firestore live requests listener warning (using resilient local cache):', err);
-    });
-
-    const roomsCol = collection(db, 'rooms');
-    onSnapshot(roomsCol, (snapshot) => {
-      if (!snapshot.empty) {
-        const firestoreRooms: Room[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data() as Room;
-          if (data && !obsoletePropIds.has(data.propertyId)) {
-            firestoreRooms.push(data);
-          }
-        });
-        cache = {
-          ...cache,
-          rooms: firestoreRooms,
-        };
-        persist(STORAGE_KEYS.ROOMS, cache.rooms);
-        notify();
-      }
-    }, (err) => {
-      console.warn('Firestore live rooms listener warning:', err);
-    });
-
-    const qrCol = collection(db, 'qrCodes');
-    onSnapshot(qrCol, (snapshot) => {
-      if (!snapshot.empty) {
-        const firestoreQRs: QRCodeRecord[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data() as QRCodeRecord;
-          if (data && !obsoletePropIds.has(data.propertyId)) {
-            firestoreQRs.push(data);
-          }
-        });
-        cache = {
-          ...cache,
-          qrCodes: firestoreQRs,
-        };
-        persist(STORAGE_KEYS.QR_CODES, cache.qrCodes);
-        notify();
-      }
-    }, (err) => {
-      console.warn('Firestore live qrCodes listener warning:', err);
-    });
-
+    // 1. Properties: Discoverable by public guests & staff
     const propsCol = collection(db, 'properties');
-    onSnapshot(propsCol, (snapshot) => {
-      if (!snapshot.empty) {
-        const list: Property[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data() as Property;
-          if (data && !obsoletePropIds.has(data.id)) {
-            list.push(data);
-          }
-        });
-        cache = { ...cache, properties: list };
-        persist(STORAGE_KEYS.PROPERTIES, cache.properties);
-        notify();
+    onSnapshot(
+      propsCol,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const list: Property[] = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data() as Property;
+            if (data && !obsoletePropIds.has(data.id)) {
+              list.push(data);
+            }
+          });
+          cache = { ...cache, properties: list };
+          persist(STORAGE_KEYS.PROPERTIES, cache.properties);
+          notify();
+        }
+      },
+      (err) => {
+        console.warn('Firestore live properties listener note:', err);
       }
-    }, (err) => {
-      console.warn('Firestore live properties listener note:', err);
-    });
+    );
 
+    // 2. Dining: Public in-room dining menus
     const diningCol = collection(db, 'dining');
-    onSnapshot(diningCol, (snapshot) => {
-      if (!snapshot.empty) {
-        const list: DiningItem[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data() as DiningItem;
-          if (data && !obsoletePropIds.has(data.propertyId)) {
-            list.push(data);
-          }
-        });
-        cache = { ...cache, dining: list };
-        persist(STORAGE_KEYS.DINING, cache.dining);
-        notify();
+    onSnapshot(
+      diningCol,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const list: DiningItem[] = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data() as DiningItem;
+            if (data && !obsoletePropIds.has(data.propertyId)) {
+              list.push(data);
+            }
+          });
+          cache = { ...cache, dining: list };
+          persist(STORAGE_KEYS.DINING, cache.dining);
+          notify();
+        }
+      },
+      (err) => {
+        console.warn('Firestore live dining listener note:', err);
       }
-    }, (err) => {
-      console.warn('Firestore live dining listener note:', err);
-    });
+    );
+
+    // 3. QR Codes: Publicly active QR tokens for scanner lookup
+    const qrQuery = query(collection(db, 'qrCodes'), where('status', '==', 'active'));
+    onSnapshot(
+      qrQuery,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const firestoreQRs: QRCodeRecord[] = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data() as QRCodeRecord;
+            if (data && !obsoletePropIds.has(data.propertyId)) {
+              firestoreQRs.push(data);
+            }
+          });
+          cache = { ...cache, qrCodes: firestoreQRs };
+          persist(STORAGE_KEYS.QR_CODES, cache.qrCodes);
+          notify();
+        }
+      },
+      (err) => {
+        console.warn('Firestore live qrCodes listener warning:', err);
+      }
+    );
   } catch (err) {
-    console.warn('Could not initialize Firestore listener:', err);
+    console.warn('Could not initialize public Firestore listeners:', err);
   }
 }
 
