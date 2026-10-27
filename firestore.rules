@@ -34,6 +34,10 @@ service cloud.firestore {
     //   - status: string (required, 'active' | 'suspended')
     //   - amenities: list (optional, <= 30 items)
     //   - nearbyAttractions: list (optional, <= 30 items)
+    //   - unitLabel: string (optional, 1..30 chars, e.g. 'House' or 'Room')
+    //   - diningEnabled: bool (optional)
+    //   - errandsEnabled: bool (optional)
+    //   - airportTransfersEnabled: bool (optional)
     //   - createdAt: string (required, ISO 8601 date, immutable)
     //   - updatedAt: string (required, ISO 8601 date)
     //
@@ -52,6 +56,7 @@ service cloud.firestore {
     //   - guestCheckOutDate: string (optional/null, 0..50 chars)
     //   - guestPhone: string (optional/null, 0..50 chars, PII)
     //   - notes: string (optional/null, 0..1000 chars)
+    //   - activeStayId: string (optional, 0..100 chars)
     //   - createdAt: string (required, ISO 8601 date, immutable)
     //   - updatedAt: string (required, ISO 8601 date)
     //
@@ -237,7 +242,7 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidProperty(data) {
-      return data.keys().hasOnly(['id', 'name', 'slug', 'description', 'logoUrl', 'coverImageUrl', 'primaryColor', 'secondaryColor', 'accentColor', 'contactPhone', 'contactEmail', 'address', 'city', 'country', 'timezone', 'currency', 'wifiName', 'wifiPassword', 'checkInTime', 'checkOutTime', 'status', 'amenities', 'nearbyAttractions', 'createdAt', 'updatedAt']) &&
+      return data.keys().hasOnly(['id', 'name', 'slug', 'description', 'logoUrl', 'coverImageUrl', 'primaryColor', 'secondaryColor', 'accentColor', 'contactPhone', 'contactEmail', 'address', 'city', 'country', 'timezone', 'currency', 'wifiName', 'wifiPassword', 'checkInTime', 'checkOutTime', 'status', 'amenities', 'nearbyAttractions', 'unitLabel', 'diningEnabled', 'errandsEnabled', 'airportTransfersEnabled', 'createdAt', 'updatedAt']) &&
         data.keys().hasAll(['id', 'name', 'slug', 'description', 'city', 'country', 'timezone', 'currency', 'status', 'createdAt', 'updatedAt']) &&
         data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
         data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
@@ -262,12 +267,16 @@ service cloud.firestore {
         data.status in ['active', 'suspended'] &&
         isValidAmenities(data) &&
         isValidNearbyAttractions(data) &&
+        isValidOptionalString(data, 'unitLabel', 1, 30) &&
+        (!('diningEnabled' in data) || data.diningEnabled is bool) &&
+        (!('errandsEnabled' in data) || data.errandsEnabled is bool) &&
+        (!('airportTransfersEnabled' in data) || data.airportTransfersEnabled is bool) &&
         isValidDateString(data.createdAt) &&
         isValidDateString(data.updatedAt);
     }
 
     function isValidRoom(data) {
-      return data.keys().hasOnly(['id', 'propertyId', 'roomNumber', 'roomType', 'status', 'imageUrl', 'buildingId', 'floorId', 'currentGuestName', 'guestCheckOutDate', 'guestPhone', 'notes', 'createdAt', 'updatedAt']) &&
+      return data.keys().hasOnly(['id', 'propertyId', 'roomNumber', 'roomType', 'status', 'imageUrl', 'buildingId', 'floorId', 'currentGuestName', 'guestCheckOutDate', 'guestPhone', 'notes', 'activeStayId', 'createdAt', 'updatedAt']) &&
         data.keys().hasAll(['id', 'propertyId', 'roomNumber', 'roomType', 'status', 'createdAt', 'updatedAt']) &&
         data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
         data.propertyId is string && data.propertyId.size() >= 1 && data.propertyId.size() <= 64 &&
@@ -281,6 +290,7 @@ service cloud.firestore {
         isValidOptionalString(data, 'guestCheckOutDate', 0, 50) &&
         isValidOptionalString(data, 'guestPhone', 0, 50) &&
         isValidOptionalString(data, 'notes', 0, 1000) &&
+        isValidOptionalString(data, 'activeStayId', 0, 100) &&
         isValidDateString(data.createdAt) &&
         isValidDateString(data.updatedAt);
     }
@@ -380,7 +390,7 @@ service cloud.firestore {
                        request.resource.data.id == roomId &&
                        isValidRoom(request.resource.data);
 
-      allow update: if (isPlatformFounder() || isPropertyManager(resource.data.propertyId)) &&
+      allow update: if (isPlatformFounder() || isStaffMember(resource.data.propertyId)) &&
                        isValidRoom(request.resource.data) &&
                        request.resource.data.id == resource.data.id &&
                        request.resource.data.propertyId == resource.data.propertyId &&
