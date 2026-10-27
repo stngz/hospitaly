@@ -23,6 +23,10 @@ export const SEED_PROPERTIES: Property[] = [
     checkInTime: "14:00",
     checkOutTime: "11:00",
     status: "active",
+    unitLabel: "House",
+    diningEnabled: false,
+    errandsEnabled: false,
+    airportTransfersEnabled: true,
     amenities: [
       { icon: "pool", label: "Private Pool" },
       { icon: "hot_tub", label: "Hot Tub" },

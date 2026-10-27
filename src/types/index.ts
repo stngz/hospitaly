@@ -49,6 +49,10 @@ export interface Property {
   checkInTime: string;
   checkOutTime: string;
   status: 'active' | 'suspended';
+  unitLabel?: 'House' | 'Room' | 'Villa' | 'Suite' | 'Chalet';
+  diningEnabled?: boolean;
+  errandsEnabled?: boolean;
+  airportTransfersEnabled?: boolean;
   amenities?: { icon: string; label: string }[];
   nearbyAttractions?: { name: string; distance: string }[];
   createdAt: string;

@@ -75,7 +75,7 @@ export const GuestRequestsList: React.FC<GuestRequestsListProps> = ({
                 onClick={() => onNavigateTab ? onNavigateTab('dining') : onBack()}
                 className="px-4 py-2 bg-stone-100/90 text-stone-800 rounded-xl text-xs font-semibold active:scale-[0.96] transition-[background-color,transform] duration-140 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-200 select-none border border-stone-900/[0.05]"
               >
-                Order Dining
+                {property?.diningEnabled !== false ? 'Order Dining' : 'House Guide'}
               </button>
             </div>
           </div>
@@ -141,7 +141,7 @@ export const GuestRequestsList: React.FC<GuestRequestsListProps> = ({
           onClick={() => onNavigateTab ? onNavigateTab('dining') : onBack()} 
           className="flex flex-col items-center gap-0.5 text-stone-500 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-900 active:scale-[0.93] transition-[color,transform] duration-120 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
         >
-          <span className="text-[11px] font-medium">Dining</span>
+          <span className="text-[11px] font-medium">{property?.diningEnabled !== false ? 'Dining' : 'House Guide'}</span>
         </button>
         <button 
           onClick={() => {}} 

@@ -336,7 +336,7 @@ export const ServiceRequestFlow: React.FC<ServiceRequestFlowProps> = ({
           onClick={() => onNavigateTab ? onNavigateTab('dining') : onBack()} 
           className="flex flex-col items-center gap-0.5 text-stone-500 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-900 active:scale-[0.93] transition-[color,transform] duration-120 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
         >
-          <span className="text-[11px] font-medium">Dining</span>
+          <span className="text-[11px] font-medium">{property?.diningEnabled !== false ? 'Dining' : 'House Guide'}</span>
         </button>
         <button 
           onClick={() => onNavigateTab ? onNavigateTab('my-requests') : onBack()} 

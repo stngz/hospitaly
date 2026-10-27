@@ -2,7 +2,23 @@ import React, { useState, useSyncExternalStore } from 'react';
 import { useTenant } from '../../context/TenantContext';
 import { dbService, subscribeToStore } from '../../lib/store';
 import { notificationService } from '../../lib/notifications';
-import { ArrowLeft, Plus, Check, ShoppingBag, UtensilsCrossed, AlertCircle } from 'lucide-react';
+import { 
+  ArrowLeft, 
+  Plus, 
+  Check, 
+  ShoppingBag, 
+  UtensilsCrossed, 
+  AlertCircle,
+  Waves,
+  Bath,
+  ChefHat,
+  Wind,
+  Wifi,
+  ShieldCheck,
+  Plane,
+  Clock,
+  Sparkles
+} from 'lucide-react';
 import { DiningItem } from '../../types';
 
 interface GuestDiningMenuProps {
@@ -22,6 +38,177 @@ export const GuestDiningMenu: React.FC<GuestDiningMenuProps> = ({
   const [notes, setNotes] = useState('');
   const [isOrdering, setIsOrdering] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // If dining is disabled for this property (e.g. Rock Apartments self-catering holiday houses)
+  if (property && property.diningEnabled === false) {
+    const unitName = property.unitLabel || 'House';
+    return (
+      <div className="min-h-screen bg-[#FDFBF7] text-stone-900 pb-28">
+        {/* Header */}
+        <header className="sticky top-0 bg-white/95 backdrop-blur-md border-b border-stone-900/[0.08] px-5 py-3.5 flex items-center justify-between z-30">
+          <button
+            onClick={onBack}
+            className="p-1.5 -ml-1 text-stone-600 hover:text-stone-950 active:scale-[0.92] transition-transform cursor-pointer"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div className="text-center">
+            <h1 className="text-base font-serif font-bold text-stone-900">House Guide</h1>
+            <p className="text-[11px] text-stone-500 font-mono">
+              {property.name} &bull; {room ? `${unitName} ${room.roomNumber}` : 'In-House Essentials'}
+            </p>
+          </div>
+          <div className="w-8" />
+        </header>
+
+        {/* Hero Banner */}
+        <div className="p-5 space-y-4">
+          <div className="p-4 bg-emerald-950 text-white rounded-2xl shadow-sm border border-emerald-900 space-y-1">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-amber-300 font-bold block">
+              Self-Catering Holiday House
+            </span>
+            <h2 className="text-lg font-serif font-bold text-amber-100">
+              Welcome to Rock Apartments
+            </h2>
+            <p className="text-xs text-stone-300 leading-relaxed pt-1">
+              Rock Apartments consists of separate furnished holiday houses with private swimming pool and hot tub. We do not sell food or drink, allowing you full private use of your fully equipped kitchen.
+            </p>
+          </div>
+
+          {/* Guide Sections */}
+          <div className="space-y-3">
+            {/* 1. Pool & Hot Tub */}
+            <div className="bg-white p-4 rounded-2xl border border-stone-200/80 shadow-xs space-y-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center">
+                  <Waves className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-stone-900">Private Swimming Pool & Sun Deck</h3>
+                  <span className="text-[10px] text-stone-500">Depth 1.2m – 1.8m &bull; Exclusive for in-house guests</span>
+                </div>
+              </div>
+              <p className="text-xs text-stone-600 leading-relaxed">
+                Enjoy your private swimming pool and sun loungers. Extra plush pool towels can be requested anytime under Services &rarr; Housekeeping.
+              </p>
+            </div>
+
+            {/* 2. Hot Tub */}
+            <div className="bg-white p-4 rounded-2xl border border-stone-200/80 shadow-xs space-y-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center">
+                  <Bath className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-stone-900">Private Heated Hot Tub</h3>
+                  <span className="text-[10px] text-stone-500">Hydrotherapy Jets & Temperature Control</span>
+                </div>
+              </div>
+              <p className="text-xs text-stone-600 leading-relaxed">
+                The hot tub is maintained daily. If you would like temperature adjustment (up to 38°C) or assistance with jet controls, simply dispatch a note to Maintenance.
+              </p>
+            </div>
+
+            {/* 3. Full Kitchen */}
+            <div className="bg-white p-4 rounded-2xl border border-stone-200/80 shadow-xs space-y-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-800 flex items-center justify-center">
+                  <ChefHat className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-stone-900">Fully Equipped Kitchen</h3>
+                  <span className="text-[10px] text-stone-500">Stove, Microwave, Refrigerator & Cookware</span>
+                </div>
+              </div>
+              <p className="text-xs text-stone-600 leading-relaxed">
+                Your house features a complete self-catering setup: gas cooktop, oven, microwave, full-size refrigerator/freezer, electric kettle, pots, pans, cutlery, and dinnerware for the family.
+              </p>
+            </div>
+
+            {/* 4. High-Speed WiFi */}
+            <div className="bg-white p-4 rounded-2xl border border-stone-200/80 shadow-xs space-y-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-800 flex items-center justify-center">
+                  <Wifi className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-stone-900">High-Speed Wi-Fi</h3>
+                  <span className="text-[10px] text-stone-500">Coverage across all 5 bedrooms and patio</span>
+                </div>
+              </div>
+              <div className="p-2.5 bg-stone-50 rounded-xl text-xs font-mono space-y-1">
+                <div><span className="text-stone-500">Network:</span> <span className="font-bold text-stone-900">{property.wifiName}</span></div>
+                {property.wifiPassword && (
+                  <div><span className="text-stone-500">Password:</span> <span className="font-bold text-emerald-800">{property.wifiPassword}</span></div>
+                )}
+              </div>
+            </div>
+
+            {/* 5. Gated Security & Location */}
+            <div className="bg-white p-4 rounded-2xl border border-stone-200/80 shadow-xs space-y-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-stone-100 text-stone-800 flex items-center justify-center">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-stone-900">24/7 Gated Security & Parking</h3>
+                  <span className="text-[10px] text-stone-500">Waterfalls Estate, Airport Road Corridor</span>
+                </div>
+              </div>
+              <p className="text-xs text-stone-600 leading-relaxed">
+                Waterfalls Estate features 24-hour manned gate security. Dedicated secure parking is available directly in front of your house inside the perimeter wall.
+              </p>
+            </div>
+
+            {/* 6. Airport Transfers */}
+            <div className="bg-white p-4 rounded-2xl border border-stone-200/80 shadow-xs space-y-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center">
+                  <Plane className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-stone-900">Airport & City Connections</h3>
+                  <span className="text-[10px] text-stone-500">KKIA Airport Corridor</span>
+                </div>
+              </div>
+              <p className="text-xs text-stone-600 leading-relaxed">
+                Kenneth Kaunda International Airport is 6.8 miles away (~12 minutes). Lusaka Golf Club is 11 miles away. You can schedule an airport or city transfer under Services &rarr; Transport.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Navigation */}
+        <nav className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-md border-t border-stone-900/[0.07] px-6 py-2.5 flex justify-around items-center z-40 max-w-md mx-auto shadow-lg">
+          <button 
+            onClick={onBack} 
+            className="flex flex-col items-center gap-0.5 text-stone-500 hover:text-stone-900 active:scale-[0.93] transition-transform select-none"
+          >
+            <span className="text-[11px] font-medium">Home</span>
+          </button>
+          <button 
+            onClick={() => onNavigateTab ? onNavigateTab('request') : onBack()} 
+            className="flex flex-col items-center gap-0.5 text-stone-500 hover:text-stone-900 active:scale-[0.93] transition-transform select-none"
+          >
+            <span className="text-[11px] font-medium">Services</span>
+          </button>
+          <button 
+            onClick={() => {}} 
+            className="flex flex-col items-center gap-0.5 text-stone-900 font-bold active:scale-[0.93] transition-transform select-none"
+          >
+            <div className="w-1.5 h-1.5 rounded-full bg-brand-primary mb-0.5" />
+            <span className="text-[11px]">House Guide</span>
+          </button>
+          <button 
+            onClick={() => onNavigateTab ? onNavigateTab('my-requests') : onBack()} 
+            className="flex flex-col items-center gap-0.5 text-stone-500 hover:text-stone-900 active:scale-[0.93] transition-transform select-none"
+          >
+            <span className="text-[11px] font-medium">My Orders</span>
+          </button>
+        </nav>
+      </div>
+    );
+  }
 
   const allDining = useSyncExternalStore(
     subscribeToStore,

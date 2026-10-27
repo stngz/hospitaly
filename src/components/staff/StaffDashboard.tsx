@@ -164,8 +164,16 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
     ? allUsers.filter((u) => u.propertyId === currentProperty.id && u.active)
     : allUsers.filter((u) => u.active);
 
-  // Enforce tier guard: staff can only view 'requests'
-  const activeTab: DashboardTab = !isManagerOrAdmin ? 'requests' : dashboardTab;
+  const isDiningEnabled = currentProperty?.diningEnabled !== false;
+  const unitLabel = currentProperty?.unitLabel || 'House';
+  const unitLabelPlural = `${unitLabel}s`;
+
+  // Enforce tier guard: staff can only view 'requests', menu hidden when dining disabled
+  const activeTab: DashboardTab = !isManagerOrAdmin
+    ? 'requests'
+    : !isDiningEnabled && dashboardTab === 'menu'
+    ? 'requests'
+    : dashboardTab;
 
   // Request actions
   const handleStatusUpdate = (requestId: string, newStatus: RequestStatus) => {
@@ -429,7 +437,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               </span>
             </button>
 
-            {/* Tab 2: Rooms, Check-In & QR Codes (Manager & Founder only) */}
+            {/* Tab 2: Houses, Check-In & QR Codes (Manager & Founder only) */}
             {isManagerOrAdmin && (
               <button
                 onClick={() => setDashboardTab('rooms')}
@@ -440,7 +448,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                 }`}
               >
                 <Building2 className="w-4 h-4" />
-                <span>Rooms, Check-In & QR Codes</span>
+                <span>{unitLabelPlural}, Check-In & QR Codes</span>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
                   activeTab === 'rooms' ? 'bg-brand-secondary text-stone-950' : 'bg-stone-100 text-stone-600'
                 }`}>
@@ -449,8 +457,8 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               </button>
             )}
 
-            {/* Tab 3: Menu & Pricing (Tier 2 GM & Founder only) */}
-            {isManagerOrAdmin && (
+            {/* Tab 3: Menu & Pricing (Only shown when diningEnabled is true) */}
+            {isManagerOrAdmin && isDiningEnabled && (
               <button
                 onClick={() => setDashboardTab('menu')}
                 className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold text-xs sm:text-sm active:scale-[0.97] transition-[background-color,color,border-color,transform] duration-160 ease-[cubic-bezier(0.16,1,0.3,1)] select-none ${
@@ -497,11 +505,11 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               className="flex items-center gap-1.5 px-3.5 py-2 bg-brand-primary [@media(hover:hover)_and_(pointer:fine)]:hover:opacity-90 text-brand-secondary rounded-xl text-xs font-semibold shadow-diffused active:scale-[0.96] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
             >
               <Plus className="w-4 h-4" />
-              <span>Add Room</span>
+              <span>Add {unitLabel}</span>
             </button>
           )}
 
-          {activeTab === 'menu' && isManagerOrAdmin && (
+          {activeTab === 'menu' && isManagerOrAdmin && isDiningEnabled && (
             <button
               onClick={() => setIsAddDiningOpen(true)}
               className="flex items-center gap-1.5 px-3.5 py-2 bg-brand-primary [@media(hover:hover)_and_(pointer:fine)]:hover:opacity-90 text-brand-secondary rounded-xl text-xs font-semibold shadow-diffused active:scale-[0.96] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"

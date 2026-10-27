@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useSyncExternalStore } from 'react';
+import { useTenant } from '../../context/TenantContext';
 import { dbService, subscribeToStore } from '../../lib/store';
 import { notificationService } from '../../lib/notifications';
 import { 
@@ -66,6 +67,7 @@ export const RequestStatusTimeline: React.FC<RequestStatusTimelineProps> = ({
   onBack,
   onNavigateTab
 }) => {
+  const { property } = useTenant();
   const [cancelling, setCancelling] = useState(false);
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   const [dropOffNote, setDropOffNote] = useState<'knock' | 'bell' | 'silent'>('knock');
@@ -601,7 +603,7 @@ export const RequestStatusTimeline: React.FC<RequestStatusTimelineProps> = ({
           onClick={() => onNavigateTab ? onNavigateTab('dining') : onBack()} 
           className="flex flex-col items-center gap-0.5 text-stone-500 active:scale-[0.93] transition-transform select-none"
         >
-          <span className="text-[11px] font-medium">Dining</span>
+          <span className="text-[11px] font-medium">{property?.diningEnabled !== false ? 'Dining' : 'House Guide'}</span>
         </button>
         <button 
           onClick={() => onNavigateTab ? onNavigateTab('my-requests') : onBack()} 

@@ -65,57 +65,111 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
   const [deliveryNote, setDeliveryNote] = useState('Knock softly');
   const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
 
-  // Receptors designed specifically for bedside in-room needs
-  const BEDSIDE_RECEPTORS: BedsideReceptor[] = [
-    {
-      id: 'ice',
-      label: 'Ice Bucket',
-      category: 'dining',
-      icon: Sparkles,
-      desc: 'Freshly prepared crushed ice & insulated silver bucket with tongs',
-      eta: '~8-10 mins',
-    },
-    {
-      id: 'coffee',
-      label: 'Espresso / Coffee',
-      category: 'dining',
-      icon: Coffee,
-      desc: 'Freshly pressed artisanal roast coffee with whole milk & demerara sugar',
-      eta: '~10-12 mins',
-    },
-    {
-      id: 'towels',
-      label: 'Plush Towels',
-      category: 'housekeeping',
-      icon: Waves,
-      desc: 'Set of two oversized, warm Egyptian cotton bath sheets',
-      eta: '~10-15 mins',
-    },
-    {
-      id: 'pillows',
-      label: 'Feather Pillows',
-      category: 'housekeeping',
-      icon: Feather,
-      desc: 'Two hypoallergenic Hungarian goose-down pillows & soft duvet fresh refresh',
-      eta: '~12-15 mins',
-    },
-    {
-      id: 'water',
-      label: 'Mineral Water',
-      category: 'dining',
-      icon: Droplet,
-      desc: 'Chilled 750ml glass bottle of San Pellegrino mineral water with lemon slices',
-      eta: '~6-8 mins',
-    },
-    {
-      id: 'dnd',
-      label: 'Do Not Disturb',
-      category: 'concierge',
-      icon: Moon,
-      desc: 'Privacy toggle: alerts reception & room attendants to refrain from door knocks',
-      eta: 'Instant',
-    },
-  ];
+  // Receptors designed specifically for bedside in-room needs (no food/drinks when dining is disabled)
+  const isDiningEnabled = property?.diningEnabled !== false;
+  const unitLabel = property?.unitLabel || 'House';
+
+  const BEDSIDE_RECEPTORS: BedsideReceptor[] = isDiningEnabled
+    ? [
+        {
+          id: 'ice',
+          label: 'Ice Bucket',
+          category: 'dining',
+          icon: Sparkles,
+          desc: 'Freshly prepared crushed ice & insulated silver bucket with tongs',
+          eta: '~8-10 mins',
+        },
+        {
+          id: 'coffee',
+          label: 'Espresso / Coffee',
+          category: 'dining',
+          icon: Coffee,
+          desc: 'Freshly pressed artisanal roast coffee with whole milk & demerara sugar',
+          eta: '~10-12 mins',
+        },
+        {
+          id: 'towels',
+          label: 'Plush Towels',
+          category: 'housekeeping',
+          icon: Waves,
+          desc: 'Set of two oversized, warm Egyptian cotton bath sheets',
+          eta: '~10-15 mins',
+        },
+        {
+          id: 'pillows',
+          label: 'Feather Pillows',
+          category: 'housekeeping',
+          icon: Feather,
+          desc: 'Two hypoallergenic Hungarian goose-down pillows & soft duvet fresh refresh',
+          eta: '~12-15 mins',
+        },
+        {
+          id: 'water',
+          label: 'Mineral Water',
+          category: 'dining',
+          icon: Droplet,
+          desc: 'Chilled 750ml glass bottle of San Pellegrino mineral water with lemon slices',
+          eta: '~6-8 mins',
+        },
+        {
+          id: 'dnd',
+          label: 'Do Not Disturb',
+          category: 'concierge',
+          icon: Moon,
+          desc: 'Privacy toggle: alerts reception & room attendants to refrain from door knocks',
+          eta: 'Instant',
+        },
+      ]
+    : [
+        {
+          id: 'towels',
+          label: 'Plush Towels',
+          category: 'housekeeping',
+          icon: Waves,
+          desc: 'Set of two oversized, warm Egyptian cotton bath sheets',
+          eta: '~10-15 mins',
+        },
+        {
+          id: 'pool_towels',
+          label: 'Pool Towels',
+          category: 'housekeeping',
+          icon: Waves,
+          desc: 'Extra absorbent, quick-drying sun lounger pool towels for the private pool',
+          eta: '~10-12 mins',
+        },
+        {
+          id: 'pillows',
+          label: 'Feather Pillows',
+          category: 'housekeeping',
+          icon: Feather,
+          desc: 'Two hypoallergenic Hungarian goose-down pillows & soft duvet fresh refresh',
+          eta: '~12-15 mins',
+        },
+        {
+          id: 'hot_tub',
+          label: 'Hot Tub Jets / Heat',
+          category: 'maintenance',
+          icon: Bath,
+          desc: 'Request temperature boost or jet nozzle check for your private hot tub',
+          eta: '~15-20 mins',
+        },
+        {
+          id: 'ac_check',
+          label: 'AC & Climate Check',
+          category: 'maintenance',
+          icon: Wind,
+          desc: 'Air conditioning inverter temperature and remote control check',
+          eta: '~15 mins',
+        },
+        {
+          id: 'dnd',
+          label: 'Do Not Disturb',
+          category: 'concierge',
+          icon: Moon,
+          desc: 'Privacy toggle: alerts reception & house attendants to refrain from gate knocks',
+          eta: 'Instant',
+        },
+      ];
 
   // Reactive store subscriptions
   const allRequests = useSyncExternalStore(
@@ -568,23 +622,23 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
 
         {/* d) Two Refined Editorial Action Cards */}
         <section className="grid grid-cols-2 gap-3.5">
-          {/* Action 1: In-Room Dining */}
+          {/* Action 1: House Guide (when dining disabled) or In-Room Dining */}
           <button
             onClick={() => onNavigate('dining')}
             className="group relative flex flex-col justify-between p-4 rounded-2xl bg-white border border-stone-200/80 hover:border-amber-400/50 shadow-2xs text-left min-h-[148px] active:scale-[0.97] transition-all select-none"
           >
             <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center group-hover:bg-amber-400 group-hover:text-stone-950 transition-colors shadow-2xs">
-              <UtensilsCrossed className="w-5 h-5" />
+              {isDiningEnabled ? <UtensilsCrossed className="w-5 h-5" /> : <Waves className="w-5 h-5" />}
             </div>
             <div className="mt-3">
               <span className="text-[10px] uppercase font-mono tracking-wider text-stone-400 block mb-0.5 font-semibold">
-                Kitchen
+                {isDiningEnabled ? 'Kitchen' : 'Holiday House'}
               </span>
               <span className="text-base font-serif font-bold text-stone-900 block leading-tight">
-                In-Room Dining
+                {isDiningEnabled ? 'In-Room Dining' : 'House Guide'}
               </span>
               <span className="text-[11px] text-stone-500 block mt-1 leading-snug">
-                Culinary orders & room delivery
+                {isDiningEnabled ? 'Culinary orders & room delivery' : 'Pool, hot tub & house guide'}
               </span>
             </div>
           </button>
@@ -969,10 +1023,10 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
           <span className="text-[11px] font-medium">Services</span>
         </button>
         <button 
-          onClick={() => onNavigate('dining')} 
+          onClick={() => onNavigate(isDiningEnabled ? 'dining' : 'dining')} 
           className="flex flex-col items-center gap-0.5 text-stone-500 hover:text-stone-900 active:scale-[0.93] transition-transform select-none"
         >
-          <span className="text-[11px] font-medium">Dining</span>
+          <span className="text-[11px] font-medium">{isDiningEnabled ? 'Dining' : 'House Guide'}</span>
         </button>
         <button 
           onClick={() => onNavigate('my-requests')} 
