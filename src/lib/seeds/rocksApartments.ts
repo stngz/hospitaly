@@ -7,7 +7,7 @@ export const SEED_PROPERTIES: Property[] = [
     slug: "rocks-apartments",
     description: "Comfortable 5-bedroom luxury serviced apartment in Waterfalls Estate, Airport Road Corridor, Lusaka. Features private swimming pool, relaxing hot tub, fully equipped kitchen, individual air-conditioning, smart TVs, free high-speed WiFi, and secure parking. 6.8 mi from Kenneth Kaunda International Airport, 11 mi from Lusaka Golf Club, and 12 mi from the National Museum.",
     logoUrl: "",
-    coverImageUrl: "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1200&q=80",
+    coverImageUrl: "/images/rocks-suite-enhanced.jpg",
     primaryColor: "#1E3A5F", // Slate Sapphire
     secondaryColor: "#D4AF37", // Warm Ochre
     accentColor: "#3B82F6", // Pool Azure
@@ -47,6 +47,7 @@ export const SEED_ROOMS: Room[] = [
     roomNumber: "Suite 1 (Master King)", 
     roomType: "Master En-Suite with Pool View", 
     status: "occupied", 
+    imageUrl: "/images/rocks-suite-enhanced.jpg",
     currentGuestName: "Mr. Hastings Banda", 
     guestCheckOutDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), 
     guestPhone: "+260 97 788 1234", 
@@ -60,6 +61,7 @@ export const SEED_ROOMS: Room[] = [
     roomNumber: "Bedroom 2 (Queen Poolside)", 
     roomType: "Deluxe Queen Bedroom", 
     status: "available", 
+    imageUrl: "/images/rocks-suite-enhanced.jpg",
     createdAt: "2026-02-01T00:00:00Z", 
     updatedAt: "2026-02-01T00:00:00Z" 
   },
@@ -81,6 +83,7 @@ export const SEED_ROOMS: Room[] = [
     roomNumber: "Bedroom 4 (Garden Double)", 
     roomType: "Garden View Double Bedroom", 
     status: "available", 
+    imageUrl: "/images/rocks-suite-enhanced.jpg",
     createdAt: "2026-02-01T00:00:00Z", 
     updatedAt: "2026-02-01T00:00:00Z" 
   },

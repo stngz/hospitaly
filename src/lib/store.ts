@@ -101,8 +101,14 @@ function loadInitialCache(): StoreCache {
   const rawRooms = read<Room[]>(STORAGE_KEYS.ROOMS, SEED_ROOMS).filter(r => !obsoletePropIds.has(r.propertyId));
   const mergedRooms = [...rawRooms];
   SEED_ROOMS.forEach((sr) => {
-    if (!mergedRooms.some((r) => r.id === sr.id)) {
+    const idx = mergedRooms.findIndex((r) => r.id === sr.id);
+    if (idx === -1) {
       mergedRooms.push(sr);
+    } else {
+      mergedRooms[idx] = {
+        ...mergedRooms[idx],
+        ...sr,
+      };
     }
   });
 
