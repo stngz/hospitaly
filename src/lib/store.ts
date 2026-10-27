@@ -24,21 +24,28 @@ import {
   SEED_PROPERTIES, 
   SEED_ROOMS, 
   SEED_QR_CODES, 
-  SEED_STAFF_USERS, 
   INITIAL_REQUESTS, 
   SEED_DINING_ITEMS 
 } from './seeds/rocksApartments';
 import { notificationService } from './notifications';
 
 const STORAGE_KEYS = {
-  PROPERTIES: 'hospitally_properties_v3',
-  ROOMS: 'hospitally_rooms_v3',
-  QR_CODES: 'hospitally_qrcodes_v3',
-  USERS: 'hospitally_users_v3',
-  REQUESTS: 'hospitally_requests_v3',
-  DINING: 'hospitally_dining_v3',
-  CURRENT_USER: 'hospitally_current_user_v3',
+  PROPERTIES: 'hospitally_properties_v4',
+  ROOMS: 'hospitally_rooms_v4',
+  QR_CODES: 'hospitally_qrcodes_v4',
+  REQUESTS: 'hospitally_requests_v4',
+  DINING: 'hospitally_dining_v4',
 };
+
+export function normalizeUserProfile(u: any): UserProfile {
+  const rawRole = (u?.role as string) === 'admin' ? 'founder' : (u?.role || 'staff');
+  const { pinCode: _removedPin, ...rest } = u || {};
+  return {
+    ...rest,
+    role: rawRole,
+    active: u?.active !== undefined ? Boolean(u.active) : true,
+  } as UserProfile;
+}
 
 // In-memory cache holding identical references until modified
 interface StoreCache {
@@ -57,11 +64,19 @@ function loadInitialCache(): StoreCache {
       properties: SEED_PROPERTIES,
       rooms: SEED_ROOMS,
       qrCodes: SEED_QR_CODES,
-      users: SEED_STAFF_USERS,
+      users: [],
       requests: INITIAL_REQUESTS,
       dining: SEED_DINING_ITEMS,
-      currentUser: SEED_STAFF_USERS[0],
+      currentUser: null,
     };
+  }
+
+  // Purge legacy v3 unauthenticated user/admin cache keys from browser storage
+  try {
+    localStorage.removeItem('hospitally_current_user_v3');
+    localStorage.removeItem('hospitally_users_v3');
+  } catch {
+    // ignore storage errors
   }
 
   function read<T>(key: string, fallback: T): T {
@@ -86,7 +101,6 @@ function loadInitialCache(): StoreCache {
     if (idx === -1) {
       mergedProps.push(sp);
     } else {
-      // Keep up to date with latest seed enhancements if needed
       mergedProps[idx] = {
         ...mergedProps[idx],
         ...sp,
@@ -120,21 +134,6 @@ function loadInitialCache(): StoreCache {
     }
   });
 
-  const rawUsers = read<UserProfile[]>(STORAGE_KEYS.USERS, SEED_STAFF_USERS).filter(u => !obsoletePropIds.has(u.propertyId) || u.role === 'admin');
-  const mergedUsers = [...rawUsers];
-  SEED_STAFF_USERS.forEach((seedUser) => {
-    const idx = mergedUsers.findIndex((u) => u.id === seedUser.id);
-    if (idx === -1) {
-      mergedUsers.push(seedUser);
-    } else {
-      mergedUsers[idx] = { 
-        ...mergedUsers[idx], 
-        ...seedUser,
-        pinCode: seedUser.pinCode || '1234'
-      };
-    }
-  });
-
   const rawDining = read<DiningItem[]>(STORAGE_KEYS.DINING, SEED_DINING_ITEMS).filter(d => !obsoletePropIds.has(d.propertyId));
   const mergedDining = [...rawDining];
   SEED_DINING_ITEMS.forEach((sd) => {
@@ -154,22 +153,17 @@ function loadInitialCache(): StoreCache {
   persist(STORAGE_KEYS.PROPERTIES, mergedProps);
   persist(STORAGE_KEYS.ROOMS, mergedRooms);
   persist(STORAGE_KEYS.QR_CODES, mergedQRs);
-  persist(STORAGE_KEYS.USERS, mergedUsers);
   persist(STORAGE_KEYS.DINING, mergedDining);
   persist(STORAGE_KEYS.REQUESTS, mergedRequests);
-
-  const rawCurrentUser = read(STORAGE_KEYS.CURRENT_USER, SEED_STAFF_USERS[0]);
-  const activeUser = mergedUsers.find(u => u.id === rawCurrentUser?.id) || SEED_STAFF_USERS[0];
-  persist(STORAGE_KEYS.CURRENT_USER, activeUser);
 
   return {
     properties: mergedProps,
     rooms: mergedRooms,
     qrCodes: mergedQRs,
-    users: mergedUsers,
+    users: [],
     requests: mergedRequests,
     dining: mergedDining,
-    currentUser: activeUser,
+    currentUser: null,
   };
 }
 
@@ -205,8 +199,57 @@ function persist<T>(key: string, val: T) {
   }
 }
 
-// Attach live Firestore real-time listener for Requests
+// Attach live Firestore real-time listeners
 let isFirestoreListening = false;
+let unsubscribeUsersListener: (() => void) | null = null;
+
+export function syncAuthenticatedUserListeners(user: UserProfile | null) {
+  if (typeof window === 'undefined') return;
+
+  if (unsubscribeUsersListener) {
+    unsubscribeUsersListener();
+    unsubscribeUsersListener = null;
+  }
+
+  if (!user || user.role === 'guest') {
+    cache = { ...cache, users: [] };
+    notify();
+    return;
+  }
+
+  const obsoletePropIds = new Set(['prop_zambezi_01', 'prop_luangwa_02']);
+
+  try {
+    const usersQuery =
+      user.role === 'founder'
+        ? collection(db, 'users')
+        : query(collection(db, 'users'), where('propertyId', '==', user.propertyId));
+
+    unsubscribeUsersListener = onSnapshot(
+      usersQuery,
+      (snapshot) => {
+        const list: UserProfile[] = [];
+        snapshot.forEach((docSnap) => {
+          const raw = docSnap.data();
+          if (raw) {
+            const normalized = normalizeUserProfile({ ...raw, id: raw.id || docSnap.id });
+            if (!obsoletePropIds.has(normalized.propertyId) || normalized.role === 'founder') {
+              list.push(normalized);
+            }
+          }
+        });
+        cache = { ...cache, users: list };
+        notify();
+      },
+      (err) => {
+        console.warn('Firestore live users listener note:', err);
+      }
+    );
+  } catch (err) {
+    console.warn('Could not attach authenticated users listener:', err);
+  }
+}
+
 export function initFirestoreListeners() {
   if (isFirestoreListening || typeof window === 'undefined') return;
   isFirestoreListening = true;
@@ -225,7 +268,6 @@ export function initFirestoreListeners() {
           }
         });
 
-        // Merge with cache, sorting by newest first
         firestoreList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
         cache = {
@@ -299,24 +341,6 @@ export function initFirestoreListeners() {
       console.warn('Firestore live properties listener note:', err);
     });
 
-    const usersCol = collection(db, 'users');
-    onSnapshot(usersCol, (snapshot) => {
-      if (!snapshot.empty) {
-        const list: UserProfile[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data() as UserProfile;
-          if (data && (!obsoletePropIds.has(data.propertyId) || data.role === 'admin')) {
-            list.push(data);
-          }
-        });
-        cache = { ...cache, users: list };
-        persist(STORAGE_KEYS.USERS, cache.users);
-        notify();
-      }
-    }, (err) => {
-      console.warn('Firestore live users listener note:', err);
-    });
-
     const diningCol = collection(db, 'dining');
     onSnapshot(diningCol, (snapshot) => {
       if (!snapshot.empty) {
@@ -334,87 +358,8 @@ export function initFirestoreListeners() {
     }, (err) => {
       console.warn('Firestore live dining listener note:', err);
     });
-
-    // Also seed Firestore initial data in background if empty or needs cleanup
-    seedFirestoreInitialData();
   } catch (err) {
     console.warn('Could not initialize Firestore listener:', err);
-  }
-}
-
-async function seedFirestoreInitialData() {
-  const SEED_VERSION_KEY = 'hospitally_cloud_seeded_rocks_v3';
-  if (typeof window !== 'undefined' && localStorage.getItem(SEED_VERSION_KEY)) {
-    return;
-  }
-  try {
-    // Purge obsolete Zambezi / Luangwa docs from Firestore
-    const obsoleteDocs = [
-      { col: 'properties', id: 'prop_zambezi_01' },
-      { col: 'properties', id: 'prop_luangwa_02' },
-      { col: 'rooms', id: 'room_101' },
-      { col: 'rooms', id: 'room_102' },
-      { col: 'rooms', id: 'room_201' },
-      { col: 'rooms', id: 'room_204' },
-      { col: 'rooms', id: 'room_301' },
-      { col: 'rooms', id: 'room_302' },
-      { col: 'qrCodes', id: 'qr_101' },
-      { col: 'qrCodes', id: 'qr_204' },
-      { col: 'qrCodes', id: 'qr_pool' },
-      { col: 'qrCodes', id: 'qr_luangwa_301' },
-      { col: 'dining', id: 'dine_1' },
-      { col: 'dining', id: 'dine_2' },
-      { col: 'dining', id: 'dine_3' },
-      { col: 'dining', id: 'dine_4' },
-      { col: 'dining', id: 'dine_rocks_5' },
-      { col: 'requests', id: 'req_001' },
-      { col: 'requests', id: 'req_002' },
-      { col: 'requests', id: 'req_003' },
-      { col: 'users', id: 'staff_kondwani' },
-      { col: 'users', id: 'staff_mary' },
-      { col: 'users', id: 'staff_james' },
-      { col: 'users', id: 'staff_chileshe' },
-    ];
-
-    for (const item of obsoleteDocs) {
-      try {
-        await deleteDoc(doc(db, item.col, item.id));
-      } catch (delErr) {
-        // Silently skip if doesn't exist or unpermitted
-      }
-    }
-
-    // Seed Rocks Apartments properties
-    for (const p of SEED_PROPERTIES) {
-      await setDoc(doc(db, 'properties', p.id), p, { merge: true });
-    }
-    // Seed rooms
-    for (const r of SEED_ROOMS) {
-      await setDoc(doc(db, 'rooms', r.id), r, { merge: true });
-    }
-    // Seed QR codes
-    for (const q of SEED_QR_CODES) {
-      await setDoc(doc(db, 'qrCodes', q.id), q, { merge: true });
-    }
-    // Seed Dining
-    for (const d of SEED_DINING_ITEMS) {
-      await setDoc(doc(db, 'dining', d.id), d, { merge: true });
-    }
-    // Seed Users (including Joe Zaza & Founder)
-    for (const u of SEED_STAFF_USERS) {
-      await setDoc(doc(db, 'users', u.id), u, { merge: true });
-    }
-    // Seed Requests
-    for (const req of INITIAL_REQUESTS) {
-      await setDoc(doc(db, 'requests', req.id), req, { merge: true });
-    }
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(SEED_VERSION_KEY, 'true');
-    }
-    console.log('Firebase Firestore successfully synced with Rocks Apartments pilot data');
-  } catch (e) {
-    console.info('Firestore seed note:', e);
   }
 }
 
@@ -447,7 +392,6 @@ export const dbService = {
       name: string;
       email: string;
       phone?: string;
-      pinCode: string;
     }
   ): { property: Property; manager: UserProfile } => {
     const slug = propertyData.name
@@ -489,9 +433,8 @@ export const dbService = {
       id: managerId,
       propertyId: newProperty.id,
       name: managerData.name,
-      email: managerData.email,
+      email: managerData.email.toLowerCase().trim(),
       phone: managerData.phone || '+260 97 000 0000',
-      pinCode: managerData.pinCode || '1234',
       role: 'manager',
       department: 'management',
       active: true,
@@ -505,7 +448,6 @@ export const dbService = {
       users: [...cache.users, newManager],
     };
     persist(STORAGE_KEYS.PROPERTIES, cache.properties);
-    persist(STORAGE_KEYS.USERS, cache.users);
     notify();
 
     // Auto-create initial starter room for the property
@@ -1015,7 +957,7 @@ export const dbService = {
     return updatedItem;
   },
 
-  // Users & Staff - stable snapshot
+  // Users & Staff - stable snapshot (in-memory only, synced via authenticated Firestore listener)
   getAllUsers: (): UserProfile[] => {
     return cache.users;
   },
@@ -1029,25 +971,24 @@ export const dbService = {
   createStaffMember: (
     propertyId: string,
     staffData: {
+      id?: string;
       name: string;
       email: string;
       phone?: string;
       role?: 'staff' | 'manager';
       department: StaffDepartment;
-      pinCode: string;
     }
   ): UserProfile => {
-    const staffId = `staff_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const staffId = staffData.id || `staff_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const now = new Date().toISOString();
     const newStaff: UserProfile = {
       id: staffId,
       propertyId,
-      name: staffData.name,
-      email: staffData.email,
-      phone: staffData.phone || '',
+      name: staffData.name.trim(),
+      email: staffData.email.toLowerCase().trim(),
+      phone: staffData.phone?.trim() || '',
       role: staffData.role || 'staff',
       department: staffData.department,
-      pinCode: staffData.pinCode || '1234',
       active: true,
       createdAt: now,
       updatedAt: now,
@@ -1055,9 +996,8 @@ export const dbService = {
 
     cache = {
       ...cache,
-      users: [...cache.users, newStaff],
+      users: [...cache.users.filter((u) => u.id !== newStaff.id && u.email.toLowerCase() !== newStaff.email), newStaff],
     };
-    persist(STORAGE_KEYS.USERS, cache.users);
     notify();
 
     try {
@@ -1070,12 +1010,14 @@ export const dbService = {
 
     return newStaff;
   },
+  setUserActiveStatus: (userId: string, active: boolean): UserProfile | undefined => {
+    return dbService.updateUserProfile(userId, { active });
+  },
   deleteStaffMember: (userId: string): boolean => {
     cache = {
       ...cache,
       users: cache.users.filter((u) => u.id !== userId),
     };
-    persist(STORAGE_KEYS.USERS, cache.users);
     notify();
 
     try {
@@ -1089,40 +1031,40 @@ export const dbService = {
     return true;
   },
   createUser: (user: UserProfile): UserProfile => {
+    const normalized = normalizeUserProfile(user);
     cache = {
       ...cache,
-      users: [...cache.users.filter((u) => u.id !== user.id), user],
+      users: [...cache.users.filter((u) => u.id !== normalized.id), normalized],
     };
-    persist(STORAGE_KEYS.USERS, cache.users);
     notify();
 
     try {
-      setDoc(doc(db, 'users', user.id), user).catch((err) =>
+      setDoc(doc(db, 'users', normalized.id), normalized).catch((err) =>
         console.warn('Firestore setDoc user notice:', err)
       );
     } catch (err) {
       console.warn('Firestore setDoc user failed:', err);
     }
-    return user;
+    return normalized;
   },
   updateUserProfile: (userId: string, patch: Partial<UserProfile>): UserProfile | undefined => {
     let updatedUser: UserProfile | undefined;
+    const now = new Date().toISOString();
     cache = {
       ...cache,
       users: cache.users.map((u) => {
         if (u.id === userId) {
-          updatedUser = { ...u, ...patch, updatedAt: new Date().toISOString() };
+          updatedUser = normalizeUserProfile({ ...u, ...patch, updatedAt: now });
           return updatedUser;
         }
         return u;
       }),
     };
-    persist(STORAGE_KEYS.USERS, cache.users);
     notify();
 
     if (updatedUser) {
       try {
-        updateDoc(doc(db, 'users', userId), patch as any).catch((err) =>
+        setDoc(doc(db, 'users', userId), { ...patch, updatedAt: now }, { merge: true }).catch((err) =>
           console.warn('Firestore updateDoc user notice:', err)
         );
       } catch (err) {
@@ -1135,35 +1077,30 @@ export const dbService = {
     return cache.currentUser;
   },
   setCurrentUser: (user: UserProfile | null): void => {
+    const normalized = user ? normalizeUserProfile(user) : null;
     cache = {
       ...cache,
-      currentUser: user,
+      currentUser: normalized,
+      ...(normalized === null ? { users: [] } : {}),
     };
-    persist(STORAGE_KEYS.CURRENT_USER, cache.currentUser);
+    syncAuthenticatedUserListeners(normalized);
     notify();
   },
-
-  // Reset demo data
-  resetDemoData: () => {
+  clearSensitiveSession: (): void => {
     cache = {
-      properties: SEED_PROPERTIES,
-      rooms: SEED_ROOMS,
-      qrCodes: SEED_QR_CODES,
-      users: SEED_STAFF_USERS,
-      requests: INITIAL_REQUESTS,
-      dining: SEED_DINING_ITEMS,
-      currentUser: SEED_STAFF_USERS[0],
+      ...cache,
+      currentUser: null,
+      users: [],
     };
-    persist(STORAGE_KEYS.PROPERTIES, cache.properties);
-    persist(STORAGE_KEYS.ROOMS, cache.rooms);
-    persist(STORAGE_KEYS.QR_CODES, cache.qrCodes);
-    persist(STORAGE_KEYS.USERS, cache.users);
-    persist(STORAGE_KEYS.REQUESTS, cache.requests);
-    persist(STORAGE_KEYS.DINING, cache.dining);
-    persist(STORAGE_KEYS.CURRENT_USER, cache.currentUser);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('hospitally_current_user_v3');
+        localStorage.removeItem('hospitally_users_v3');
+      } catch {
+        // ignore
+      }
+    }
+    syncAuthenticatedUserListeners(null);
     notify();
-
-    // Re-seed to firestore
-    seedFirestoreInitialData();
-  }
+  },
 };

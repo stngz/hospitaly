@@ -2,10 +2,39 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
+import adminUsersHandler from './api/admin/users.ts';
+
+function apiMiddlewarePlugin() {
+  return {
+    name: 'hospitally-api-middleware',
+    configureServer(server: any) {
+      server.middlewares.use('/api/admin/users', (req: any, res: any) => {
+        let body = '';
+        req.on('data', (chunk: any) => {
+          body += chunk;
+        });
+        req.on('end', async () => {
+          req.body = body;
+          const wrappedRes = {
+            status(code: number) {
+              res.statusCode = code;
+              return this;
+            },
+            json(payload: any) {
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify(payload));
+            },
+          };
+          await adminUsersHandler(req, wrappedRes);
+        });
+      });
+    },
+  };
+}
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), apiMiddlewarePlugin()],
     resolve: {
       alias: {
         '@': path.resolve('.'),

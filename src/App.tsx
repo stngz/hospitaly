@@ -14,72 +14,61 @@ import { GuestRequestsList } from './components/guest/GuestRequestsList';
 import { GuestDiningMenu } from './components/guest/GuestDiningMenu';
 import { StaffDashboard } from './components/staff/StaffDashboard';
 import { SuperAdminDashboard } from './components/admin/SuperAdminDashboard';
-import { QRModal } from './components/common/QRModal';
 import { LoginGate } from './components/auth/LoginGate';
 import { InAppNotificationBanner } from './components/common/InAppNotificationBanner';
-import { 
-  QrCode, 
-  Crown, 
-  Users, 
-  Smartphone, 
-  Terminal, 
-  X, 
-  LogOut, 
-} from 'lucide-react';
-import { UserProfile } from './types';
+import { Loader2 } from 'lucide-react';
+
+type RoutePortal = 'hq' | 'staff' | 'guest';
+
+function resolvePortalFromPath(pathname: string): RoutePortal {
+  const clean = pathname.toLowerCase().replace(/\/+$/, '') || '/';
+  if (clean === '/hq' || clean === '/admin') {
+    return 'hq';
+  }
+  if (clean === '/staff' || clean.startsWith('/staff/')) {
+    return 'staff';
+  }
+  return 'guest';
+}
 
 function AppContent() {
-  const { property, setPropertySlug, setRoomId } = useTenant();
-  const { user, signInAs, signOut } = useAuth();
+  const { setPropertySlug, setRoomId } = useTenant();
+  const { user, loading } = useAuth();
 
   // Initialize live Firestore synchronization on app mount
   useEffect(() => {
     initFirestoreListeners();
   }, []);
 
-  // 4-Tier Portal: 'admin' (Tier 1) | 'staff' (Tier 2 & 3) | 'guest' (Tier 4)
-  const [activePortal, setActivePortal] = useState<'admin' | 'staff' | 'guest'>('guest');
+  const [portal, setPortal] = useState<RoutePortal>(() =>
+    typeof window !== 'undefined' ? resolvePortalFromPath(window.location.pathname) : 'guest'
+  );
 
-  // Dedicated Login Gate state for secure login before unlocking dashboards
-  const [pendingPortal, setPendingPortal] = useState<'admin' | 'staff' | null>(null);
+  // Keep portal synchronized with browser history navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      setPortal(resolvePortalFromPath(window.location.pathname));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
-  // Collapsible Floating Dev Mode Bar (Available exclusively during local dev)
-  const [isDevBarOpen, setIsDevBarOpen] = useState(false);
+  const navigateToPortal = (nextPortal: RoutePortal, nextPath?: string) => {
+    const targetPath =
+      nextPath || (nextPortal === 'hq' ? '/hq' : nextPortal === 'staff' ? '/staff' : '/');
+    if (typeof window !== 'undefined' && window.location.pathname !== targetPath) {
+      window.history.pushState({}, '', targetPath);
+    }
+    setPortal(nextPortal);
+  };
 
   // Guest view router: 'home' | 'request' | 'status' | 'my-requests' | 'dining'
   const [guestView, setGuestView] = useState<'home' | 'request' | 'status' | 'my-requests' | 'dining'>('home');
-  const [activeRequestId, setActiveRequestId] = useState<string>('req_rocks_01');
+  const [activeRequestId, setActiveRequestId] = useState<string>('');
   const [requestPrefill, setRequestPrefill] = useState<{ category?: string; item?: string }>({});
-  
-  // QR modal state
-  const [isQRModalOpen, setIsQRModalOpen] = useState(false);
-
-  // Support direct path routes like /hq, /admin, /staff
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const path = window.location.pathname.toLowerCase();
-      if (path === '/hq' || path === '/admin') {
-        if (user?.role === 'admin') {
-          setActivePortal('admin');
-        } else {
-          setPendingPortal('admin');
-        }
-      } else if (path === '/staff') {
-        if (user && (user.role === 'staff' || user.role === 'manager' || user.role === 'admin')) {
-          setActivePortal('staff');
-        } else {
-          setPendingPortal('staff');
-        }
-      }
-    }
-  }, [user]);
 
   const handleGuestNavigate = (view: string, data?: any) => {
-    if (view === 'staff-login') {
-      handleRequestPortalSwitch('staff');
-    } else if (view === 'admin-login') {
-      handleRequestPortalSwitch('admin');
-    } else if (view === 'request') {
+    if (view === 'request') {
       setRequestPrefill(data || {});
       setGuestView('request');
     } else if (view === 'status' && data?.requestId) {
@@ -105,281 +94,135 @@ function AppContent() {
     setGuestView('home');
   };
 
-  const handleRequestPortalSwitch = (target: 'admin' | 'staff' | 'guest') => {
-    if (target === 'guest') {
-      setActivePortal('guest');
-      setPendingPortal(null);
-      setIsDevBarOpen(false);
-      return;
+  // 1. FOUNDER HQ PORTAL (/hq)
+  if (portal === 'hq') {
+    if (loading) {
+      return (
+        <div className="min-h-screen bg-stone-950 text-stone-200 flex flex-col items-center justify-center gap-3">
+          <Loader2 className="w-7 h-7 text-amber-400 animate-spin" />
+          <p className="text-xs font-mono uppercase tracking-widest text-stone-400">
+            Verifying Founder HQ Session...
+          </p>
+        </div>
+      );
     }
 
-    if (target === 'admin') {
-      if (user?.role === 'admin') {
-        setActivePortal('admin');
-        setPendingPortal(null);
-      } else {
-        setPendingPortal('admin');
-      }
-      setIsDevBarOpen(false);
-      return;
+    if (!user || user.role !== 'founder') {
+      return (
+        <LoginGate
+          portal="hq"
+          onSuccess={() => {
+            navigateToPortal('hq', '/hq');
+          }}
+        />
+      );
     }
 
-    if (target === 'staff') {
-      if (user && (user.role === 'staff' || user.role === 'manager' || user.role === 'admin')) {
-        setActivePortal('staff');
-        setPendingPortal(null);
-      } else {
-        setPendingPortal('staff');
-      }
-      setIsDevBarOpen(false);
-      return;
+    return (
+      <div className="min-h-screen bg-stone-100 font-sans antialiased text-stone-900 relative">
+        <SuperAdminDashboard
+          onManageProperty={(selectedProp) => {
+            setPropertySlug(selectedProp.slug);
+            navigateToPortal('staff', '/staff');
+          }}
+          onSwitchToStaff={() => navigateToPortal('staff', '/staff')}
+        />
+      </div>
+    );
+  }
+
+  // 2. STAFF & MANAGER PORTAL (/staff)
+  if (portal === 'staff') {
+    if (loading) {
+      return (
+        <div className="min-h-screen bg-stone-950 text-stone-200 flex flex-col items-center justify-center gap-3">
+          <Loader2 className="w-7 h-7 text-emerald-400 animate-spin" />
+          <p className="text-xs font-mono uppercase tracking-widest text-stone-400">
+            Verifying Staff Portal Session...
+          </p>
+        </div>
+      );
     }
-  };
 
-  const handleLoginSuccess = (authenticatedUser: UserProfile) => {
-    signInAs(authenticatedUser);
-    if (authenticatedUser.role === 'admin') {
-      setActivePortal('admin');
-    } else {
-      setActivePortal('staff');
+    if (!user || (user.role !== 'staff' && user.role !== 'manager' && user.role !== 'founder')) {
+      return (
+        <LoginGate
+          portal="staff"
+          onSuccess={() => {
+            navigateToPortal('staff', '/staff');
+          }}
+        />
+      );
     }
-    setPendingPortal(null);
-  };
 
-  const handleLoginCancel = () => {
-    setPendingPortal(null);
-    setActivePortal('guest');
-  };
+    return (
+      <div className="min-h-screen bg-stone-100 font-sans antialiased text-stone-900 relative">
+        <InAppNotificationBanner />
+        <StaffDashboard
+          onSelectRoomForGuest={(propSlug, rId) => {
+            handleRoomResolved(propSlug, rId);
+            navigateToPortal('guest', '/');
+          }}
+          onSwitchToAdmin={user.role === 'founder' ? () => navigateToPortal('hq', '/hq') : undefined}
+        />
+      </div>
+    );
+  }
 
+  // 3. PUBLIC GUEST EXPERIENCE (/)
   return (
     <div className="min-h-screen bg-stone-100 font-sans antialiased text-stone-900 relative">
-      {/* Floating Dynamic Notification Banner (Apple Dynamic Island style) */}
-      <InAppNotificationBanner 
+      <InAppNotificationBanner
         onNavigateToRequest={(reqId) => {
-          setActivePortal('guest');
           setActiveRequestId(reqId);
           setGuestView('status');
         }}
       />
 
-      {/* 1. DEDICATED LOGIN GATE (Tier 1 Email for Admin, Tier 2/3 Email & PIN for Staff/GM) */}
-      {pendingPortal && (
-        <LoginGate
-          targetRole={pendingPortal}
-          onSuccess={handleLoginSuccess}
-          onCancel={handleLoginCancel}
-        />
-      )}
+      <div className="max-w-md mx-auto shadow-modal min-h-dvh bg-[#FDFBF7] relative border-x border-stone-900/[0.08]">
+        {guestView === 'home' && <GuestHome onNavigate={handleGuestNavigate} />}
 
-      {/* 2. MAIN ACTIVE VIEW (When no Login Gate is active) */}
-      {!pendingPortal && (
-        <>
-          {activePortal === 'admin' && (
-            <SuperAdminDashboard
-              onManageProperty={(selectedProp, manager) => {
-                setPropertySlug(selectedProp.slug);
-                if (manager) {
-                  signInAs(manager);
-                }
-                setActivePortal('staff');
-              }}
-              onSwitchToGuest={(slug) => {
-                setPropertySlug(slug);
-                setActivePortal('guest');
-              }}
-              onSwitchToStaff={() => setActivePortal('staff')}
-            />
-          )}
+        {guestView === 'request' && (
+          <ServiceRequestFlow
+            initialCategory={requestPrefill.category}
+            initialItem={requestPrefill.item}
+            onBack={() => setGuestView('home')}
+            onSubmitted={handleRequestCreated}
+            onNavigateTab={handleGuestNavigate}
+          />
+        )}
 
-          {activePortal === 'staff' && (
-            <StaffDashboard 
-              onSwitchToGuest={() => setActivePortal('guest')} 
-              onSelectRoomForGuest={(propSlug, rId) => {
-                handleRoomResolved(propSlug, rId);
-                setActivePortal('guest');
-              }}
-              onSwitchToAdmin={() => handleRequestPortalSwitch('admin')}
-            />
-          )}
+        {guestView === 'status' && (
+          <RequestStatusTimeline
+            requestId={activeRequestId}
+            onBack={() => setGuestView('home')}
+            onNavigateTab={handleGuestNavigate}
+          />
+        )}
 
-          {activePortal === 'guest' && (
-            <div className="max-w-md mx-auto shadow-modal min-h-dvh bg-[#FDFBF7] relative border-x border-stone-900/[0.08]">
-              {guestView === 'home' && (
-                <GuestHome 
-                  onNavigate={handleGuestNavigate} 
-                  onOpenQRScanner={() => setIsQRModalOpen(true)}
-                />
-              )}
+        {guestView === 'my-requests' && (
+          <GuestRequestsList
+            onBack={() => setGuestView('home')}
+            onSelectRequest={(id) => {
+              setActiveRequestId(id);
+              setGuestView('status');
+            }}
+            onNewRequest={() => {
+              setRequestPrefill({});
+              setGuestView('request');
+            }}
+            onNavigateTab={handleGuestNavigate}
+          />
+        )}
 
-              {guestView === 'request' && (
-                <ServiceRequestFlow
-                  initialCategory={requestPrefill.category}
-                  initialItem={requestPrefill.item}
-                  onBack={() => setGuestView('home')}
-                  onSubmitted={handleRequestCreated}
-                  onNavigateTab={handleGuestNavigate}
-                />
-              )}
-
-              {guestView === 'status' && (
-                <RequestStatusTimeline
-                  requestId={activeRequestId}
-                  onBack={() => setGuestView('home')}
-                  onNavigateTab={handleGuestNavigate}
-                />
-              )}
-
-              {guestView === 'my-requests' && (
-                <GuestRequestsList
-                  onBack={() => setGuestView('home')}
-                  onSelectRequest={(id) => {
-                    setActiveRequestId(id);
-                    setGuestView('status');
-                  }}
-                  onNewRequest={() => {
-                    setRequestPrefill({});
-                    setGuestView('request');
-                  }}
-                  onNavigateTab={handleGuestNavigate}
-                />
-              )}
-
-              {guestView === 'dining' && (
-                <GuestDiningMenu
-                  onBack={() => setGuestView('home')}
-                  onRequestSubmitted={handleRequestCreated}
-                  onNavigateTab={handleGuestNavigate}
-                />
-              )}
-            </div>
-          )}
-        </>
-      )}
-
-      {/* 3. DEV MODE SWITCHER: Stripped completely in production builds */}
-      {import.meta.env.DEV && (
-        <aside aria-label="Developer utilities" className="fixed bottom-3 left-3 z-50">
-          {!isDevBarOpen ? (
-            <button
-              onClick={() => setIsDevBarOpen(true)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-stone-900/90 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-900 text-stone-300 [@media(hover:hover)_and_(pointer:fine)]:hover:text-white border border-white/[0.12] shadow-elevated backdrop-blur-md transition-[background-color,border-color,transform] duration-160 ease-[cubic-bezier(0.16,1,0.3,1)] text-xs font-mono active:scale-[0.96] group cursor-pointer"
-              title="Open 4-Tier Role Architecture Switcher"
-            >
-              <Terminal className="w-3.5 h-3.5 text-amber-400 group-hover:rotate-12 transition-transform duration-200" />
-              <span className="font-semibold">Dev Mode</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            </button>
-          ) : (
-            <div className="bg-stone-950 text-stone-200 rounded-2xl p-4 shadow-modal border border-white/[0.12] w-80 backdrop-blur-xl sheet-slide-up-animate space-y-3">
-              <div className="flex items-center justify-between pb-2 border-b border-white/[0.08]">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-xs font-bold text-white font-mono uppercase tracking-wider">
-                    Dev Portal Switcher
-                  </span>
-                </div>
-                <button
-                  onClick={() => setIsDevBarOpen(false)}
-                  className="p-1 rounded-lg text-stone-400 hover:text-white hover:bg-stone-850 active:scale-[0.92] transition-colors cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              {/* Current user badge */}
-              <div className="bg-stone-900/80 p-2.5 rounded-xl border border-white/[0.08] flex items-center justify-between text-[11px]">
-                <div>
-                  <span className="text-stone-400 block text-[10px] uppercase font-bold">Active User:</span>
-                  <span className="font-semibold text-white">
-                    {user ? `${user.name} (${user.role})` : 'Guest Session (Unauthenticated)'}
-                  </span>
-                </div>
-                {user && (
-                  <button
-                    onClick={() => {
-                      signOut();
-                      setActivePortal('guest');
-                    }}
-                    title="Sign Out"
-                    className="p-1 text-stone-400 hover:text-rose-400 hover:bg-stone-800 rounded active:scale-[0.92] transition-colors cursor-pointer"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
-              {/* Portal Switch Buttons */}
-              <div className="space-y-1.5">
-                <button
-                  onClick={() => handleRequestPortalSwitch('admin')}
-                  className={`w-full p-2.5 rounded-xl text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer ${
-                    activePortal === 'admin'
-                      ? 'bg-amber-400 text-stone-950 font-bold shadow-xs'
-                      : 'bg-stone-900 hover:bg-stone-850 text-stone-300'
-                  }`}
-                >
-                  <span className="flex items-center gap-2">
-                    <Crown className="w-3.5 h-3.5" />
-                    <span>Founder Admin (Tier 1)</span>
-                  </span>
-                  <span className="text-[10px] font-mono text-amber-300">Firebase Auth</span>
-                </button>
-
-                <button
-                  onClick={() => handleRequestPortalSwitch('staff')}
-                  className={`w-full p-2.5 rounded-xl text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer ${
-                    activePortal === 'staff'
-                      ? 'bg-emerald-800 text-white font-bold shadow-xs'
-                      : 'bg-stone-900 hover:bg-stone-850 text-stone-300'
-                  }`}
-                >
-                  <span className="flex items-center gap-2">
-                    <Users className="w-3.5 h-3.5" />
-                    <span>Staff / Manager (Tier 2 & 3)</span>
-                  </span>
-                  <span className="text-[10px] font-mono text-stone-400">PIN / Email</span>
-                </button>
-
-                <button
-                  onClick={() => handleRequestPortalSwitch('guest')}
-                  className={`w-full p-2.5 rounded-xl text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer ${
-                    activePortal === 'guest'
-                      ? 'bg-emerald-800 text-white font-bold shadow-xs'
-                      : 'bg-stone-900 hover:bg-stone-850 text-stone-300'
-                  }`}
-                >
-                  <span className="flex items-center gap-2">
-                    <Smartphone className="w-3.5 h-3.5" />
-                    <span>Guest Mobile View (Tier 4)</span>
-                  </span>
-                  <span className="text-[10px] font-mono text-emerald-400">Public</span>
-                </button>
-              </div>
-
-              {/* QR Simulation Trigger */}
-              <div className="pt-2 border-t border-white/[0.08]">
-                <button
-                  onClick={() => {
-                    setIsQRModalOpen(true);
-                    setIsDevBarOpen(false);
-                  }}
-                  className="w-full p-2 rounded-xl bg-stone-900 hover:bg-stone-850 text-amber-300 border border-white/[0.08] text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-[0.98] transition-all cursor-pointer"
-                >
-                  <QrCode className="w-3.5 h-3.5" />
-                  <span>Simulate In-Room QR Scan</span>
-                </button>
-              </div>
-            </div>
-          )}
-        </aside>
-      )}
-
-      {/* QR Simulation Modal */}
-      <QRModal
-        isOpen={isQRModalOpen}
-        onClose={() => setIsQRModalOpen(false)}
-        onSelectRoom={handleRoomResolved}
-      />
+        {guestView === 'dining' && (
+          <GuestDiningMenu
+            onBack={() => setGuestView('home')}
+            onRequestSubmitted={handleRequestCreated}
+            onNavigateTab={handleGuestNavigate}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -387,10 +230,7 @@ function AppContent() {
 export default function App() {
   return (
     <AuthProvider>
-      <TenantProvider 
-        initialSlug="rocks-apartments" 
-        initialRoomId={import.meta.env.DEV ? 'room_rocks_101' : undefined}
-      >
+      <TenantProvider initialSlug="rocks-apartments">
         <AppContent />
       </TenantProvider>
     </AuthProvider>

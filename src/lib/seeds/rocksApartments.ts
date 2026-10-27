@@ -11,8 +11,8 @@ export const SEED_PROPERTIES: Property[] = [
     primaryColor: "#1E3A5F", // Slate Sapphire
     secondaryColor: "#D4AF37", // Warm Ochre
     accentColor: "#3B82F6", // Pool Azure
-    contactPhone: "+260 97 555 0199",
-    contactEmail: "joe.zaza@rocksapartments.zm",
+    contactPhone: "+260 97 000 0100",
+    contactEmail: "reception@rockapartments.example.com",
     address: "Waterfalls Estate, Airport Road Corridor, Lusaka",
     city: "Lusaka",
     country: "Zambia",
@@ -46,12 +46,8 @@ export const SEED_ROOMS: Room[] = [
     propertyId: "prop_rocks_lusaka", 
     roomNumber: "Suite 1 (Master King)", 
     roomType: "Master En-Suite with Pool View", 
-    status: "occupied", 
+    status: "available", 
     imageUrl: "/images/rocks-suite-enhanced.jpg",
-    currentGuestName: "Mr. Hastings Banda", 
-    guestCheckOutDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), 
-    guestPhone: "+260 97 788 1234", 
-    notes: "VIP Booking - requested poolside fruit platter", 
     createdAt: "2026-02-01T00:00:00Z", 
     updatedAt: "2026-02-01T00:00:00Z" 
   },
@@ -70,10 +66,7 @@ export const SEED_ROOMS: Room[] = [
     propertyId: "prop_rocks_lusaka", 
     roomNumber: "Bedroom 3 (Executive Twin)", 
     roomType: "Executive Twin Bedroom", 
-    status: "occupied", 
-    currentGuestName: "Dr. K. Musonda", 
-    guestCheckOutDate: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(), 
-    guestPhone: "+260 96 444 8877", 
+    status: "available", 
     createdAt: "2026-02-01T00:00:00Z", 
     updatedAt: "2026-02-01T00:00:00Z" 
   },
@@ -154,40 +147,37 @@ export const SEED_QR_CODES: QRCodeRecord[] = [
 
 export const SEED_STAFF_USERS: UserProfile[] = [
   {
-    id: "admin_founder",
-    propertyId: "", // Platform-wide Founder (Tier 1)
-    name: "Nathaniel Mazaba (Founder)",
-    email: "nathanielmazaba@gmail.com",
+    id: "founder_test_01",
+    propertyId: "", // Platform-wide Founder
+    name: "Platform Founder (Test)",
+    email: "founder.test@example.com",
     phone: "+260 97 000 0001",
-    role: "admin",
+    role: "founder",
     department: "management",
-    pinCode: "7777",
     active: true,
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
   },
   {
-    id: "mgr_joe_zaza",
+    id: "manager_test_01",
     propertyId: "prop_rocks_lusaka",
-    name: "Joe Zaza (General Manager)",
-    email: "nathanielmazaba+gm@gmail.com",
-    phone: "+260 97 555 0199",
+    name: "Property Manager (Test)",
+    email: "manager.test@example.com",
+    phone: "+260 97 000 0002",
     role: "manager",
     department: "management",
-    pinCode: "1234",
     active: true,
     createdAt: "2026-02-01T00:00:00Z",
     updatedAt: "2026-02-01T00:00:00Z",
   },
   {
-    id: "staff_rocks_zulu",
+    id: "staff_test_01",
     propertyId: "prop_rocks_lusaka",
-    name: "Bwalya Zulu",
-    email: "concierge@rocksapartments.zm",
-    phone: "+260 97 555 0198",
+    name: "House Attendant (Test)",
+    email: "staff.test@example.com",
+    phone: "+260 97 000 0003",
     role: "staff",
-    department: "reception",
-    pinCode: "1234",
+    department: "housekeeping",
     active: true,
     createdAt: "2026-02-01T00:00:00Z",
     updatedAt: "2026-02-01T00:00:00Z",
@@ -241,36 +231,4 @@ export const SEED_DINING_ITEMS: DiningItem[] = [
   }
 ];
 
-export const INITIAL_REQUESTS: ServiceRequest[] = [
-  {
-    id: "req_rocks_01",
-    propertyId: "prop_rocks_lusaka",
-    roomId: "room_rocks_101",
-    roomNumber: "Suite 1 (Master King)",
-    category: "housekeeping",
-    title: "Hot Tub Heat Check & Pool Towels",
-    description: "Please prepare the private hot tub on the terrace and supply 4 fresh pool towels.\nDelivery Note: Knock softly",
-    priority: "high",
-    status: "in_progress",
-    assignedTo: { uid: "mgr_joe_zaza", name: "Joe Zaza (General Manager)" },
-    guestName: "Mr. Hastings Banda",
-    guestPhone: "+260 97 788 1234",
-    createdAt: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-    updatedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-  },
-  {
-    id: "req_rocks_02",
-    propertyId: "prop_rocks_lusaka",
-    roomId: "room_rocks_103",
-    roomNumber: "Bedroom 3 (Executive Twin)",
-    category: "concierge",
-    title: "Airport Transfer to KKIA (6.8 mi)",
-    description: "Requesting private shuttle transfer to Kenneth Kaunda International Airport tomorrow at 08:30 AM.\nDelivery Note: Knock softly",
-    priority: "normal",
-    status: "pending",
-    guestName: "Dr. K. Musonda",
-    guestPhone: "+260 96 444 8877",
-    createdAt: new Date(Date.now() - 35 * 60 * 1000).toISOString(),
-    updatedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
-  }
-];
+export const INITIAL_REQUESTS: ServiceRequest[] = [];

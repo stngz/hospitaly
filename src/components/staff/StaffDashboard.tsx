@@ -55,14 +55,15 @@ interface StaffDashboardProps {
 type DashboardTab = 'requests' | 'rooms' | 'menu' | 'team';
 
 export const StaffDashboard: React.FC<StaffDashboardProps> = ({ 
-  onSwitchToGuest,
   onSelectRoomForGuest,
   onSwitchToAdmin
 }) => {
-  const { user, signOut, availableStaff, signInAs } = useAuth();
+  const { user, signOut } = useAuth();
   
-  // Tier verification
-  const isManagerOrAdmin = user?.role === 'manager' || user?.role === 'admin';
+  // Role verification
+  const isFounder = user?.role === 'founder';
+  const isManagerOrAdmin = user?.role === 'manager' || user?.role === 'founder';
+  const isStaffOnly = user?.role === 'staff';
 
   // Primary tab state (auto fallback if staff tries to open manager tabs)
   const [dashboardTab, setDashboardTab] = useState<DashboardTab>('requests');
@@ -89,7 +90,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   const [qrPlaqueRoom, setQrPlaqueRoom] = useState<Room | null>(null);
   const [copiedToken, setCopiedToken] = useState(false);
 
-  // Modals & state for Menu & Pricing (Tier 2)
+  // Modals & state for Menu & Pricing
   const [isAddDiningOpen, setIsAddDiningOpen] = useState(false);
   const [diningCategoryFilter, setDiningCategoryFilter] = useState<string>('all');
   const [diningSearchQuery, setDiningSearchQuery] = useState('');
@@ -98,28 +99,6 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   const [newDiningDescription, setNewDiningDescription] = useState('');
   const [newDiningPrice, setNewDiningPrice] = useState<string>('150');
   const [newDiningImage, setNewDiningImage] = useState('');
-
-  // Modals & state for Team & Staff (Tier 2)
-  const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
-  const [newStaffName, setNewStaffName] = useState('');
-  const [newStaffEmail, setNewStaffEmail] = useState('');
-  const [newStaffPhone, setNewStaffPhone] = useState('');
-  const [newStaffDepartment, setNewStaffDepartment] = useState<StaffDepartment>('housekeeping');
-  const [newStaffRole, setNewStaffRole] = useState<'staff' | 'manager'>('staff');
-  const [newStaffPin, setNewStaffPin] = useState('1234');
-
-  // PIN Fast Switcher Modal
-  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
-  const [pinInput, setPinInput] = useState('');
-  const [pinError, setPinError] = useState<string | null>(null);
-  const [revealedPins, setRevealedPins] = useState<Record<string, boolean>>({});
-
-  const togglePinReveal = (staffId: string) => {
-    setRevealedPins((prev) => ({
-      ...prev,
-      [staffId]: !prev[staffId],
-    }));
-  };
 
   // Subscribe to reactive store with stable snapshots
   const allRequests = useSyncExternalStore(
@@ -158,32 +137,44 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
     dbService.getAllUsers
   );
 
-  const currentProperty = properties.find((p) => p.id === user?.propertyId) || properties[0];
+  if (!user || (user.role !== 'founder' && user.role !== 'manager' && user.role !== 'staff')) {
+    return null;
+  }
 
-  const requests = user?.propertyId
+  const currentProperty = properties.find((p) => p.id === user.propertyId) || properties[0];
+
+  const propertyScopedRequests = user.propertyId
     ? allRequests.filter((r) => r.propertyId === user.propertyId)
-    : allRequests;
+    : allRequests.filter((r) => !currentProperty || r.propertyId === currentProperty.id);
 
-  const propertyRooms = user?.propertyId
+  // Staff can process ONLY authorised requests assigned to them
+  const requests = isStaffOnly
+    ? propertyScopedRequests.filter((r) => r.assignedTo?.uid === user.id)
+    : propertyScopedRequests;
+
+  const propertyRooms = user.propertyId
     ? allRooms.filter((r) => r.propertyId === user.propertyId)
-    : allRooms;
+    : allRooms.filter((r) => !currentProperty || r.propertyId === currentProperty.id);
 
   const propertyDining = currentProperty?.id
     ? allDining.filter((d) => d.propertyId === currentProperty.id)
     : allDining;
 
   const propertyStaff = currentProperty?.id
-    ? allUsers.filter((u) => u.propertyId === currentProperty.id)
-    : allUsers;
+    ? allUsers.filter((u) => u.propertyId === currentProperty.id && u.active)
+    : allUsers.filter((u) => u.active);
 
-  // Enforce tier guard: if staff tries to view manager tabs, fallback to requests
-  const activeTab: DashboardTab = (!isManagerOrAdmin && (dashboardTab === 'menu' || dashboardTab === 'team'))
-    ? 'requests'
-    : dashboardTab;
+  // Enforce tier guard: staff can only view 'requests'
+  const activeTab: DashboardTab = !isManagerOrAdmin ? 'requests' : dashboardTab;
 
   // Request actions
   const handleStatusUpdate = (requestId: string, newStatus: RequestStatus) => {
     if (!user) return;
+    const targetReq = requests.find((r) => r.id === requestId);
+    if (!targetReq) return;
+    if (isStaffOnly && targetReq.assignedTo?.uid !== user.id) {
+      return;
+    }
     dbService.updateRequestStatus(requestId, newStatus, {
       uid: user.id,
       name: user.name,
@@ -283,51 +274,6 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
     dbService.updateDiningItem(item.id, { available: !item.available });
   };
 
-  // Staff actions
-  const handleCreateStaff = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newStaffName.trim() || !newStaffEmail.trim() || !newStaffPin.trim()) return;
-    const propId = currentProperty?.id || 'prop_zambezi_01';
-    dbService.createStaffMember(propId, {
-      name: newStaffName.trim(),
-      email: newStaffEmail.trim().toLowerCase(),
-      phone: newStaffPhone.trim(),
-      department: newStaffDepartment,
-      role: newStaffRole,
-      pinCode: newStaffPin.trim(),
-    });
-    setNewStaffName('');
-    setNewStaffEmail('');
-    setNewStaffPhone('');
-    setNewStaffPin('1234');
-    setIsAddStaffOpen(false);
-  };
-
-  const handleDeleteStaff = (userId: string, _name: string) => {
-    if (user?.id === userId) {
-      return;
-    }
-    dbService.deleteStaffMember(userId);
-  };
-
-  // Fast PIN Login Switcher
-  const handlePinSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPinError(null);
-    const cleanPin = pinInput.trim();
-    if (!cleanPin) return;
-
-    // Search for staff matching this PIN
-    const match = allUsers.find((u) => u.pinCode === cleanPin);
-    if (match) {
-      signInAs(match);
-      setIsPinModalOpen(false);
-      setPinInput('');
-    } else {
-      setPinError('Invalid 4-digit PIN. Please try again or check the team list.');
-    }
-  };
-
   // Filtered requests
   const filteredRequests = requests.filter((r) => {
     if (filterStatus !== 'all' && r.status !== filterStatus) return false;
@@ -406,13 +352,13 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <span className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded ${
-                user?.role === 'admin' 
+                isFounder 
                   ? 'bg-purple-100 text-purple-900' 
                   : user?.role === 'manager'
                   ? 'bg-amber-100 text-amber-900 font-extrabold'
                   : 'bg-emerald-100 text-emerald-900'
               }`}>
-                {user?.role === 'admin' ? 'Tier 1 • Founder Admin' : user?.role === 'manager' ? 'Tier 2 • General Manager' : 'Tier 3 • Staff Member'}
+                {isFounder ? 'Tier 1 • Founder Admin' : user?.role === 'manager' ? 'Tier 2 • General Manager' : 'Tier 3 • Staff Member'}
               </span>
               <span className="text-[10px] bg-stone-100/90 text-stone-600 px-2 py-0.5 rounded font-mono border border-stone-900/[0.05]">
                 {currentProperty?.name || 'All Properties'}
@@ -423,35 +369,11 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               <span className="capitalize text-stone-500 font-medium text-xs">
                 &bull; {user?.department}
               </span>
-              {user?.pinCode && (
-                <span className="text-[10px] font-mono text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded border border-stone-900/[0.06]">
-                  PIN: {user.pinCode}
-                </span>
-              )}
             </h1>
           </div>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Quick Staff Switcher for interactive testing */}
-          <div className="flex items-center gap-1 text-xs bg-stone-100/90 p-1.5 rounded-xl border border-stone-900/[0.07]">
-            <span className="text-stone-500 font-medium px-1">Switch:</span>
-            {availableStaff.map((staff) => (
-              <button
-                key={staff.id}
-                onClick={() => signInAs(staff)}
-                title={`Sign in as ${staff.name} (${staff.role} - PIN: ${staff.pinCode || '1234'})`}
-                className={`px-2 py-1 rounded-lg text-xs font-semibold active:scale-[0.96] transition-[background-color,color,transform] duration-140 ${
-                  user?.id === staff.id
-                    ? 'bg-emerald-950 text-amber-300 shadow-2xs'
-                    : 'text-stone-700 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-200'
-                }`}
-              >
-                {staff.name.split(' ')[0]} ({staff.role === 'manager' ? 'GM' : staff.department.slice(0, 5)})
-              </button>
-            ))}
-          </div>
-
           <button
             onClick={() => {
               notificationService.playStaffAlertChime();
@@ -464,46 +386,29 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
             <span>Chime Alert</span>
           </button>
 
-          <button
-            onClick={() => setIsPinModalOpen(true)}
-            className="px-2.5 py-1.5 bg-stone-200/80 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-300 text-stone-800 rounded-xl text-xs font-semibold active:scale-[0.96] transition-[background-color,transform] duration-140 flex items-center gap-1 border border-stone-900/[0.06]"
-            title="Fast PIN Sign-in"
-          >
-            <KeyRound className="w-3.5 h-3.5 text-stone-600" />
-            <span>Enter PIN</span>
-          </button>
-
-          {onSwitchToAdmin && (
+          {isFounder && onSwitchToAdmin && (
             <button
               onClick={onSwitchToAdmin}
               className="px-3 py-1.5 bg-amber-400 text-stone-950 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-amber-300 rounded-xl text-xs font-bold active:scale-[0.96] transition-[background-color,transform] duration-140 shadow-xs"
             >
-              Tier 1 HQ
-            </button>
-          )}
-
-          {onSwitchToGuest && (
-            <button
-              onClick={onSwitchToGuest}
-              className="px-3 py-1.5 bg-stone-800 text-stone-100 rounded-xl text-xs font-semibold [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-900 active:scale-[0.96] transition-[background-color,transform] duration-140"
-            >
-              Guest View
+              Founder HQ
             </button>
           )}
 
           <button
-            onClick={() => dbService.resetDemoData()}
-            title="Reset to fresh demo state"
-            className="p-2 text-stone-500 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-800 rounded-xl [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-100 active:scale-[0.92] transition-colors"
+            onClick={() => signOut()}
+            title="Sign out of Staff Portal"
+            className="px-3 py-1.5 bg-stone-900 text-stone-100 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-800 rounded-xl text-xs font-semibold active:scale-[0.96] transition-[background-color,transform] duration-140 flex items-center gap-1.5"
           >
-            <RotateCcw className="w-4 h-4" />
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Sign Out</span>
           </button>
         </div>
       </header>
 
       {/* Main Content Area */}
       <main className="p-6 max-w-6xl mx-auto space-y-6">
-        {/* Navigation Tab Bar - Tier 2 (Manager/Admin) sees 4 tabs, Tier 3 (Staff) sees 2 */}
+        {/* Navigation Tab Bar - Manager/Founder sees operational tabs, Staff sees assigned requests */}
         <div className="flex items-center justify-between gap-4 border-b border-stone-900/[0.08] pb-3 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap">
             {/* Tab 1: Live Requests */}
@@ -516,7 +421,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               }`}
             >
               <Clock className="w-4 h-4" />
-              <span>Live Requests</span>
+              <span>{isStaffOnly ? 'My Assigned Requests' : 'Live Requests'}</span>
               <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
                 activeTab === 'requests' ? 'bg-brand-secondary text-stone-950' : 'bg-stone-100 text-stone-600'
               }`}>
@@ -524,25 +429,27 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               </span>
             </button>
 
-            {/* Tab 2: Rooms, Check-In & QR Codes */}
-            <button
-              onClick={() => setDashboardTab('rooms')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold text-xs sm:text-sm active:scale-[0.97] transition-[background-color,color,border-color,transform] duration-160 ease-[cubic-bezier(0.16,1,0.3,1)] select-none ${
-                activeTab === 'rooms'
-                  ? 'bg-brand-primary text-brand-secondary shadow-diffused'
-                  : 'bg-white text-stone-600 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-900 border border-stone-900/[0.08]'
-              }`}
-            >
-              <Building2 className="w-4 h-4" />
-              <span>Rooms, Check-In & QR Codes</span>
-              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                activeTab === 'rooms' ? 'bg-brand-secondary text-stone-950' : 'bg-stone-100 text-stone-600'
-              }`}>
-                {propertyRooms.length}
-              </span>
-            </button>
+            {/* Tab 2: Rooms, Check-In & QR Codes (Manager & Founder only) */}
+            {isManagerOrAdmin && (
+              <button
+                onClick={() => setDashboardTab('rooms')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold text-xs sm:text-sm active:scale-[0.97] transition-[background-color,color,border-color,transform] duration-160 ease-[cubic-bezier(0.16,1,0.3,1)] select-none ${
+                  activeTab === 'rooms'
+                    ? 'bg-brand-primary text-brand-secondary shadow-diffused'
+                    : 'bg-white text-stone-600 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-900 border border-stone-900/[0.08]'
+                }`}
+              >
+                <Building2 className="w-4 h-4" />
+                <span>Rooms, Check-In & QR Codes</span>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                  activeTab === 'rooms' ? 'bg-brand-secondary text-stone-950' : 'bg-stone-100 text-stone-600'
+                }`}>
+                  {propertyRooms.length}
+                </span>
+              </button>
+            )}
 
-            {/* Tab 3: Menu & Pricing (Tier 2 GM & Admin only) */}
+            {/* Tab 3: Menu & Pricing (Tier 2 GM & Founder only) */}
             {isManagerOrAdmin && (
               <button
                 onClick={() => setDashboardTab('menu')}
@@ -562,7 +469,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               </button>
             )}
 
-            {/* Tab 4: Team & Staff (Tier 2 GM & Admin only) */}
+            {/* Tab 4: Team & Staff (Tier 2 GM & Founder only) */}
             {isManagerOrAdmin && (
               <button
                 onClick={() => setDashboardTab('team')}
@@ -584,7 +491,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
           </div>
 
           {/* Contextual Action Button */}
-          {activeTab === 'rooms' && (
+          {activeTab === 'rooms' && isManagerOrAdmin && (
             <button
               onClick={() => setIsAddRoomOpen(true)}
               className="flex items-center gap-1.5 px-3.5 py-2 bg-brand-primary [@media(hover:hover)_and_(pointer:fine)]:hover:opacity-90 text-brand-secondary rounded-xl text-xs font-semibold shadow-diffused active:scale-[0.96] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
@@ -601,16 +508,6 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
             >
               <Plus className="w-4 h-4" />
               <span>Add Dining Item</span>
-            </button>
-          )}
-
-          {activeTab === 'team' && isManagerOrAdmin && (
-            <button
-              onClick={() => setIsAddStaffOpen(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-brand-primary [@media(hover:hover)_and_(pointer:fine)]:hover:opacity-90 text-brand-secondary rounded-xl text-xs font-semibold shadow-diffused active:scale-[0.96] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
-            >
-              <UserPlus className="w-4 h-4" />
-              <span>Add Staff Member</span>
             </button>
           )}
         </div>
@@ -770,46 +667,46 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                         )}
                       </div>
 
-                      {/* Staff Assignment Selector for Reception / Manager */}
-                      <div className="flex items-center gap-2 pt-2 border-t border-stone-100 flex-wrap">
-                        <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wide flex items-center gap-1 font-mono">
-                          <UserCheck className="w-3.5 h-3.5 text-amber-600" />
-                          <span>Assign Staff:</span>
-                        </span>
-                        <select
-                          value={req.assignedTo?.uid || ''}
-                          onChange={(e) => {
-                            const staffUid = e.target.value;
-                            if (!staffUid) {
-                              dbService.updateRequestStatus(req.id, req.status, undefined);
-                            } else {
-                              const selectedMember = availableStaff.find((s) => s.id === staffUid);
-                              if (selectedMember) {
-                                dbService.updateRequestStatus(req.id, req.status === 'pending' ? 'acknowledged' : req.status, {
-                                  uid: selectedMember.id,
-                                  name: selectedMember.name,
-                                });
-                                notificationService.notify({
-                                  title: 'Staff Assigned',
-                                  subtitle: `${selectedMember.name} assigned to Room ${req.roomNumber}`,
-                                  roomNumber: req.roomNumber,
-                                  category: req.category,
-                                });
+                      {/* Staff Assignment Selector for General Manager / Founder */}
+                      {isManagerOrAdmin && (
+                        <div className="flex items-center gap-2 pt-2 border-t border-stone-100 flex-wrap">
+                          <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wide flex items-center gap-1 font-mono">
+                            <UserCheck className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Assign Staff:</span>
+                          </span>
+                          <select
+                            value={req.assignedTo?.uid || ''}
+                            onChange={(e) => {
+                              const staffUid = e.target.value;
+                              if (!staffUid) {
+                                dbService.updateRequestStatus(req.id, req.status, undefined);
+                              } else {
+                                const selectedMember = propertyStaff.find((s) => s.id === staffUid);
+                                if (selectedMember) {
+                                  dbService.updateRequestStatus(req.id, req.status === 'pending' ? 'acknowledged' : req.status, {
+                                    uid: selectedMember.id,
+                                    name: selectedMember.name,
+                                  });
+                                  notificationService.notify({
+                                    title: 'Staff Assigned',
+                                    subtitle: `${selectedMember.name} assigned to Room ${req.roomNumber}`,
+                                    roomNumber: req.roomNumber,
+                                    category: req.category,
+                                  });
+                                }
                               }
-                            }
-                          }}
-                          className="text-xs bg-stone-50 border border-stone-200 rounded-lg px-2.5 py-1 text-stone-800 font-medium focus:ring-1 focus:ring-amber-500 cursor-pointer"
-                        >
-                          <option value="">-- Unassigned (Select Staff) --</option>
-                          {availableStaff
-                            .filter((s) => !currentProperty || s.propertyId === currentProperty.id || s.role === 'admin')
-                            .map((s) => (
+                            }}
+                            className="text-xs bg-stone-50 border border-stone-200 rounded-lg px-2.5 py-1 text-stone-800 font-medium focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                          >
+                            <option value="">-- Unassigned (Select Staff) --</option>
+                            {propertyStaff.map((s) => (
                               <option key={s.id} value={s.id}>
                                 {s.name} ({s.role === 'manager' ? 'GM' : s.department.toUpperCase()})
                               </option>
                             ))}
-                        </select>
-                      </div>
+                          </select>
+                        </div>
+                      )}
                     </div>
 
                     {/* Workflow Action Buttons */}
@@ -1222,49 +1119,48 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
           </div>
         )}
 
-        {/* TAB 4: TEAM & STAFF (Tier 2 GM & Admin only) */}
+        {/* TAB 4: TEAM & STAFF (Tier 2 GM & Founder only — Read-Only Roster for Managers) */}
         {activeTab === 'team' && isManagerOrAdmin && (
           <div className="space-y-6">
             <div className="bg-brand-primary text-stone-100 p-6 rounded-3xl shadow-sm border border-stone-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-widest text-brand-secondary">
-                  Staff Access Governance
+                  Property Team Directory
                 </span>
                 <h2 className="text-xl font-serif font-bold text-white mt-1">
-                  Team Members & 4-Digit Security PINs
+                  Authorised Property Staff
                 </h2>
                 <p className="text-xs text-stone-300 mt-1 max-w-xl">
-                  Receptionists, Housekeepers, Kitchen and Maintenance crew log in via fast 4-digit PINs without typing passwords on shared operational tablets.
+                  During the pilot, account creation, role assignments, and password resets are centrally managed by Hospitally HQ. Contact the Founder if additional staff accounts or access changes are needed.
                 </p>
               </div>
-
-              <button
-                onClick={() => setIsAddStaffOpen(true)}
-                className="px-4 py-2.5 bg-brand-secondary hover:opacity-90 text-stone-950 rounded-xl text-xs font-bold shadow-md transition-opacity flex items-center gap-1.5 shrink-0"
-              >
-                <UserPlus className="w-4 h-4" />
-                <span>Add Team Member</span>
-              </button>
+              {isFounder && onSwitchToAdmin && (
+                <button
+                  onClick={onSwitchToAdmin}
+                  className="px-4 py-2.5 bg-brand-secondary hover:opacity-90 text-stone-950 rounded-xl text-xs font-bold shadow-md transition-opacity flex items-center gap-1.5 shrink-0"
+                >
+                  <Shield className="w-4 h-4" />
+                  <span>Manage Accounts in Founder HQ</span>
+                </button>
+              )}
             </div>
 
-            {/* Team & Staff High-Density Editorial Data Table */}
+            {/* Team & Staff Read-Only Roster */}
             <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-xs">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-stone-50 border-b border-stone-200 text-[11px] font-bold uppercase tracking-wider text-stone-600">
                       <th className="py-3 px-4">Team Member</th>
-                      <th className="py-3 px-4">Tier & Role</th>
+                      <th className="py-3 px-4">Role</th>
                       <th className="py-3 px-4">Department</th>
-                      <th className="py-3 px-4">Security PIN</th>
-                      <th className="py-3 px-4 text-right">Actions</th>
+                      <th className="py-3 px-4 text-right">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100 text-xs">
                     {propertyStaff.map((staff) => {
                       const isCurrent = user?.id === staff.id;
                       const isGM = staff.role === 'manager';
-                      const isRevealed = revealedPins[staff.id];
                       return (
                         <tr key={staff.id} className={`hover:bg-stone-50/70 transition-colors ${isCurrent ? 'bg-amber-50/30' : ''}`}>
                           <td className="py-3 px-4">
@@ -1272,7 +1168,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                               <div className="flex items-center gap-1.5">
                                 <span className="font-bold text-stone-900">{staff.name}</span>
                                 {isCurrent && (
-                                  <span className="text-[10px] font-bold bg-brand-primary text-brand-secondary px-1.5 py-0.2 rounded font-mono">
+                                  <span className="text-[10px] font-bold bg-brand-primary text-brand-secondary px-1.5 py-0.5 rounded font-mono">
                                     You
                                   </span>
                                 )}
@@ -1285,50 +1181,23 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                           </td>
                           <td className="py-3 px-4">
                             <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase ${
-                              isGM ? 'bg-amber-100 text-amber-900' : 'bg-stone-100 text-stone-700'
+                              staff.role === 'founder'
+                                ? 'bg-purple-100 text-purple-900'
+                                : isGM
+                                ? 'bg-amber-100 text-amber-900'
+                                : 'bg-stone-100 text-stone-700'
                             }`}>
-                              {isGM ? 'Tier 2 • GM' : 'Tier 3 • Staff'}
+                              {staff.role === 'founder' ? 'Founder' : isGM ? 'General Manager' : 'Staff'}
                             </span>
                           </td>
                           <td className="py-3 px-4 capitalize font-medium text-stone-700">
                             {staff.department}
                           </td>
-                          <td className="py-3 px-4 font-mono font-bold">
-                            <div className="flex items-center gap-2">
-                              <span className="bg-stone-100 px-2.5 py-1 rounded text-stone-800 tracking-widest font-mono">
-                                {isRevealed ? (staff.pinCode || '1234') : '••••'}
-                              </span>
-                              <button
-                                onClick={() => togglePinReveal(staff.id)}
-                                title={isRevealed ? "Mask PIN" : "Reveal PIN"}
-                                className="p-1 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded transition-colors"
-                              >
-                                {isRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                              </button>
-                            </div>
-                          </td>
                           <td className="py-3 px-4 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={() => signInAs(staff)}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
-                                  isCurrent
-                                    ? 'bg-brand-primary text-brand-secondary'
-                                    : 'bg-stone-100 hover:bg-stone-200 text-stone-800'
-                                }`}
-                              >
-                                {isCurrent ? 'Active User' : 'Switch'}
-                              </button>
-                              {!isCurrent && (
-                                <button
-                                  onClick={() => handleDeleteStaff(staff.id, staff.name)}
-                                  title="Remove staff member"
-                                  className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              )}
-                            </div>
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                              Active
+                            </span>
                           </td>
                         </tr>
                       );
@@ -1777,214 +1646,6 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                   className="px-5 py-2 bg-emerald-900 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-diffused active:scale-[0.96] transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
                 >
                   Publish to Menu
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 5: ADD STAFF MEMBER (Tier 2) */}
-      {isAddStaffOpen && isManagerOrAdmin && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 modal-backdrop-animate">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-modal border border-stone-900/[0.08] modal-content-animate">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-emerald-950 text-amber-300 flex items-center justify-center shadow-2xs">
-                  <UserPlus className="w-4 h-4" />
-                </div>
-                <h2 className="text-base font-bold text-stone-900">Add Staff Member</h2>
-              </div>
-              <button
-                onClick={() => setIsAddStaffOpen(false)}
-                className="p-1.5 text-stone-400 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-700 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-100 rounded-full active:scale-[0.92] transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateStaff} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
-                  Full Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Gift Mwape"
-                  value={newStaffName}
-                  onChange={(e) => setNewStaffName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
-                    Department *
-                  </label>
-                  <select
-                    value={newStaffDepartment}
-                    onChange={(e) => setNewStaffDepartment(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900 bg-white"
-                  >
-                    <option value="housekeeping">Housekeeping</option>
-                    <option value="reception">Reception</option>
-                    <option value="maintenance">Maintenance</option>
-                    <option value="restaurant">Restaurant / Kitchen</option>
-                    <option value="concierge">Concierge</option>
-                    <option value="management">Management</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
-                    Role Tier *
-                  </label>
-                  <select
-                    value={newStaffRole}
-                    onChange={(e) => setNewStaffRole(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900 bg-white"
-                  >
-                    <option value="staff">Tier 3 (Staff)</option>
-                    <option value="manager">Tier 2 (Manager)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
-                  4-Digit Access PIN *
-                </label>
-                <input
-                  type="text"
-                  required
-                  maxLength={6}
-                  placeholder="e.g. 5566"
-                  value={newStaffPin}
-                  onChange={(e) => setNewStaffPin(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900 font-mono tracking-widest font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
-                  Email Address *
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="e.g. gift@zambeziheights.zm"
-                  value={newStaffEmail}
-                  onChange={(e) => setNewStaffEmail(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
-                  Phone (Optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="+260 97 000 0000"
-                  value={newStaffPhone}
-                  onChange={(e) => setNewStaffPhone(e.target.value)}
-                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900 font-mono"
-                />
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAddStaffOpen(false)}
-                  className="px-4 py-2 text-xs font-bold text-stone-600 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-100 rounded-xl active:scale-[0.96] transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-emerald-900 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-diffused active:scale-[0.96] transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
-                >
-                  Register Staff Member
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 6: FAST 4-DIGIT PIN SIGN-IN */}
-      {isPinModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 modal-backdrop-animate">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-modal border border-stone-900/[0.08] text-center modal-content-animate">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-950 text-amber-300 mx-auto flex items-center justify-center mb-3 shadow-2xs">
-              <KeyRound className="w-6 h-6" />
-            </div>
-
-            <h3 className="text-base font-bold text-stone-900">Fast Staff PIN Sign-In</h3>
-            <p className="text-xs text-stone-500 mt-1 mb-4 leading-relaxed">
-              Enter your assigned 4-digit security PIN to switch active operational profile.
-            </p>
-
-            <form onSubmit={handlePinSubmit} className="space-y-4">
-              <input
-                type="password"
-                maxLength={6}
-                autoFocus
-                placeholder="••••"
-                value={pinInput}
-                onChange={(e) => setPinInput(e.target.value)}
-                className="w-36 mx-auto text-center tracking-[0.4em] font-mono text-2xl font-bold py-2 border-b-2 border-emerald-950 focus:outline-none focus:border-amber-500"
-              />
-
-              {pinError && (
-                <p className="text-xs text-rose-600 font-medium">
-                  {pinError}
-                </p>
-              )}
-
-              {/* Quick sample buttons for rapid reviewer testing */}
-              <div className="pt-2 text-[11px] text-stone-400">
-                <span>Quick Test PINs:</span>
-                <div className="flex items-center justify-center gap-2 mt-1.5 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => { setPinInput('1234'); }}
-                    className="px-2 py-0.5 bg-stone-100 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-200 rounded font-mono text-stone-800 font-bold active:scale-[0.94] transition-all border border-stone-900/[0.05]"
-                  >
-                    1234 (GM)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setPinInput('2222'); }}
-                    className="px-2 py-0.5 bg-stone-100 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-200 rounded font-mono text-stone-800 font-bold active:scale-[0.94] transition-all border border-stone-900/[0.05]"
-                  >
-                    2222 (Housekeeping)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setPinInput('7777'); }}
-                    className="px-2 py-0.5 bg-stone-100 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-200 rounded font-mono text-stone-800 font-bold active:scale-[0.94] transition-all border border-stone-900/[0.05]"
-                  >
-                    7777 (Founder)
-                  </button>
-                </div>
-              </div>
-
-              <div className="pt-3 flex items-center justify-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => { setIsPinModalOpen(false); setPinError(null); }}
-                  className="px-4 py-2 text-xs font-bold text-stone-600 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-100 rounded-xl active:scale-[0.96] transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-emerald-950 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-emerald-900 text-amber-300 text-xs font-bold rounded-xl shadow-diffused active:scale-[0.96] transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
-                >
-                  Unlock Session
                 </button>
               </div>
             </form>

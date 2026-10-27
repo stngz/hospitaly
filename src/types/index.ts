@@ -1,4 +1,4 @@
-export type UserRole = 'guest' | 'staff' | 'manager' | 'admin';
+export type UserRole = 'founder' | 'manager' | 'staff' | 'guest';
 
 export type StaffDepartment =
   | 'housekeeping'
@@ -62,6 +62,7 @@ export interface Room {
   floorId?: string;
   roomNumber: string;
   roomType: string;
+  imageUrl?: string;
   status: 'available' | 'occupied' | 'maintenance' | 'unavailable';
   currentGuestName?: string;
   guestCheckOutDate?: string;
@@ -127,7 +128,6 @@ export interface UserProfile {
   name: string;
   email: string;
   phone?: string;
-  pinCode?: string;
   role: UserRole;
   department: StaffDepartment;
   profileImageUrl?: string;
