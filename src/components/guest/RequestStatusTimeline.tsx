@@ -28,11 +28,12 @@ import {
   Moon
 } from 'lucide-react';
 import { ServiceRequest } from '../../types';
+import { GuestBottomNav } from './GuestBottomNav';
 
 interface RequestStatusTimelineProps {
   requestId: string;
   onBack: () => void;
-  onNavigateTab?: (view: string) => void;
+  onNavigateTab?: (view: string, data?: any) => void;
 }
 
 const STEPS = [
@@ -591,34 +592,11 @@ export const RequestStatusTimeline: React.FC<RequestStatusTimelineProps> = ({
         </div>
       )}
 
-      {/* BOTTOM STICKY NAVIGATION */}
-      <nav className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-md border-t border-stone-900/[0.07] px-6 py-2.5 flex justify-around items-center z-40 max-w-md mx-auto shadow-lg">
-        <button 
-          onClick={onBack} 
-          className="flex flex-col items-center gap-0.5 text-stone-500 active:scale-[0.93] transition-transform select-none"
-        >
-          <span className="text-[11px] font-medium">Home</span>
-        </button>
-        <button 
-          onClick={() => onNavigateTab ? onNavigateTab('request') : onBack()} 
-          className="flex flex-col items-center gap-0.5 text-stone-500 active:scale-[0.93] transition-transform select-none"
-        >
-          <span className="text-[11px] font-medium">Services</span>
-        </button>
-        <button 
-          onClick={() => onNavigateTab ? onNavigateTab('dining') : onBack()} 
-          className="flex flex-col items-center gap-0.5 text-stone-500 active:scale-[0.93] transition-transform select-none"
-        >
-          <span className="text-[11px] font-medium">{property?.diningEnabled !== false ? 'Dining' : 'House Guide'}</span>
-        </button>
-        <button 
-          onClick={() => onNavigateTab ? onNavigateTab('my-requests') : onBack()} 
-          className="flex flex-col items-center gap-0.5 text-stone-900 font-bold active:scale-[0.93] transition-transform select-none"
-        >
-          <div className="w-1.5 h-1.5 rounded-full bg-amber-400 mb-0.5" />
-          <span className="text-[11px]">My Orders</span>
-        </button>
-      </nav>
+      {/* Slim Bottom Navigation */}
+      <GuestBottomNav
+        activeTab="my-requests"
+        onNavigate={(tab, data) => (onNavigateTab ? onNavigateTab(tab, data) : onBack())}
+      />
     </div>
   );
 };

@@ -327,7 +327,15 @@ export function initFirestoreListeners() {
           snapshot.forEach((docSnap) => {
             const data = docSnap.data() as Property;
             if (data && !obsoletePropIds.has(data.id)) {
-              list.push(data);
+              // Ensure property feature flags and terminology defaults
+              const defaulted: Property = {
+                ...data,
+                unitLabel: data.unitLabel || (data.id === 'prop_rocks_lusaka' ? 'House' : 'Room'),
+                diningEnabled: data.diningEnabled !== undefined ? data.diningEnabled : (data.id === 'prop_rocks_lusaka' ? false : true),
+                errandsEnabled: data.errandsEnabled !== undefined ? data.errandsEnabled : false,
+                airportTransfersEnabled: data.airportTransfersEnabled !== undefined ? data.airportTransfersEnabled : true,
+              };
+              list.push(defaulted);
             }
           });
           cache = { ...cache, properties: list };

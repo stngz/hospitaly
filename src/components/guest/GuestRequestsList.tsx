@@ -1,14 +1,15 @@
-import React, { useSyncExternalStore } from 'react';
+import React, { useEffect, useSyncExternalStore } from 'react';
 import { useTenant } from '../../context/TenantContext';
 import { dbService, subscribeToStore } from '../../lib/store';
 import { ArrowLeft, Clock, CheckCircle2, AlertCircle, ChevronRight, Plus, UtensilsCrossed, Sparkles } from 'lucide-react';
 import { ServiceRequest } from '../../types';
+import { GuestBottomNav } from './GuestBottomNav';
 
 interface GuestRequestsListProps {
   onBack: () => void;
   onSelectRequest: (requestId: string) => void;
   onNewRequest: () => void;
-  onNavigateTab?: (view: string) => void;
+  onNavigateTab?: (view: string, data?: any) => void;
 }
 
 export const GuestRequestsList: React.FC<GuestRequestsListProps> = ({
@@ -25,25 +26,34 @@ export const GuestRequestsList: React.FC<GuestRequestsListProps> = ({
     dbService.getAllRequests
   );
 
+  // Always scroll to top on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  }, []);
+
   // Filter requests strictly belonging to this checked-in room (prevents stranger privacy leak)
   const roomRequests = room 
     ? allRequests.filter((r) => r.propertyId === property?.id && r.roomId === room.id)
     : [];
 
   return (
-    <div className="min-h-dvh bg-[#FDFBF7] text-stone-900 p-5 pb-28 selection:bg-amber-100">
-      <div className="max-w-md mx-auto">
-        <header className="flex items-center justify-between mb-5">
+    <div className="min-h-dvh bg-[#FDFBF7] text-stone-900 p-4 pb-20 selection:bg-amber-100 overscroll-y-contain flex flex-col">
+      <div className="max-w-md mx-auto w-full flex-1">
+        <header className="flex items-center justify-between mb-4">
           <button 
+            type="button"
             onClick={onBack}
-            className="flex items-center gap-1.5 text-xs font-semibold text-stone-600 hover:text-stone-900 active:scale-[0.95] transition-[color,transform] duration-140 select-none"
+            aria-label="Back to home"
+            className="w-11 h-11 -ml-2 rounded-xl flex items-center justify-center text-stone-700 hover:text-stone-950 active:bg-stone-200/60 active:scale-95 transition-all cursor-pointer select-none"
           >
-            <ArrowLeft className="w-4 h-4" />
-            Back to Room
+            <ArrowLeft className="w-5 h-5" />
           </button>
           <button
+            type="button"
             onClick={onNewRequest}
-            className="flex items-center gap-1 text-xs font-semibold bg-stone-900 text-amber-300 px-3 py-1.5 rounded-xl shadow-xs active:scale-[0.96] transition-all hover:bg-stone-850 select-none border border-stone-800"
+            className="flex items-center gap-1.5 text-xs font-semibold bg-stone-900 text-amber-300 px-3.5 py-2 rounded-xl shadow-xs active:scale-[0.96] transition-all hover:bg-stone-850 select-none border border-stone-800 cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>New Request</span>
@@ -123,34 +133,11 @@ export const GuestRequestsList: React.FC<GuestRequestsListProps> = ({
         )}
       </div>
 
-      {/* Sticky Bottom Navigation */}
-      <nav className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-md border-t border-stone-900/[0.07] px-6 py-2.5 flex justify-around items-center z-40 max-w-md mx-auto shadow-lg">
-        <button 
-          onClick={onBack} 
-          className="flex flex-col items-center gap-0.5 text-stone-500 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-900 active:scale-[0.93] transition-[color,transform] duration-120 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
-        >
-          <span className="text-[11px] font-medium">Home</span>
-        </button>
-        <button 
-          onClick={() => onNavigateTab ? onNavigateTab('request') : onBack()} 
-          className="flex flex-col items-center gap-0.5 text-stone-500 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-900 active:scale-[0.93] transition-[color,transform] duration-120 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
-        >
-          <span className="text-[11px] font-medium">Services</span>
-        </button>
-        <button 
-          onClick={() => onNavigateTab ? onNavigateTab('dining') : onBack()} 
-          className="flex flex-col items-center gap-0.5 text-stone-500 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-900 active:scale-[0.93] transition-[color,transform] duration-120 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
-        >
-          <span className="text-[11px] font-medium">{property?.diningEnabled !== false ? 'Dining' : 'House Guide'}</span>
-        </button>
-        <button 
-          onClick={() => {}} 
-          className="flex flex-col items-center gap-0.5 text-stone-950 font-bold active:scale-[0.93] transition-transform duration-120 select-none"
-        >
-          <div className="w-1.5 h-1.5 rounded-full bg-amber-400 mb-0.5" />
-          <span className="text-[11px]">My Orders</span>
-        </button>
-      </nav>
+      {/* Slim Bottom Navigation */}
+      <GuestBottomNav
+        activeTab="my-requests"
+        onNavigate={(tab, data) => (onNavigateTab ? onNavigateTab(tab, data) : onBack())}
+      />
     </div>
   );
 };

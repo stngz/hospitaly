@@ -39,6 +39,7 @@ import {
   Building2,
   ShoppingBag
 } from 'lucide-react';
+import { GuestBottomNav } from './GuestBottomNav';
 
 interface GuestHomeProps {
   onNavigate: (view: string, data?: any) => void;
@@ -1061,39 +1062,8 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
         </div>
       )}
 
-      {/* BOTTOM STICKY NAVIGATION */}
-      <nav className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-md border-t border-stone-200/80 px-6 py-2.5 flex justify-around items-center z-40 max-w-md mx-auto shadow-lg">
-        <button 
-          onClick={() => onNavigate('home')} 
-          className="flex flex-col items-center gap-0.5 text-stone-900 active:scale-[0.93] transition-transform select-none"
-        >
-          <div className="w-1.5 h-1.5 rounded-full bg-amber-400 mb-0.5" />
-          <span className="text-[11px] font-bold">Home</span>
-        </button>
-        <button 
-          onClick={() => onNavigate('request')} 
-          className="flex flex-col items-center gap-0.5 text-stone-500 hover:text-stone-900 active:scale-[0.93] transition-transform select-none"
-        >
-          <span className="text-[11px] font-medium">Services</span>
-        </button>
-        <button 
-          onClick={() => onNavigate(isDiningEnabled ? 'dining' : 'dining')} 
-          className="flex flex-col items-center gap-0.5 text-stone-500 hover:text-stone-900 active:scale-[0.93] transition-transform select-none"
-        >
-          <span className="text-[11px] font-medium">{isDiningEnabled ? 'Dining' : 'House Guide'}</span>
-        </button>
-        <button 
-          onClick={() => onNavigate('my-requests')} 
-          className="flex flex-col items-center gap-0.5 text-stone-500 hover:text-stone-900 active:scale-[0.93] transition-transform select-none relative"
-        >
-          {activeRequests.length > 0 && (
-            <span className="absolute -top-1 -right-2 w-4 h-4 rounded-full bg-amber-400 text-stone-950 font-mono text-[9px] font-bold flex items-center justify-center animate-pulse">
-              {activeRequests.length}
-            </span>
-          )}
-          <span className="text-[11px] font-medium">My Orders</span>
-        </button>
-      </nav>
+      {/* SLIM, ACCESSIBLE BOTTOM NAVIGATION */}
+      <GuestBottomNav activeTab="home" onNavigate={onNavigate} />
     </div>
   );
 };

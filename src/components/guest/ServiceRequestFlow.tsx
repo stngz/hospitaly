@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTenant } from '../../context/TenantContext';
 import { dbService } from '../../lib/store';
 import { ArrowLeft, AlertCircle, Sparkles, Wrench, Compass, Car, Check, Home, UtensilsCrossed, Clock } from 'lucide-react';
 import { RequestPriority } from '../../types';
+import { GuestBottomNav } from './GuestBottomNav';
 
 interface ServiceRequestFlowProps {
   initialCategory?: string;
   initialItem?: string;
   onBack: () => void;
   onSubmitted: (requestId: string) => void;
-  onNavigateTab?: (view: string) => void;
+  onNavigateTab?: (view: string, data?: any) => void;
 }
 
 export const ServiceRequestFlow: React.FC<ServiceRequestFlowProps> = ({
@@ -107,6 +108,12 @@ export const ServiceRequestFlow: React.FC<ServiceRequestFlowProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  }, []);
+
   const activeCatObj = categories.find((c) => c.id === selectedCategory) || categories[0];
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -152,25 +159,26 @@ export const ServiceRequestFlow: React.FC<ServiceRequestFlowProps> = ({
   };
 
   return (
-    <div className="min-h-dvh bg-[#FDFBF7] text-stone-900 pb-28 selection:bg-amber-100">
+    <div className="min-h-dvh bg-[#FDFBF7] text-stone-900 pb-20 selection:bg-amber-100 overscroll-y-contain flex flex-col">
       {/* Sticky Header */}
-      <header className="sticky top-0 z-20 bg-[#FDFBF7]/90 backdrop-blur-md border-b border-stone-900/[0.07] px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <header className="sticky top-0 z-20 bg-[#FDFBF7]/95 backdrop-blur-md border-b border-stone-200/80 px-4 py-2 flex items-center justify-between shadow-2xs">
+        <div className="flex items-center gap-2">
           <button 
             type="button"
             onClick={onBack} 
-            className="p-1.5 rounded-full hover:bg-stone-200/70 active:scale-[0.95] transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] text-stone-700"
+            aria-label="Back to home"
+            className="w-11 h-11 -ml-1 rounded-xl flex items-center justify-center text-stone-700 hover:text-stone-950 active:bg-stone-200/60 active:scale-95 transition-all cursor-pointer"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
             <h1 className="text-sm font-bold text-stone-900 leading-tight">Request Service</h1>
-            <p className="text-[11px] text-stone-500 font-medium">
-              {room ? `Room: ${room.roomNumber} (${room.roomType})` : 'Room Not Selected'}
+            <p className="text-[10px] text-stone-500 font-mono">
+              {room ? `${property?.unitLabel || 'House'} ${room.roomNumber}` : 'House Not Selected'}
             </p>
           </div>
         </div>
-        <span className="text-[10px] font-mono uppercase bg-emerald-100/90 text-emerald-950 px-2.5 py-0.5 rounded-full font-bold border border-emerald-900/[0.08]">
+        <span className="text-[10px] font-mono uppercase bg-emerald-100 text-emerald-950 px-2.5 py-0.5 rounded-full font-bold border border-emerald-900/[0.08]">
           Direct Line
         </span>
       </header>
@@ -317,34 +325,11 @@ export const ServiceRequestFlow: React.FC<ServiceRequestFlowProps> = ({
         </button>
       </form>
 
-      {/* Sticky Bottom Navigation */}
-      <nav className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-md border-t border-stone-900/[0.07] px-6 py-2.5 flex justify-around items-center z-40 max-w-md mx-auto shadow-lg">
-        <button 
-          onClick={onBack} 
-          className="flex flex-col items-center gap-0.5 text-stone-500 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-900 active:scale-[0.93] transition-[color,transform] duration-120 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
-        >
-          <span className="text-[11px] font-medium">Home</span>
-        </button>
-        <button 
-          onClick={() => {}} 
-          className="flex flex-col items-center gap-0.5 text-stone-900 font-bold active:scale-[0.93] transition-transform duration-120 select-none"
-        >
-          <div className="w-1.5 h-1.5 rounded-full bg-brand-primary mb-0.5" />
-          <span className="text-[11px]">Services</span>
-        </button>
-        <button 
-          onClick={() => onNavigateTab ? onNavigateTab('dining') : onBack()} 
-          className="flex flex-col items-center gap-0.5 text-stone-500 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-900 active:scale-[0.93] transition-[color,transform] duration-120 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
-        >
-          <span className="text-[11px] font-medium">{property?.diningEnabled !== false ? 'Dining' : 'House Guide'}</span>
-        </button>
-        <button 
-          onClick={() => onNavigateTab ? onNavigateTab('my-requests') : onBack()} 
-          className="flex flex-col items-center gap-0.5 text-stone-500 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-900 active:scale-[0.93] transition-[color,transform] duration-120 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
-        >
-          <span className="text-[11px] font-medium">My Orders</span>
-        </button>
-      </nav>
+      {/* Slim Bottom Navigation */}
+      <GuestBottomNav
+        activeTab="request"
+        onNavigate={(tab, data) => (onNavigateTab ? onNavigateTab(tab, data) : onBack())}
+      />
     </div>
   );
 };

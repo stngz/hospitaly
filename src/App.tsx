@@ -68,6 +68,9 @@ function AppContent() {
   const [requestPrefill, setRequestPrefill] = useState<{ category?: string; item?: string }>({});
 
   const handleGuestNavigate = (view: string, data?: any) => {
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
     if (view === 'request') {
       setRequestPrefill(data || {});
       setGuestView('request');
@@ -84,11 +87,17 @@ function AppContent() {
   };
 
   const handleRequestCreated = (newId: string) => {
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
     setActiveRequestId(newId);
     setGuestView('status');
   };
 
   const handleRoomResolved = (propertySlug: string, newRoomId: string) => {
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
     setPropertySlug(propertySlug);
     setRoomId(newRoomId);
     setGuestView('home');
