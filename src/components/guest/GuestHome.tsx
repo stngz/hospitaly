@@ -36,7 +36,8 @@ import {
   ArrowRight,
   Radio,
   Send,
-  Building2
+  Building2,
+  ShoppingBag
 } from 'lucide-react';
 
 interface GuestHomeProps {
@@ -684,6 +685,38 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
               </span>
             </div>
           </button>
+        </section>
+
+        {/* Phase 7: Inactive Promotional Card for Errands */}
+        <section className="bg-gradient-to-br from-amber-50/80 to-stone-50 border border-amber-900/[0.08] p-4 rounded-2xl shadow-2xs flex items-center justify-between gap-3 select-none">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100/90 text-amber-900 flex items-center justify-center shrink-0 shadow-2xs">
+              <ShoppingBag className="w-5 h-5 text-amber-800" />
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-stone-900">Local Errands</span>
+                <span className="text-[9px] font-mono font-bold uppercase tracking-wider bg-amber-200/70 text-amber-900 px-1.5 py-0.5 rounded">
+                  Coming Soon
+                </span>
+              </div>
+              <p className="text-[11px] text-stone-600 mt-0.5 leading-snug">
+                Errands coming soon. If you have any questions, please ask.
+              </p>
+            </div>
+          </div>
+          {property.contactPhone && (
+            <a
+              href={`https://wa.me/${property.contactPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                `Hello Reception, I have a question regarding local errands/shopping for ${room ? `${unitLabel} ${room.roomNumber}` : 'my stay'}.`
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 bg-white border border-stone-200/90 rounded-xl text-[11px] font-semibold text-stone-800 shadow-2xs hover:bg-stone-50 shrink-0 select-none transition-colors"
+            >
+              Ask Us
+            </a>
+          )}
         </section>
 
         {/* e) Minimalist Quick Row */}
