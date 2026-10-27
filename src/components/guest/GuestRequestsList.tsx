@@ -112,7 +112,7 @@ export const GuestRequestsList: React.FC<GuestRequestsListProps> = ({
                       {new Date(req.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                     {req.assignedTo && (
-                      <span className="font-sans font-medium text-stone-600">&bull; Attended by {req.assignedTo.name}</span>
+                      <span className="font-sans font-medium text-emerald-800">&bull; Assigned to Duty Team</span>
                     )}
                   </div>
                 </div>

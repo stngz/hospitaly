@@ -261,7 +261,7 @@ export const RequestStatusTimeline: React.FC<RequestStatusTimelineProps> = ({
           </div>
         </div>
 
-        {/* 3. ASSIGNED STAFF DISPATCHER CARD */}
+        {/* 3. ASSIGNED DUTY TEAM CARD */}
         {!isCancelled && (
           <div className="bg-white rounded-3xl p-4.5 border border-stone-900/[0.08] shadow-diffused flex items-center justify-between">
             <div className="flex items-center gap-3.5">
@@ -269,7 +269,7 @@ export const RequestStatusTimeline: React.FC<RequestStatusTimelineProps> = ({
                 <>
                   <div className="relative">
                     <div className="w-12 h-12 rounded-2xl bg-stone-900 text-amber-300 flex items-center justify-center font-bold text-sm shadow-sm border border-stone-800">
-                      {req.assignedTo.name.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                      <Sparkles className="w-5 h-5 text-amber-300" />
                     </div>
                     <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center">
                       <Check className="w-2.5 h-2.5 text-white stroke-[3]" />
@@ -278,13 +278,19 @@ export const RequestStatusTimeline: React.FC<RequestStatusTimelineProps> = ({
 
                   <div>
                     <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-800 block">
-                      Assigned Attendant
+                      Duty Team Assigned
                     </span>
                     <p className="text-sm font-bold text-stone-900">
-                      {req.assignedTo.name}
+                      {req.category === 'housekeeping'
+                        ? 'Housekeeping Team'
+                        : req.category === 'maintenance'
+                        ? 'Maintenance Duty Team'
+                        : req.category === 'transport'
+                        ? 'Airport & Transport Team'
+                        : 'Property Duty Team'}
                     </p>
                     <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-stone-500">
-                      <span>On-duty operational staff</span>
+                      <span>Attendant dispatched to your house</span>
                     </div>
                   </div>
                 </>
@@ -302,7 +308,7 @@ export const RequestStatusTimeline: React.FC<RequestStatusTimelineProps> = ({
                       Awaiting Reception Assignment
                     </p>
                     <p className="text-[11px] text-stone-500 mt-0.5">
-                      Reception is dispatching an attendant shortly
+                      Reception is assigning an attendant shortly
                     </p>
                   </div>
                 </>
