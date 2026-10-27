@@ -387,7 +387,10 @@ function AppContent() {
 export default function App() {
   return (
     <AuthProvider>
-      <TenantProvider initialSlug="rocks-apartments" initialRoomId="room_rocks_101">
+      <TenantProvider 
+        initialSlug="rocks-apartments" 
+        initialRoomId={import.meta.env.DEV ? 'room_rocks_101' : undefined}
+      >
         <AppContent />
       </TenantProvider>
     </AuthProvider>

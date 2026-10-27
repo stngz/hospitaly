@@ -53,7 +53,7 @@ interface BedsideReceptor {
   eta: string;
 }
 
-export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
+export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanner }) => {
   const { property, room, isInvalidToken } = useTenant();
 
   const [copiedWifi, setCopiedWifi] = useState(false);
@@ -174,7 +174,11 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
 
   const handleInstantDispatchReceptor = (receptor: BedsideReceptor) => {
     if (!room) {
-      alert('Please select an active room session first.');
+      if (onOpenQRScanner) {
+        onOpenQRScanner();
+      } else {
+        alert('Please scan your room QR plaque to activate in-room service.');
+      }
       return;
     }
 
@@ -310,6 +314,30 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
                 Please scan the official QR plaque in your room to activate bedside dispatch.
               </span>
             </div>
+          </div>
+        )}
+
+        {/* Unattached Session Notice (Root URL direct visit) */}
+        {!room && !isInvalidToken && (
+          <div className="p-3.5 bg-stone-900 text-stone-200 rounded-2xl border border-stone-800 shadow-sm flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-amber-400/10 border border-amber-400/20 text-amber-400 flex items-center justify-center shrink-0">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div className="text-xs">
+                <span className="font-semibold block text-stone-100">Welcome to Rocks Apartments</span>
+                <span className="text-stone-400 text-[11px]">Scan your room QR plaque to unlock bedside dispatch.</span>
+              </div>
+            </div>
+            {onOpenQRScanner && (
+              <button
+                type="button"
+                onClick={onOpenQRScanner}
+                className="px-2.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-stone-950 text-[11px] font-bold shrink-0 active:scale-95 transition-transform"
+              >
+                Scan QR
+              </button>
+            )}
           </div>
         )}
         
@@ -607,7 +635,7 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
 
             <div className="bg-stone-50 p-3 rounded-2xl border border-stone-200/80 flex items-center justify-between text-xs">
               <span className="text-stone-500">Destination:</span>
-              <span className="font-mono font-bold text-stone-900">Room {room?.roomNumber || '402'}</span>
+              <span className="font-mono font-bold text-stone-900">Room {room?.roomNumber || '—'}</span>
             </div>
 
             <div className="bg-stone-50 p-3 rounded-2xl border border-stone-200/80 flex items-center justify-between text-xs">
@@ -657,7 +685,7 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-xs font-mono uppercase tracking-widest text-stone-400">
-                Nightstand Hub &bull; Room {room?.roomNumber || '402'}
+                Nightstand Hub &bull; Room {room?.roomNumber || 'Portal'}
               </span>
             </div>
             <button
