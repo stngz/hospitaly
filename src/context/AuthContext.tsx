@@ -102,6 +102,55 @@ async function resolveAuthoritativeProfile(fbUser: FirebaseUser): Promise<UserPr
     console.warn('Error looking up pre-provisioned profile by email:', err);
   }
 
+  // 3. Fallback bootstrapping for pilot seed accounts (Founder, Manager, Staff)
+  if (cleanEmail === 'nathanielmazaba@gmail.com' || cleanEmail === 'founder.test@example.com') {
+    const founderProfile = normalizeUserProfile({
+      id: fbUser.uid,
+      propertyId: '',
+      name: 'Nathaniel Mazaba (Founder)',
+      email: cleanEmail,
+      role: 'founder',
+      department: 'management',
+      active: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    await setDoc(doc(db, 'users', fbUser.uid), founderProfile, { merge: true }).catch(() => {});
+    return founderProfile;
+  }
+
+  if (cleanEmail === 'manager.test@example.com' || cleanEmail === 'manager.pilot@example.com') {
+    const mgrProfile = normalizeUserProfile({
+      id: fbUser.uid,
+      propertyId: 'prop_rocks_lusaka',
+      name: 'Rocks General Manager',
+      email: cleanEmail,
+      role: 'manager',
+      department: 'management',
+      active: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    await setDoc(doc(db, 'users', fbUser.uid), mgrProfile, { merge: true }).catch(() => {});
+    return mgrProfile;
+  }
+
+  if (cleanEmail === 'staff.test@example.com' || cleanEmail === 'staff.pilot@example.com') {
+    const staffProfile = normalizeUserProfile({
+      id: fbUser.uid,
+      propertyId: 'prop_rocks_lusaka',
+      name: 'Rocks House Attendant',
+      email: cleanEmail,
+      role: 'staff',
+      department: 'housekeeping',
+      active: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    await setDoc(doc(db, 'users', fbUser.uid), staffProfile, { merge: true }).catch(() => {});
+    return staffProfile;
+  }
+
   return null;
 }
 

@@ -147,10 +147,10 @@ export const SEED_QR_CODES: QRCodeRecord[] = [
 
 export const SEED_STAFF_USERS: UserProfile[] = [
   {
-    id: "8AwExbsCF1OLXCQhEgeZqoIbr2A3",
+    id: "founder_seed_01",
     propertyId: "", // Platform-wide Founder
-    name: "Platform Founder (Test)",
-    email: "founder.test@example.com",
+    name: "Nathaniel Mazaba (Founder)",
+    email: "nathanielmazaba@gmail.com",
     phone: "+260 97 000 0001",
     role: "founder",
     department: "management",
@@ -159,10 +159,10 @@ export const SEED_STAFF_USERS: UserProfile[] = [
     updatedAt: "2026-01-01T00:00:00Z",
   },
   {
-    id: "wlh8JSM8ArO1QjXIEovUNreUbEG3",
+    id: "manager_seed_01",
     propertyId: "prop_rocks_lusaka",
-    name: "Rocks General Manager (Test)",
-    email: "manager.pilot@example.com",
+    name: "Rocks General Manager",
+    email: "manager.test@example.com",
     phone: "+260 97 000 0002",
     role: "manager",
     department: "management",
@@ -171,10 +171,10 @@ export const SEED_STAFF_USERS: UserProfile[] = [
     updatedAt: "2026-02-01T00:00:00Z",
   },
   {
-    id: "hWUPgKAM3QQkpG6iFyhkFbRgtWl2",
+    id: "staff_seed_01",
     propertyId: "prop_rocks_lusaka",
-    name: "Rocks House Attendant (Test)",
-    email: "staff.pilot@example.com",
+    name: "Rocks House Attendant",
+    email: "staff.test@example.com",
     phone: "+260 97 000 0003",
     role: "staff",
     department: "housekeeping",
