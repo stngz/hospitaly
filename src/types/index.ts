@@ -64,6 +64,7 @@ export interface Room {
   roomType: string;
   imageUrl?: string;
   status: 'available' | 'occupied' | 'maintenance' | 'unavailable';
+  activeStayId?: string;
   currentGuestName?: string;
   guestCheckOutDate?: string;
   guestPhone?: string;

@@ -656,11 +656,13 @@ export const dbService = {
   ): Room | undefined => {
     let updatedRoom: Room | undefined;
     const now = new Date().toISOString();
+    const stayId = `stay_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const updated = cache.rooms.map((r) => {
       if (r.id === roomId) {
         updatedRoom = {
           ...r,
           status: 'occupied' as const,
+          activeStayId: stayId,
           currentGuestName: guestName,
           guestCheckOutDate: checkOutDate || undefined,
           guestPhone: guestPhone || undefined,
@@ -682,6 +684,7 @@ export const dbService = {
       try {
         const patch: any = {
           status: 'occupied',
+          activeStayId: stayId,
           currentGuestName: guestName,
           guestCheckOutDate: checkOutDate || null,
           guestPhone: guestPhone || null,
@@ -707,6 +710,7 @@ export const dbService = {
           status: 'available' as const,
           updatedAt: now,
         };
+        delete copy.activeStayId;
         delete copy.currentGuestName;
         delete copy.guestCheckOutDate;
         delete copy.guestPhone;
@@ -727,16 +731,17 @@ export const dbService = {
       try {
         const patch: any = {
           status: 'available',
+          activeStayId: null,
           currentGuestName: null,
           guestCheckOutDate: null,
           guestPhone: null,
           updatedAt: now,
         };
         setDoc(doc(db, 'rooms', roomId), patch, { merge: true }).catch((err) => {
-          console.warn('Firestore setDoc room check-out notice:', err);
+          console.warn('Firestore setDoc checkout notice:', err);
         });
       } catch (err) {
-        console.warn('Firestore setDoc room check-out failed:', err);
+        console.warn('Firestore setDoc checkout failed:', err);
       }
     }
 

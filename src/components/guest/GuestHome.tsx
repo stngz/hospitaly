@@ -54,7 +54,7 @@ interface BedsideReceptor {
 }
 
 export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanner }) => {
-  const { property, room, isInvalidToken } = useTenant();
+  const { property, room, stayState, isInvalidToken } = useTenant();
 
   const [copiedWifi, setCopiedWifi] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
@@ -149,6 +149,137 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
         <AlertCircle className="w-10 h-10 text-amber-600 mb-3" />
         <h1 className="text-xl font-serif text-stone-800 mb-2">Hospitality Property Loading</h1>
         <p className="text-stone-600 text-xs mb-4">Please wait while your guest session initializes...</p>
+      </div>
+    );
+  }
+
+  // 1. Invalid or Revoked QR Code Screen
+  if (stayState.status === 'invalid_token') {
+    return (
+      <div className="min-h-screen bg-[#FDFBF7] text-stone-900 flex flex-col justify-between p-6">
+        <div className="space-y-6 pt-8 text-center max-w-sm mx-auto">
+          <div className="w-16 h-16 rounded-3xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-center mx-auto shadow-xs">
+            <AlertCircle className="w-8 h-8" />
+          </div>
+
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-widest text-stone-500 font-bold block mb-1">
+              {property.name}
+            </span>
+            <h1 className="text-2xl font-serif font-bold text-stone-900">
+              Invalid Access Code
+            </h1>
+            <p className="text-xs text-stone-600 mt-2 leading-relaxed">
+              {stayState.errorMessage ||
+                'This QR code is invalid, revoked, or unassigned. Possession of an outdated or unassigned link does not grant guest access.'}
+            </p>
+          </div>
+
+          <div className="p-4 bg-white rounded-2xl border border-stone-200/80 shadow-xs text-left space-y-2">
+            <span className="text-[11px] font-bold text-stone-700 uppercase tracking-wide block">
+              How to access in-house services:
+            </span>
+            <p className="text-xs text-stone-600 leading-relaxed">
+              Please use your smartphone camera to scan the physical QR plaque inside your house, or contact reception to verify your stay.
+            </p>
+          </div>
+        </div>
+
+        <div className="pt-6 border-t border-stone-200 max-w-sm mx-auto w-full space-y-2">
+          {property.contactPhone && (
+            <a
+              href={`tel:${property.contactPhone}`}
+              className="w-full py-3 bg-stone-900 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow-xs"
+            >
+              <Phone className="w-4 h-4 text-amber-400" />
+              <span>Call Reception ({property.contactPhone})</span>
+            </a>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Unoccupied House Screen (Posession of QR code alone does not grant access)
+  if (stayState.status === 'unoccupied') {
+    return (
+      <div className="min-h-screen bg-[#FDFBF7] text-stone-900 flex flex-col justify-between p-6">
+        <div className="space-y-6 pt-8 text-center max-w-sm mx-auto">
+          <div className="w-16 h-16 rounded-3xl bg-amber-50 border border-amber-200 text-amber-800 flex items-center justify-center mx-auto shadow-xs">
+            <Building2 className="w-8 h-8 text-amber-700" />
+          </div>
+
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-widest text-stone-500 font-bold block mb-1">
+              {property.name} &bull; {stayState.houseName || 'House'}
+            </span>
+            <h1 className="text-2xl font-serif font-bold text-stone-900">
+              House Awaiting Check-In
+            </h1>
+            <p className="text-xs text-stone-600 mt-2 leading-relaxed">
+              This house does not currently have an active guest stay registered. For your privacy and security, private guest services, Wi-Fi credentials, and request tracking will activate once check-in is recorded.
+            </p>
+          </div>
+
+          <div className="p-4 bg-white rounded-2xl border border-stone-200/80 shadow-xs text-left space-y-2">
+            <div className="flex items-center gap-2 text-stone-700 font-semibold text-xs">
+              <Sparkles className="w-4 h-4 text-amber-600" />
+              <span>Just arrived?</span>
+            </div>
+            <p className="text-xs text-stone-600 leading-relaxed">
+              Please contact reception or your host. Once reception completes check-in, refresh this page to instantly access your in-house guest services.
+            </p>
+          </div>
+        </div>
+
+        <div className="pt-6 border-t border-stone-200 max-w-sm mx-auto w-full space-y-2">
+          {property.contactPhone && (
+            <a
+              href={`tel:${property.contactPhone}`}
+              className="w-full py-3 bg-emerald-950 text-amber-300 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs"
+            >
+              <Phone className="w-4 h-4" />
+              <span>Contact Host &bull; Reception</span>
+            </a>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Checked Out Screen
+  if (stayState.status === 'checked_out') {
+    return (
+      <div className="min-h-screen bg-[#FDFBF7] text-stone-900 flex flex-col justify-between p-6">
+        <div className="space-y-6 pt-8 text-center max-w-sm mx-auto">
+          <div className="w-16 h-16 rounded-3xl bg-stone-100 border border-stone-200 text-stone-600 flex items-center justify-center mx-auto shadow-xs">
+            <Check className="w-8 h-8 text-emerald-700" />
+          </div>
+
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-widest text-stone-500 font-bold block mb-1">
+              {property.name}
+            </span>
+            <h1 className="text-2xl font-serif font-bold text-stone-900">
+              Stay Completed
+            </h1>
+            <p className="text-xs text-stone-600 mt-2 leading-relaxed">
+              Your stay has concluded and guest access has ended. We hope you enjoyed your time at {property.name}!
+            </p>
+          </div>
+        </div>
+
+        <div className="pt-6 border-t border-stone-200 max-w-sm mx-auto w-full">
+          {property.contactPhone && (
+            <a
+              href={`tel:${property.contactPhone}`}
+              className="w-full py-3 bg-stone-900 text-stone-100 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow-xs"
+            >
+              <Phone className="w-4 h-4 text-amber-400" />
+              <span>Contact Reception</span>
+            </a>
+          )}
+        </div>
       </div>
     );
   }

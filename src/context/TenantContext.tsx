@@ -2,66 +2,46 @@ import React, { createContext, useContext, useEffect, useState, useSyncExternalS
 import { Property, Room } from '../types';
 import { dbService, subscribeToStore } from '../lib/store';
 
+export type GuestStayStatus = 'active' | 'unoccupied' | 'invalid_token' | 'checked_out' | 'no_session';
+
+export interface GuestStayState {
+  status: GuestStayStatus;
+  houseName?: string;
+  errorMessage?: string;
+}
+
 interface TenantContextType {
   property: Property | null;
   room: Room | null;
+  stayState: GuestStayState;
   isInvalidToken: boolean;
   loading: boolean;
   error: string | null;
   setPropertySlug: (slug: string) => void;
   setRoomId: (id: string | undefined) => void;
+  clearGuestSession: () => void;
 }
 
 const TenantContext = createContext<TenantContextType>({
   property: null,
   room: null,
+  stayState: { status: 'no_session' },
   isInvalidToken: false,
   loading: false,
   error: null,
   setPropertySlug: () => {},
   setRoomId: () => {},
+  clearGuestSession: () => {},
 });
+
+const GUEST_SESSION_STORAGE_KEY = 'hospitally_guest_stay_session_v1';
 
 export const TenantProvider: React.FC<{
   initialSlug?: string;
   initialRoomId?: string;
   children: React.ReactNode;
-}> = ({ initialSlug = 'rocks-apartments', initialRoomId, children }) => {
-  // Check URL parameters for ?token= or path /r/:token
-  const getUrlTokenData = () => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      let token = params.get('token');
-      if (!token) {
-        const pathMatch = window.location.pathname.match(/\/r\/([a-zA-Z0-9_-]+)/);
-        if (pathMatch) {
-          token = pathMatch[1];
-        }
-      }
-      if (token) {
-        const qr = dbService.getQRCodeByToken(token.trim());
-        if (qr) {
-          const prop = dbService.getPropertyById(qr.propertyId);
-          return { slug: prop?.slug, roomId: qr.roomId, isValidToken: true };
-        }
-        return { slug: undefined, roomId: undefined, isValidToken: false, rawToken: token };
-      }
-    }
-    return null;
-  };
-
-  const initialTokenData = getUrlTokenData();
-  const [propertySlug, setPropertySlug] = useState<string>(
-    initialTokenData?.slug || initialSlug || 'rocks-apartments'
-  );
-  const [roomId, setRoomId] = useState<string | undefined>(
-    initialTokenData ? (initialTokenData.isValidToken ? initialTokenData.roomId : undefined) : initialRoomId
-  );
-  const [isInvalidToken, setIsInvalidToken] = useState<boolean>(
-    initialTokenData ? !initialTokenData.isValidToken : false
-  );
-
-  // Subscribe to stable snapshots from store
+}> = ({ initialSlug = 'rocks-apartments', children }) => {
+  // Subscribe to reactive store
   const properties = useSyncExternalStore(
     subscribeToStore,
     dbService.getProperties,
@@ -80,36 +60,157 @@ export const TenantProvider: React.FC<{
     dbService.getAllQRCodes
   );
 
-  // Auto-resolve QR tokens from window location on load or when properties/qrCodes sync
+  const [propertySlug, setPropertySlug] = useState<string>(initialSlug || 'rocks-apartments');
+  const [roomId, setRoomId] = useState<string | undefined>(undefined);
+  const [stayState, setStayState] = useState<GuestStayState>({ status: 'no_session' });
+
+  // Resolve active QR token from URL search parameter (?token=...) or path (/r/:token)
+  const getUrlToken = (): string | null => {
+    if (typeof window === 'undefined') return null;
+    const params = new URLSearchParams(window.location.search);
+    const queryToken = params.get('token');
+    if (queryToken) return queryToken.trim().toUpperCase();
+
+    const pathMatch = window.location.pathname.match(/\/r\/([a-zA-Z0-9_-]+)/);
+    if (pathMatch) return pathMatch[1].trim().toUpperCase();
+
+    return null;
+  };
+
+  // Evaluate QR token and active stay lifecycle
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      let token = params.get('token');
-      if (!token) {
-        const pathMatch = window.location.pathname.match(/\/r\/([a-zA-Z0-9_-]+)/);
-        if (pathMatch) {
-          token = pathMatch[1];
-        }
+    if (typeof window === 'undefined') return;
+
+    const urlToken = getUrlToken();
+
+    // CASE 1: Guest opened a specific QR token URL (?token=... or /r/...)
+    if (urlToken) {
+      if (qrCodes.length === 0) {
+        // Still initializing
+        return;
       }
-      if (token) {
-        const clean = token.trim().toUpperCase();
-        const qr = qrCodes.find((q) => q.token.trim().toUpperCase() === clean && q.status === 'active');
-        if (qr) {
-          setIsInvalidToken(false);
-          const targetProp = properties.find((p) => p.id === qr.propertyId);
-          if (targetProp) {
-            setPropertySlug(targetProp.slug);
-            if (qr.roomId) {
-              setRoomId(qr.roomId);
-            }
+
+      const matchingQR = qrCodes.find(
+        (q) => q.token.trim().toUpperCase() === urlToken && q.status === 'active'
+      );
+
+      if (!matchingQR || !matchingQR.roomId) {
+        setStayState({
+          status: 'invalid_token',
+          errorMessage:
+            'This QR code is invalid, revoked, or unassigned. Possession of an unknown QR code does not grant access.',
+        });
+        setRoomId(undefined);
+        return;
+      }
+
+      // Locate assigned house
+      const matchingRoom = rooms.find((r) => r.id === matchingQR.roomId);
+      const targetProp = properties.find((p) => p.id === matchingQR.propertyId);
+      if (targetProp) {
+        setPropertySlug(targetProp.slug);
+      }
+
+      if (!matchingRoom) {
+        setStayState({
+          status: 'invalid_token',
+          errorMessage: 'The house linked to this QR code could not be found.',
+        });
+        setRoomId(undefined);
+        return;
+      }
+
+      // Lifecycle Check: An unoccupied house has NO active guest stay
+      if (matchingRoom.status !== 'occupied') {
+        // Clear any previous session
+        try {
+          localStorage.removeItem(GUEST_SESSION_STORAGE_KEY);
+        } catch {}
+
+        setRoomId(matchingRoom.id);
+        setStayState({
+          status: 'unoccupied',
+          houseName: matchingRoom.roomNumber,
+          errorMessage: `${matchingRoom.roomNumber} does not currently have an active guest check-in. In-house services and private guest access are locked until an authorized host or reception completes check-in.`,
+        });
+        return;
+      }
+
+      // House IS occupied -> Authorize active stay session
+      const stayIdentifier = matchingRoom.activeStayId || matchingRoom.updatedAt || 'active';
+      try {
+        localStorage.setItem(
+          GUEST_SESSION_STORAGE_KEY,
+          JSON.stringify({
+            roomId: matchingRoom.id,
+            stayId: stayIdentifier,
+            propertyId: matchingRoom.propertyId,
+            roomNumber: matchingRoom.roomNumber,
+          })
+        );
+      } catch {}
+
+      setRoomId(matchingRoom.id);
+      setStayState({
+        status: 'active',
+        houseName: matchingRoom.roomNumber,
+      });
+      return;
+    }
+
+    // CASE 2: No URL token present -> Check if browser has a valid stored active stay session
+    let savedSessionRaw: string | null = null;
+    try {
+      savedSessionRaw = localStorage.getItem(GUEST_SESSION_STORAGE_KEY);
+    } catch {}
+
+    if (savedSessionRaw && rooms.length > 0) {
+      try {
+        const savedSession = JSON.parse(savedSessionRaw);
+        const matchingRoom = rooms.find((r) => r.id === savedSession.roomId);
+
+        // Validate server-side: Is the room still occupied with this exact stayId?
+        if (matchingRoom && matchingRoom.status === 'occupied') {
+          const currentStayId = matchingRoom.activeStayId || matchingRoom.updatedAt || 'active';
+          if (currentStayId === savedSession.stayId) {
+            // Active stay remains valid across browser closures and reopens
+            setRoomId(matchingRoom.id);
+            setStayState({
+              status: 'active',
+              houseName: matchingRoom.roomNumber,
+            });
+            return;
           }
-        } else if (qrCodes.length > 0) {
-          setIsInvalidToken(true);
-          setRoomId(undefined);
         }
+
+        // Room has been checked out or reassigned -> Revoke session immediately
+        localStorage.removeItem(GUEST_SESSION_STORAGE_KEY);
+        setRoomId(undefined);
+        setStayState({
+          status: 'checked_out',
+          houseName: savedSession.roomNumber,
+          errorMessage:
+            'Your guest stay has concluded and access has been revoked. We hope you enjoyed your time with us!',
+        });
+        return;
+      } catch {
+        try {
+          localStorage.removeItem(GUEST_SESSION_STORAGE_KEY);
+        } catch {}
       }
     }
-  }, [properties, rooms, qrCodes]);
+
+    // CASE 3: No token and no saved session (Public home)
+    setStayState({ status: 'no_session' });
+  }, [qrCodes, rooms, properties]);
+
+  const clearGuestSession = () => {
+    try {
+      localStorage.removeItem(GUEST_SESSION_STORAGE_KEY);
+    } catch {}
+    setRoomId(undefined);
+    setStayState({ status: 'no_session' });
+  };
 
   const property =
     properties.find((p) => p.slug === propertySlug) ||
@@ -117,8 +218,6 @@ export const TenantProvider: React.FC<{
     properties[0] ||
     null;
 
-  // Resolve room: strictly ensure it belongs to the active property.
-  // CRITICAL: NEVER fall back to another guest's room (prevents stranger privacy leaks).
   let room: Room | null = null;
   if (property && roomId) {
     room = rooms.find((r) => r.id === roomId && r.propertyId === property.id) || null;
@@ -146,11 +245,13 @@ export const TenantProvider: React.FC<{
       value={{
         property,
         room,
-        isInvalidToken,
+        stayState,
+        isInvalidToken: stayState.status === 'invalid_token',
         loading: false,
         error: !property ? 'Property not found' : null,
         setPropertySlug: handleSetPropertySlug,
         setRoomId,
+        clearGuestSession,
       }}
     >
       {children}
