@@ -1,4 +1,4 @@
-import React, { useState, useSyncExternalStore } from 'react';
+import React, { useState, useEffect, useSyncExternalStore } from 'react';
 import { useTenant } from '../../context/TenantContext';
 import { dbService, subscribeToStore } from '../../lib/store';
 import { notificationService } from '../../lib/notifications';
@@ -63,7 +63,26 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
   const [selectedReceptor, setSelectedReceptor] = useState<BedsideReceptor | null>(null);
   const [isDndActive, setIsDndActive] = useState(false);
   const [deliveryNote, setDeliveryNote] = useState('Knock softly');
-  const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  const [currentTime, setCurrentTime] = useState(() =>
+    new Date().toLocaleTimeString('en-GB', {
+      timeZone: property?.timezone || 'Africa/Lusaka',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  );
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(
+        new Date().toLocaleTimeString('en-GB', {
+          timeZone: property?.timezone || 'Africa/Lusaka',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      );
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [property?.timezone]);
 
   // Receptors designed specifically for bedside in-room needs (no food/drinks when dining is disabled)
   const isDiningEnabled = property?.diningEnabled !== false;
@@ -407,6 +426,8 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
         <img 
           src={property.coverImageUrl} 
           alt={property.name} 
+          fetchPriority="high"
+          decoding="async"
           className="h-72 w-full object-cover brightness-[0.78]"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-stone-950 via-stone-950/30 to-stone-950/70" />
@@ -421,12 +442,12 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
               {room ? (
                 <>
                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                  <span>{room.currentGuestName ? `Welcome, ${room.currentGuestName}` : `Room ${room.roomNumber}`}</span>
-                  <span className="text-white/60 font-mono text-[10px]">&bull; Room {room.roomNumber}</span>
+                  <span>{room.currentGuestName ? 'Welcome to Bobo' : `${unitLabel} ${room.roomNumber}`}</span>
+                  <span className="text-white/60 font-mono text-[10px]">&bull; {room.roomNumber}</span>
                 </>
               ) : (
                 <span className="text-white/70 text-[11px] font-mono">
-                  In-Stay Guest Portal &bull; {property.city}
+                  In-House Guest Portal &bull; {property.city}
                 </span>
               )}
             </div>
@@ -435,7 +456,7 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
           <div className="flex items-center gap-2">
             <button
               onClick={() => setIsNightstandOpen(true)}
-              className="p-2 rounded-full bg-white/10 hover:bg-white/20 active:scale-[0.92] backdrop-blur-md border border-white/20 text-amber-200 shadow-xs transition-all"
+              className="p-2 rounded-full bg-white/10 hover:bg-white/20 active:scale-[0.92] backdrop-blur-md border border-white/20 text-amber-200 shadow-xs transition-all cursor-pointer"
               title="Open Bedside Nightstand Mode"
             >
               <Moon className="w-4 h-4" />
@@ -455,21 +476,21 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
         <div className="absolute bottom-9 inset-x-0 px-6 z-10">
           <div className="flex items-center gap-1.5 text-[11px] font-mono tracking-wider text-amber-300/90 uppercase mb-1">
             <MapPin className="w-3.5 h-3.5 text-amber-300" />
-            <span>{property.city}, {property.country} &bull; Room {room?.roomNumber || 'Portal'}</span>
+            <span>{property.city}, {property.country} &bull; {room ? `${unitLabel} ${room.roomNumber}` : 'Holiday House'}</span>
           </div>
           <h1 className="text-2xl font-serif text-white font-medium tracking-tight leading-snug">
-            {room?.currentGuestName ? (
+            {room ? (
               <>
-                Welcome, {room.currentGuestName}
+                Welcome to Bobo
                 <span className="block italic font-serif text-amber-100/80 text-sm font-light mt-0.5">
-                  Your bedside concierge in {property.city}.
+                  {room.roomNumber} &bull; Furnished Holiday House
                 </span>
               </>
             ) : (
               <>
                 {property.name}
                 <span className="block italic font-serif text-amber-100/80 text-sm font-light mt-0.5">
-                  Bedside dispatch & culinary orders at your fingertips.
+                  Private holiday houses & in-house guest services.
                 </span>
               </>
             )}

@@ -251,7 +251,7 @@ export const ServiceRequestFlow: React.FC<ServiceRequestFlowProps> = ({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder={isRocks ? "e.g. Please set hot tub to 38°C, or assist us with airport luggage..." : "e.g. Please leave extra towels outside door..."}
-            className="w-full text-xs p-3 rounded-xl border border-stone-900/[0.1] bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-brand-primary/25 focus:border-brand-primary transition-shadow"
+            className="w-full text-base sm:text-xs p-3 rounded-xl border border-stone-900/[0.1] bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-brand-primary/25 focus:border-brand-primary transition-shadow"
           />
         </div>
 
@@ -296,14 +296,14 @@ export const ServiceRequestFlow: React.FC<ServiceRequestFlowProps> = ({
               placeholder="Your Name"
               value={guestName}
               onChange={(e) => setGuestName(e.target.value)}
-              className="text-xs p-2.5 rounded-lg border border-stone-900/[0.1] bg-white focus:outline-none focus:ring-1 focus:ring-brand-primary"
+              className="text-base sm:text-xs p-2.5 rounded-lg border border-stone-900/[0.1] bg-white focus:outline-none focus:ring-1 focus:ring-brand-primary"
             />
             <input
               type="tel"
               placeholder="WhatsApp / Phone"
               value={guestPhone}
               onChange={(e) => setGuestPhone(e.target.value)}
-              className="text-xs p-2.5 rounded-lg border border-stone-900/[0.1] bg-white focus:outline-none focus:ring-1 focus:ring-brand-primary"
+              className="text-base sm:text-xs p-2.5 rounded-lg border border-stone-900/[0.1] bg-white focus:outline-none focus:ring-1 focus:ring-brand-primary"
             />
           </div>
         </div>
