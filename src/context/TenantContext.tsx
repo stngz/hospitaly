@@ -120,8 +120,8 @@ export const TenantProvider: React.FC<{
         return;
       }
 
-      // Lifecycle Check: An unoccupied house has NO active guest stay
-      if (matchingRoom.status !== 'occupied') {
+      // Lifecycle Check: An unoccupied house or a house without an activeStayId has NO active guest stay
+      if (matchingRoom.status !== 'occupied' || !matchingRoom.activeStayId) {
         // Clear any previous session
         try {
           localStorage.removeItem(GUEST_SESSION_STORAGE_KEY);
@@ -131,13 +131,13 @@ export const TenantProvider: React.FC<{
         setStayState({
           status: 'unoccupied',
           houseName: matchingRoom.roomNumber,
-          errorMessage: `${matchingRoom.roomNumber} does not currently have an active guest check-in. In-house services and private guest access are locked until an authorized host or reception completes check-in.`,
+          errorMessage: `${matchingRoom.roomNumber} does not currently have an active guest check-in. In-house services and private guest access are locked until reception completes check-in.`,
         });
         return;
       }
 
-      // House IS occupied -> Authorize active stay session
-      const stayIdentifier = matchingRoom.activeStayId || matchingRoom.updatedAt || 'active';
+      // House IS occupied -> Authorize active stay session strictly by activeStayId
+      const stayIdentifier = matchingRoom.activeStayId;
       try {
         localStorage.setItem(
           GUEST_SESSION_STORAGE_KEY,
@@ -169,18 +169,20 @@ export const TenantProvider: React.FC<{
         const savedSession = JSON.parse(savedSessionRaw);
         const matchingRoom = rooms.find((r) => r.id === savedSession.roomId);
 
-        // Validate server-side: Is the room still occupied with this exact stayId?
-        if (matchingRoom && matchingRoom.status === 'occupied') {
-          const currentStayId = matchingRoom.activeStayId || matchingRoom.updatedAt || 'active';
-          if (currentStayId === savedSession.stayId) {
-            // Active stay remains valid across browser closures and reopens
-            setRoomId(matchingRoom.id);
-            setStayState({
-              status: 'active',
-              houseName: matchingRoom.roomNumber,
-            });
-            return;
-          }
+        // Validate server-side: Is the room still occupied with this exact activeStayId?
+        if (
+          matchingRoom &&
+          matchingRoom.status === 'occupied' &&
+          matchingRoom.activeStayId &&
+          matchingRoom.activeStayId === savedSession.stayId
+        ) {
+          // Active stay remains valid across browser closures and reopens
+          setRoomId(matchingRoom.id);
+          setStayState({
+            status: 'active',
+            houseName: matchingRoom.roomNumber,
+          });
+          return;
         }
 
         // Room has been checked out or reassigned -> Revoke session immediately

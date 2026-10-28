@@ -2,24 +2,22 @@ import React, { useState, useEffect, useSyncExternalStore } from 'react';
 import { useTenant } from '../../context/TenantContext';
 import { dbService, subscribeToStore } from '../../lib/store';
 import { notificationService } from '../../lib/notifications';
-import { 
-  ArrowLeft, 
-  Plus, 
-  ShoppingBag, 
-  UtensilsCrossed, 
+import {
+  ArrowLeft,
+  Plus,
+  ShoppingBag,
+  UtensilsCrossed,
   AlertCircle,
   Waves,
-  Bath,
   ChefHat,
   Wifi,
   ShieldCheck,
   Plane,
   Clock,
-  Sparkles,
   Phone,
   Copy,
   Check,
-  ChevronRight
+  ChevronRight,
 } from 'lucide-react';
 import { DiningItem } from '../../types';
 import { GuestBottomNav } from './GuestBottomNav';
@@ -40,17 +38,19 @@ const HouseGuideView: React.FC<{
   const { property, room } = useTenant();
   const [copiedWifi, setCopiedWifi] = useState(false);
 
-  // Always ensure smooth top entry on mobile navigation
   useEffect(() => {
     if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, behavior: 'instant' });
     }
   }, []);
 
+  const wifiSsid = room?.wifiName || property?.wifiName || 'RocksApartments_UltraFast';
+  const wifiPass = room?.wifiPassword || property?.wifiPassword || '';
+
   const handleCopyWifi = async () => {
-    if (!property?.wifiPassword) return;
+    if (!wifiPass) return;
     try {
-      await navigator.clipboard.writeText(property.wifiPassword);
+      await navigator.clipboard.writeText(wifiPass);
       notificationService.triggerHaptic('light');
       setCopiedWifi(true);
       setTimeout(() => setCopiedWifi(false), 2200);
@@ -71,12 +71,12 @@ const HouseGuideView: React.FC<{
   const cleanPhone = property?.contactPhone?.replace(/[^0-9]/g, '') || '';
 
   return (
-    <div 
+    <div
       role="region"
       aria-label="House Guide and Amenities"
-      className="min-h-dvh bg-[#FDFBF7] text-stone-900 pb-20 overscroll-y-contain flex flex-col"
+      className="min-h-dvh bg-[#FDFBF7] text-stone-900 pb-24 overscroll-y-contain flex flex-col"
     >
-      {/* 1. Accessible Sticky Header with Large 44px Touch Targets */}
+      {/* 1. Accessible Sticky Header */}
       <header className="sticky top-0 bg-[#FDFBF7]/95 backdrop-blur-md border-b border-stone-200/80 px-4 py-2 flex items-center justify-between z-30 shadow-2xs">
         <button
           type="button"
@@ -89,15 +89,17 @@ const HouseGuideView: React.FC<{
 
         <div className="text-center px-2">
           <h1 className="text-sm font-serif font-bold text-stone-900 leading-tight">House Guide</h1>
-          <p className="text-[10px] text-stone-500 font-mono tracking-tight truncate max-w-[200px]">
-            {room ? `${unitName} ${room.roomNumber}` : (property?.name || 'In-House Essentials')}
+          <p className="text-xs text-stone-500 truncate max-w-[200px]">
+            {room ? room.roomNumber : property?.name || 'Rock Apartments'}
           </p>
         </div>
 
         {property?.contactPhone ? (
           <a
             href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(
-              `Hello Reception, I am contacting you from ${room ? `${unitName} ${room.roomNumber}` : 'Rock Apartments'}.`
+              `Hello Reception, I am contacting you from ${
+                room ? `${unitName} ${room.roomNumber}` : 'Rock Apartments'
+              }.`
             )}`}
             target="_blank"
             rel="noopener noreferrer"
@@ -113,45 +115,49 @@ const HouseGuideView: React.FC<{
 
       {/* 2. Main Guide Content */}
       <main className="p-4 space-y-3.5 flex-1">
-        {/* Editorial Welcome Banner */}
-        <section className="p-4 bg-emerald-950 text-white rounded-2xl shadow-sm border border-emerald-900/80 space-y-1.5">
+        {/* Welcome Banner */}
+        <section className="p-4 bg-[#1C3A31] text-white rounded-2xl shadow-sm space-y-1.5">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-amber-300 font-bold">
+            <span className="text-xs uppercase tracking-wider text-[#E0B973] font-bold">
               Self-Catering Holiday House
             </span>
-            <span className="text-[10px] font-mono text-emerald-300/80">
+            <span className="text-xs text-stone-300">
               {property?.city || 'Lusaka'}, {property?.country || 'Zambia'}
             </span>
           </div>
-          <h2 className="text-base font-serif font-bold text-amber-100">
-            Welcome to Rock Apartments
+          <h2 className="text-base font-serif font-bold text-[#FBF8F1]">
+            Welcome to {property?.name || 'Rock Apartments'}
           </h2>
-          <p className="text-xs text-stone-300 leading-relaxed">
-            Separate furnished holiday houses with a private swimming pool and sun deck. We do not sell food or drink, allowing full private use of your fully equipped kitchen.
+          <p className="text-xs text-stone-200 leading-relaxed">
+            Separate furnished holiday houses with a private swimming pool and sun deck. Full
+            private use of your equipped kitchen is included with your stay.
           </p>
         </section>
 
-        {/* Essential Amenities Cards with One-Touch Mobile Actions */}
+        {/* Essential Amenities Cards */}
         <div className="space-y-3">
           {/* Card 1: Private Swimming Pool */}
           <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-2.5">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
-                  <Waves className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-bold text-stone-900 leading-tight">Private Swimming Pool & Sun Deck</h3>
-                  <span className="text-[10px] text-stone-500 font-mono">Depth 1.2m – 1.8m &bull; Exclusive for in-house guests</span>
-                </div>
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
+                <Waves className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-bold text-stone-900 leading-tight">
+                  Private Swimming Pool &amp; Sun Deck
+                </h3>
+                <span className="text-xs text-stone-500">
+                  Depth 1.2m – 1.8m · Exclusive for in-house guests
+                </span>
               </div>
             </div>
             <p className="text-xs text-stone-600 leading-relaxed">
-              Enjoy your private pool and terrace loungers. Extra plush pool towels are provided fresh on request.
+              Enjoy your private pool and terrace loungers. Fresh pool towels are provided on
+              request.
             </p>
             <button
               type="button"
-              onClick={() => handleAction('housekeeping', 'Plush Pool Towels')}
+              onClick={() => handleAction('housekeeping', 'Pool Towels & Sun Loungers')}
               className="w-full py-2 px-3 rounded-xl bg-blue-50/70 hover:bg-blue-100/80 text-blue-900 text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer"
             >
               <span>Request Fresh Pool Towels</span>
@@ -166,16 +172,19 @@ const HouseGuideView: React.FC<{
                 <ChefHat className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="text-xs font-bold text-stone-900 leading-tight">Fully Equipped Kitchen</h3>
-                <span className="text-[10px] text-stone-500 font-mono">Gas Cooktop, Microwave & Cookware</span>
+                <h3 className="text-xs font-bold text-stone-900 leading-tight">
+                  Fully Equipped Kitchen
+                </h3>
+                <span className="text-xs text-stone-500">Gas Cooktop, Microwave &amp; Cookware</span>
               </div>
             </div>
             <p className="text-xs text-stone-600 leading-relaxed">
-              Equipped with a gas stove, microwave, full-size refrigerator, electric kettle, pots, cutlery, and family dinnerware.
+              Equipped with a gas stove, microwave, full-size refrigerator, electric kettle, pots,
+              cutlery, and dinnerware.
             </p>
             <button
               type="button"
-              onClick={() => handleAction('maintenance', 'Gas Refill & Kitchen Support')}
+              onClick={() => handleAction('maintenance', 'Kitchen Gas Refill & Stove Check')}
               className="w-full py-2 px-3 rounded-xl bg-emerald-50/70 hover:bg-emerald-100/80 text-emerald-950 text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer"
             >
               <span>Gas Refill / Kitchen Assistance</span>
@@ -183,35 +192,35 @@ const HouseGuideView: React.FC<{
             </button>
           </section>
 
-          {/* Card 4: High-Speed Wi-Fi */}
+          {/* Card 3: High-Speed Wi-Fi */}
           <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-800 flex items-center justify-center shrink-0">
-                  <Wifi className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-bold text-stone-900 leading-tight">High-Speed Wi-Fi</h3>
-                  <span className="text-[10px] text-stone-500 font-mono">Coverage across house and poolside patio</span>
-                </div>
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-800 flex items-center justify-center shrink-0">
+                <Wifi className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-bold text-stone-900 leading-tight">High-Speed Wi-Fi</h3>
+                <span className="text-xs text-stone-500">
+                  Coverage across house and poolside patio
+                </span>
               </div>
             </div>
 
             <div className="p-3 bg-stone-50 rounded-xl border border-stone-200/70 flex items-center justify-between gap-2">
               <div className="space-y-0.5 text-xs">
                 <div>
-                  <span className="text-stone-400 font-mono text-[10px] block">NETWORK</span>
-                  <span className="font-bold text-stone-900 font-mono">{property?.wifiName || 'RocksApartments_UltraFast'}</span>
+                  <span className="text-stone-400 text-xs block">Network</span>
+                  <span className="font-bold text-stone-900">{wifiSsid}</span>
                 </div>
-                {property?.wifiPassword && (
+                {wifiPass && (
                   <div className="pt-1">
-                    <span className="text-stone-400 font-mono text-[10px] block">PASSWORD</span>
-                    <span className="font-bold text-emerald-800 font-mono tracking-wider">{property.wifiPassword}</span>
+                    <span className="text-stone-400 text-xs block">Password</span>
+                    <span className="font-bold text-emerald-800">{wifiPass}</span>
                   </div>
                 )}
               </div>
 
-              {property?.wifiPassword && (
+              {wifiPass && (
                 <button
                   type="button"
                   onClick={handleCopyWifi}
@@ -221,12 +230,12 @@ const HouseGuideView: React.FC<{
                   {copiedWifi ? (
                     <>
                       <Check className="w-3.5 h-3.5 text-emerald-600" />
-                      <span className="text-emerald-700 text-[11px]">Copied</span>
+                      <span className="text-emerald-700 text-xs">Copied</span>
                     </>
                   ) : (
                     <>
                       <Copy className="w-3.5 h-3.5 text-stone-500" />
-                      <span className="text-[11px]">Copy</span>
+                      <span className="text-xs">Copy</span>
                     </>
                   )}
                 </button>
@@ -234,19 +243,24 @@ const HouseGuideView: React.FC<{
             </div>
           </section>
 
-          {/* Card 5: Gated Security & Secure Parking */}
+          {/* Card 4: Gated Security & Secure Parking */}
           <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-2.5">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-stone-100 text-stone-800 flex items-center justify-center shrink-0">
                 <ShieldCheck className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="text-xs font-bold text-stone-900 leading-tight">24/7 Gated Security & Parking</h3>
-                <span className="text-[10px] text-stone-500 font-mono">Waterfalls Estate, Airport Road Corridor</span>
+                <h3 className="text-xs font-bold text-stone-900 leading-tight">
+                  24/7 Gated Security &amp; Parking
+                </h3>
+                <span className="text-xs text-stone-500">
+                  Waterfalls Estate, Airport Road Corridor
+                </span>
               </div>
             </div>
             <p className="text-xs text-stone-600 leading-relaxed">
-              Manned estate security 24 hours daily. Dedicated secure parking is inside the perimeter wall directly in front of your house.
+              Manned estate security 24 hours daily. Dedicated secure parking is inside the
+              perimeter wall directly in front of your house.
             </p>
             <button
               type="button"
@@ -258,23 +272,30 @@ const HouseGuideView: React.FC<{
             </button>
           </section>
 
-          {/* Card 6: Airport Connections */}
+          {/* Card 5: Airport Connections */}
           <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-2.5">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center shrink-0">
                 <Plane className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="text-xs font-bold text-stone-900 leading-tight">Airport & City Connections</h3>
-                <span className="text-[10px] text-stone-500 font-mono">6.8 mi to Kenneth Kaunda Airport (KKIA)</span>
+                <h3 className="text-xs font-bold text-stone-900 leading-tight">
+                  Airport &amp; City Connections
+                </h3>
+                <span className="text-xs text-stone-500">
+                  11 km to Kenneth Kaunda Airport (KKIA)
+                </span>
               </div>
             </div>
             <p className="text-xs text-stone-600 leading-relaxed">
-              Convenient 12-minute drive to the international airport. Schedule departure or arrival transfers easily with our concierge.
+              Convenient 12-minute drive to the international airport. Schedule departure or arrival
+              transfers with reception.
             </p>
             <button
               type="button"
-              onClick={() => handleAction('concierge', 'Airport Transfer to KKIA')}
+              onClick={() =>
+                handleAction('transport', 'Kenneth Kaunda Airport Transfer (KKIA - 11 km)')
+              }
               className="w-full py-2 px-3 rounded-xl bg-amber-50/80 hover:bg-amber-100/80 text-amber-950 text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer"
             >
               <span>Schedule Airport Transfer</span>
@@ -282,30 +303,31 @@ const HouseGuideView: React.FC<{
             </button>
           </section>
 
-          {/* Card 7: House Timing & Quiet Hours */}
+          {/* Card 6: House Timing & Quiet Hours */}
           <section className="bg-stone-50 p-4 rounded-2xl border border-stone-200/70 text-xs text-stone-600 space-y-2">
             <div className="flex items-center gap-2 text-stone-900 font-bold">
               <Clock className="w-4 h-4 text-stone-700" />
-              <span>House Timings & Courtesy</span>
+              <span>House Timings &amp; Courtesy</span>
             </div>
-            <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
-              <div className="bg-white p-2 rounded-lg border border-stone-200/60">
-                <span className="text-stone-400 block text-[9px]">CHECK-IN</span>
+            <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
+              <div className="bg-white p-2.5 rounded-lg border border-stone-200/60">
+                <span className="text-stone-400 block text-xs">Check-in</span>
                 <span className="font-bold text-stone-900">{property?.checkInTime || '14:00'}</span>
               </div>
-              <div className="bg-white p-2 rounded-lg border border-stone-200/60">
-                <span className="text-stone-400 block text-[9px]">CHECK-OUT</span>
+              <div className="bg-white p-2.5 rounded-lg border border-stone-200/60">
+                <span className="text-stone-400 block text-xs">Check-out</span>
                 <span className="font-bold text-stone-900">{property?.checkOutTime || '11:00'}</span>
               </div>
             </div>
-            <p className="text-[11px] text-stone-500 pt-1 leading-normal">
-              Quiet hours are 22:00 – 07:00 for the peaceful enjoyment of all guests. Smoking is strictly prohibited inside houses.
+            <p className="text-xs text-stone-500 pt-1 leading-normal">
+              Quiet hours are 22:00 – 07:00 for the peaceful enjoyment of all guests. Smoking is
+              prohibited inside houses.
             </p>
           </section>
         </div>
       </main>
 
-      {/* 3. Sleek, Slim Bottom Navigation */}
+      {/* 3. Bottom Navigation */}
       <GuestBottomNav
         activeTab="dining"
         onNavigate={(tab, data) => (onNavigateTab ? onNavigateTab(tab, data) : onBack())}
@@ -341,15 +363,16 @@ const DiningMenuView: React.FC<GuestDiningMenuProps> = ({
     dbService.getAllDining
   );
 
-  const diningItems = property 
+  const diningItems = property
     ? allDining.filter((d) => d.propertyId === property.id && d.available)
     : [];
 
   const categories = ['all', 'breakfast', 'lunch', 'dinner', 'drinks'];
 
-  const filtered = selectedCategory === 'all'
-    ? diningItems
-    : diningItems.filter((d) => d.category === selectedCategory);
+  const filtered =
+    selectedCategory === 'all'
+      ? diningItems
+      : diningItems.filter((d) => d.category === selectedCategory);
 
   const addToCart = (item: DiningItem) => {
     notificationService.triggerHaptic('light');
@@ -381,8 +404,14 @@ const DiningMenuView: React.FC<GuestDiningMenuProps> = ({
       setErrorMsg('No active property context.');
       return;
     }
-    if (!room) {
-      setErrorMsg('Please select an active in-room session first.');
+    if (property.status === 'suspended') {
+      setErrorMsg(
+        `Requests are paused. Please call reception: ${property.contactPhone || '+260 97 000 0100'}`
+      );
+      return;
+    }
+    if (!room || !room.activeStayId) {
+      setErrorMsg('Please scan your in-house QR code first.');
       return;
     }
     if (cart.length === 0) return;
@@ -392,18 +421,24 @@ const DiningMenuView: React.FC<GuestDiningMenuProps> = ({
       setErrorMsg(null);
 
       const itemsSummary = cart.map((c) => `${c.quantity}x ${c.item.name}`).join(', ');
-      const desc = `In-Room Dining Order (${property.currency} ${totalAmount.toLocaleString()}):\n${itemsSummary}${
+      const desc = `Dining Order (${property.currency} ${totalAmount.toLocaleString()}):\n${itemsSummary}${
         notes ? `\nSpecial Notes: ${notes.trim()}` : ''
       }`;
 
-      const effectiveGuestName = room.currentGuestName || `Room ${room.roomNumber} Guest`;
+      const effectiveGuestName = room.currentGuestName
+        ? `${room.guestTitle ? `${room.guestTitle} ` : ''}${room.currentGuestName}`
+        : `${room.roomNumber} Guest`;
 
       const newReq = dbService.createRequest({
         propertyId: property.id,
         roomId: room.id,
         roomNumber: room.roomNumber,
+        stayId: room.activeStayId,
+        guestSessionId: room.activeStayId,
         category: 'dining',
-        title: `Lodge Dining: ${totalCount} items (${cart[0].item.name}${cart.length > 1 ? ` +${cart.length - 1} more` : ''})`,
+        title: `Dining Order: ${totalCount} items (${cart[0].item.name}${
+          cart.length > 1 ? ` +${cart.length - 1} more` : ''
+        })`,
         description: desc,
         priority: 'normal',
         status: 'pending',
@@ -420,10 +455,10 @@ const DiningMenuView: React.FC<GuestDiningMenuProps> = ({
   };
 
   return (
-    <div className="min-h-dvh bg-[#FDFBF7] text-stone-900 pb-20 overscroll-y-contain flex flex-col">
+    <div className="min-h-dvh bg-[#FDFBF7] text-stone-900 pb-24 overscroll-y-contain flex flex-col">
       <header className="sticky top-0 z-20 bg-[#FDFBF7]/95 backdrop-blur-md border-b border-stone-200/80 px-4 py-2 flex items-center justify-between shadow-2xs">
         <div className="flex items-center gap-2">
-          <button 
+          <button
             type="button"
             onClick={onBack}
             aria-label="Back to home"
@@ -432,13 +467,11 @@ const DiningMenuView: React.FC<GuestDiningMenuProps> = ({
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="text-sm font-bold text-stone-900 leading-tight">In-Room Dining</h1>
-            <p className="text-[10px] text-stone-500 font-mono">
-              {room ? `Room ${room.roomNumber}` : 'Dining Menu'}
-            </p>
+            <h1 className="text-sm font-bold text-stone-900 leading-tight">In-House Dining</h1>
+            <p className="text-xs text-stone-500">{room ? room.roomNumber : 'Dining Menu'}</p>
           </div>
         </div>
-        <div className="text-xs font-mono font-bold bg-amber-100 text-amber-950 px-2.5 py-1 rounded-md border border-amber-900/[0.08]">
+        <div className="text-xs font-bold bg-amber-100 text-amber-950 px-2.5 py-1 rounded-md border border-amber-900/[0.08]">
           {property?.currency || 'ZMW'}
         </div>
       </header>
@@ -472,12 +505,14 @@ const DiningMenuView: React.FC<GuestDiningMenuProps> = ({
       </div>
 
       {/* Food Items Grid */}
-      <main className="px-4 space-y-3 max-w-lg mx-auto flex-1">
+      <main className="px-4 space-y-3 max-w-lg mx-auto flex-1 w-full">
         {filtered.length === 0 ? (
           <div className="bg-white rounded-2xl border border-stone-200 p-8 text-center shadow-2xs">
             <UtensilsCrossed className="w-8 h-8 text-stone-300 mx-auto mb-2" />
             <p className="text-sm font-bold text-stone-800">No menu items found</p>
-            <p className="text-xs text-stone-500 mt-1">Check back shortly or browse other categories.</p>
+            <p className="text-xs text-stone-500 mt-1">
+              Check back shortly or browse other categories.
+            </p>
           </div>
         ) : (
           filtered.map((item) => {
@@ -499,15 +534,19 @@ const DiningMenuView: React.FC<GuestDiningMenuProps> = ({
                   <div>
                     <div className="flex justify-between items-start gap-2">
                       <h3 className="text-xs font-bold text-stone-900 leading-snug">{item.name}</h3>
-                      <span className="text-xs font-mono font-bold text-stone-900 whitespace-nowrap bg-stone-100 px-2 py-0.5 rounded border border-stone-200">
+                      <span className="text-xs font-bold text-stone-900 whitespace-nowrap bg-stone-100 px-2 py-0.5 rounded border border-stone-200">
                         {property?.currency} {item.price}
                       </span>
                     </div>
-                    <p className="text-[11px] text-stone-600 mt-1 leading-relaxed">{item.description}</p>
+                    <p className="text-xs text-stone-600 mt-1 leading-relaxed">
+                      {item.description}
+                    </p>
                   </div>
 
                   <div className="mt-3 pt-2 border-t border-stone-100 flex items-center justify-between">
-                    <span className="text-[10px] text-stone-400 capitalize font-medium">{item.category}</span>
+                    <span className="text-xs text-stone-400 capitalize font-medium">
+                      {item.category}
+                    </span>
                     {inCart ? (
                       <div className="flex items-center gap-2">
                         <button
@@ -517,7 +556,7 @@ const DiningMenuView: React.FC<GuestDiningMenuProps> = ({
                         >
                           -
                         </button>
-                        <span className="text-xs font-mono font-bold w-4 text-center">{inCart.quantity}</span>
+                        <span className="text-xs font-bold w-4 text-center">{inCart.quantity}</span>
                         <button
                           type="button"
                           onClick={() => addToCart(item)}
@@ -545,16 +584,16 @@ const DiningMenuView: React.FC<GuestDiningMenuProps> = ({
 
       {/* Cart Tray */}
       {cart.length > 0 && (
-        <div className="fixed bottom-14 inset-x-0 bg-white/95 backdrop-blur-md border-t border-stone-200 p-3.5 shadow-modal z-30 max-w-md mx-auto rounded-t-2xl">
+        <div className="fixed bottom-16 inset-x-0 bg-white/95 backdrop-blur-md border-t border-stone-200 p-3.5 shadow-modal z-30 max-w-md mx-auto rounded-t-2xl">
           <div className="flex items-center justify-between mb-2">
             <div>
               <span className="text-xs font-bold text-stone-900">{totalCount} items in tray</span>
-              <p className="text-sm font-bold font-mono text-stone-900">
+              <p className="text-sm font-bold text-stone-900">
                 Total: {property?.currency} {totalAmount.toLocaleString()}
               </p>
             </div>
-            <span className="text-[10px] text-stone-500 font-medium">
-              {room ? `House ${room.roomNumber}` : 'Dining Order'}
+            <span className="text-xs text-stone-500 font-medium">
+              {room ? room.roomNumber : 'Dining Order'}
             </span>
           </div>
 
@@ -573,12 +612,14 @@ const DiningMenuView: React.FC<GuestDiningMenuProps> = ({
             className="w-full py-2.5 bg-stone-900 text-white rounded-xl font-bold text-xs shadow-2xs flex items-center justify-center gap-2 active:scale-98 transition-all disabled:opacity-50 cursor-pointer"
           >
             <ShoppingBag className="w-4 h-4" />
-            {isOrdering ? 'Placing Order...' : `Place Room Order (${property?.currency} ${totalAmount.toLocaleString()})`}
+            {isOrdering
+              ? 'Placing Order...'
+              : `Place Order (${property?.currency} ${totalAmount.toLocaleString()})`}
           </button>
         </div>
       )}
 
-      {/* Slim Bottom Navigation */}
+      {/* Bottom Navigation */}
       <GuestBottomNav
         activeTab="dining"
         onNavigate={(tab, data) => (onNavigateTab ? onNavigateTab(tab, data) : onBack())}

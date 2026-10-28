@@ -60,12 +60,77 @@ export function sanitizeRoom(r: Room): Room {
     ? r.amenities.filter((a) => !/hot[\s_]+tub/i.test(a))
     : DEFAULT_HOUSE_AMENITIES;
   const cleanedNotes = r.notes ? r.notes.replace(/private\s+hot[\s_]+tub\s*(and\s*)?/gi, '') : r.notes;
-  return {
+  const isStockImage =
+    !r.imageUrl ||
+    r.imageUrl === '/images/rocks-suite-enhanced.jpg' ||
+    r.imageUrl.includes('images.unsplash.com');
+  const nextRoom: Room = {
     ...r,
     amenities: cleanedAmenities.length > 0 ? cleanedAmenities : DEFAULT_HOUSE_AMENITIES,
     qrLabel: (r.qrLabel || r.roomNumber || '').trim().toUpperCase().slice(0, 8),
     ...(cleanedNotes !== undefined ? { notes: cleanedNotes } : {}),
   };
+  if (isStockImage) {
+    delete nextRoom.imageUrl;
+  }
+  if (nextRoom.status === 'occupied' && !nextRoom.activeStayId) {
+    nextRoom.activeStayId = `stay_${nextRoom.id}`;
+  } else if (nextRoom.status !== 'occupied') {
+    delete nextRoom.activeStayId;
+  }
+  return nextRoom;
+}
+
+export function sanitizeProperty(p: Property): Property {
+  const isRocks =
+    p.id === 'prop_rocks_lusaka' ||
+    p.slug === 'rocks-apartments' ||
+    /rocks?\s+apartments/i.test(p.name || '');
+
+  const isStockCover =
+    !p.coverImageUrl ||
+    p.coverImageUrl === '/images/rocks-suite-enhanced.jpg' ||
+    p.coverImageUrl.includes('images.unsplash.com');
+
+  const cleanDesc =
+    isRocks && (!p.description || /5-bedroom|6\.8\s*mi|Rocks Apartments Lusaka/i.test(p.description))
+      ? SEED_PROPERTIES[0].description
+      : p.description;
+
+  const cleanAttractions = Array.isArray(p.nearbyAttractions)
+    ? p.nearbyAttractions.map((a) => ({
+        ...a,
+        distance: a.distance
+          .replace('6.8 mi', '11 km')
+          .replace('11 mi', '18 km')
+          .replace('12 mi', '19 km')
+          .replace('15 mi', '24 km'),
+      }))
+    : SEED_PROPERTIES[0].nearbyAttractions;
+
+  return {
+    ...p,
+    name: isRocks ? 'Rock Apartments' : p.name,
+    coverImageUrl: isStockCover ? '' : p.coverImageUrl,
+    description: cleanDesc,
+    nearbyAttractions: cleanAttractions,
+    unitLabel: p.unitLabel || (isRocks ? 'House' : 'Room'),
+    diningEnabled: p.diningEnabled !== undefined ? p.diningEnabled : (isRocks ? false : true),
+    errandsEnabled: p.errandsEnabled !== undefined ? p.errandsEnabled : false,
+    airportTransfersEnabled: p.airportTransfersEnabled !== undefined ? p.airportTransfersEnabled : true,
+  };
+}
+
+export function isObsoleteOrTestRequest(r: ServiceRequest): boolean {
+  if (!r) return true;
+  if (r.id.startsWith('req_rocks_')) return true;
+  const title = r.title || '';
+  const desc = r.description || '';
+  if (/\bTEST\b|BBQ Platter|Bedside Express|Lodge Dining|Hot Tub/i.test(title)) return true;
+  if (/\bTEST\b/i.test(desc)) return true;
+  // Requests created before Round 3 stayId/guestSessionId isolation on Chisenga/Bobo
+  if (!r.stayId && !r.guestSessionId) return true;
+  return false;
 }
 
 // In-memory cache holding identical references until modified
@@ -116,20 +181,19 @@ function loadInitialCache(): StoreCache {
   const obsoletePropIds = new Set(['prop_zambezi_01', 'prop_luangwa_02']);
 
   const rawProps = read<Property[]>(STORAGE_KEYS.PROPERTIES, SEED_PROPERTIES).filter(p => !obsoletePropIds.has(p.id));
-  const mergedProps = [...rawProps];
+  const mergedProps = rawProps.map(sanitizeProperty);
   SEED_PROPERTIES.forEach((sp) => {
     const idx = mergedProps.findIndex((p) => p.id === sp.id);
     if (idx === -1) {
-      mergedProps.push(sp);
+      mergedProps.push(sanitizeProperty(sp));
     } else {
-      mergedProps[idx] = {
+      mergedProps[idx] = sanitizeProperty({
         ...mergedProps[idx],
         ...sp,
-        amenities: sp.amenities,
-        nearbyAttractions: sp.nearbyAttractions,
-        address: sp.address,
-        description: sp.description,
-      };
+        status: mergedProps[idx].status || sp.status,
+        suspendedAt: mergedProps[idx].suspendedAt,
+        suspendedBy: mergedProps[idx].suspendedBy,
+      });
     }
   });
 
@@ -163,13 +227,10 @@ function loadInitialCache(): StoreCache {
     }
   });
 
-  const rawRequests = read<ServiceRequest[]>(STORAGE_KEYS.REQUESTS, INITIAL_REQUESTS).filter(r => !obsoletePropIds.has(r.propertyId));
+  const rawRequests = read<ServiceRequest[]>(STORAGE_KEYS.REQUESTS, INITIAL_REQUESTS).filter(
+    (r) => !obsoletePropIds.has(r.propertyId) && !isObsoleteOrTestRequest(r)
+  );
   const mergedRequests = [...rawRequests];
-  INITIAL_REQUESTS.forEach((sreq) => {
-    if (!mergedRequests.some((r) => r.id === sreq.id)) {
-      mergedRequests.push(sreq);
-    }
-  });
 
   persist(STORAGE_KEYS.PROPERTIES, mergedProps);
   persist(STORAGE_KEYS.ROOMS, mergedRooms);
@@ -253,17 +314,66 @@ export function syncAuthenticatedUserListeners(user: UserProfile | null) {
     const unsubUsers = onSnapshot(
       usersQuery,
       (snapshot) => {
-        const list: UserProfile[] = [];
+        const rawList: UserProfile[] = [];
         snapshot.forEach((docSnap) => {
           const raw = docSnap.data();
           if (raw) {
             const normalized = normalizeUserProfile({ ...raw, id: raw.id || docSnap.id });
+            const emailLower = (normalized.email || '').toLowerCase().trim();
+            // Purge disabled test founder account
+            if (emailLower === 'founder.test@example.com') {
+              if (user.role === 'founder') {
+                deleteDoc(doc(db, 'users', docSnap.id)).catch(() => {});
+              }
+              return;
+            }
             if (!obsoletePropIds.has(normalized.propertyId) || normalized.role === 'founder') {
-              list.push(normalized);
+              rawList.push(normalized);
             }
           }
         });
-        cache = { ...cache, users: list };
+
+        // Deduplicate accounts by email or duplicate deactivated "Joe Zaza" records
+        const seenEmails = new Map<string, UserProfile>();
+        const seenNames = new Map<string, UserProfile>();
+        for (const acct of rawList) {
+          const emailKey = (acct.email || '').toLowerCase().trim();
+          const nameKey = (acct.name || '').toLowerCase().trim();
+
+          // Purge deactivated "Joe Zaza" test duplicates
+          if (nameKey === 'joe zaza' && !acct.active) {
+            if (user.role === 'founder') {
+              deleteDoc(doc(db, 'users', acct.id)).catch(() => {});
+            }
+            continue;
+          }
+
+          const existingByEmail = seenEmails.get(emailKey);
+          if (existingByEmail) {
+            // Prefer active over inactive, or newer over older
+            if (acct.active && !existingByEmail.active) {
+              if (user.role === 'founder') {
+                deleteDoc(doc(db, 'users', existingByEmail.id)).catch(() => {});
+              }
+              seenEmails.set(emailKey, acct);
+            } else if (user.role === 'founder') {
+              deleteDoc(doc(db, 'users', acct.id)).catch(() => {});
+            }
+            continue;
+          }
+
+          if (nameKey === 'joe zaza' && seenNames.has(nameKey)) {
+            if (user.role === 'founder') {
+              deleteDoc(doc(db, 'users', acct.id)).catch(() => {});
+            }
+            continue;
+          }
+
+          seenEmails.set(emailKey, acct);
+          seenNames.set(nameKey, acct);
+        }
+
+        cache = { ...cache, users: Array.from(seenEmails.values()) };
         notify();
       },
       (err) => {
@@ -284,9 +394,14 @@ export function syncAuthenticatedUserListeners(user: UserProfile | null) {
         const firestoreList: ServiceRequest[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as ServiceRequest;
-          if (data && !obsoletePropIds.has(data.propertyId)) {
-            firestoreList.push(data);
+          if (!data || obsoletePropIds.has(data.propertyId)) return;
+          if (isObsoleteOrTestRequest(data)) {
+            if (user.role === 'founder' || user.role === 'manager') {
+              deleteDoc(doc(db, 'requests', docSnap.id)).catch(() => {});
+            }
+            return;
           }
+          firestoreList.push(data);
         });
         firestoreList.sort(
           (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -348,15 +463,25 @@ export function initFirestoreListeners() {
           snapshot.forEach((docSnap) => {
             const data = docSnap.data() as Property;
             if (data && !obsoletePropIds.has(data.id)) {
-              // Ensure property feature flags and terminology defaults
-              const defaulted: Property = {
-                ...data,
-                unitLabel: data.unitLabel || (data.id === 'prop_rocks_lusaka' ? 'House' : 'Room'),
-                diningEnabled: data.diningEnabled !== undefined ? data.diningEnabled : (data.id === 'prop_rocks_lusaka' ? false : true),
-                errandsEnabled: data.errandsEnabled !== undefined ? data.errandsEnabled : false,
-                airportTransfersEnabled: data.airportTransfersEnabled !== undefined ? data.airportTransfersEnabled : true,
-              };
-              list.push(defaulted);
+              const sanitized = sanitizeProperty(data);
+              list.push(sanitized);
+              // Auto-normalize "Rocks Apartments Lusaka" in Firestore if founder is active
+              if (
+                cache.currentUser?.role === 'founder' &&
+                (data.name !== sanitized.name || data.coverImageUrl !== sanitized.coverImageUrl)
+              ) {
+                setDoc(
+                  doc(db, 'properties', sanitized.id),
+                  {
+                    name: sanitized.name,
+                    coverImageUrl: sanitized.coverImageUrl,
+                    description: sanitized.description,
+                    nearbyAttractions: sanitized.nearbyAttractions,
+                    updatedAt: new Date().toISOString(),
+                  },
+                  { merge: true }
+                ).catch(() => {});
+              }
             }
           });
           cache = { ...cache, properties: list };
@@ -544,18 +669,27 @@ export const dbService = {
 
     return { property: newProperty, manager: newManager };
   },
-  togglePropertyStatus: (propertyId: string): Property | undefined => {
+  togglePropertyStatus: (propertyId: string, actor?: string): Property | undefined => {
     let updated: Property | undefined;
     const now = new Date().toISOString();
+    const actorName = actor || cache.currentUser?.email || cache.currentUser?.name || 'Founder';
     const list = cache.properties.map((p) => {
       if (p.id === propertyId) {
         const nextStatus = p.status === 'active' ? 'suspended' : 'active';
-        updated = {
+        const copy: Property = {
           ...p,
           status: nextStatus,
           updatedAt: now,
         };
-        return updated;
+        if (nextStatus === 'suspended') {
+          copy.suspendedAt = now;
+          copy.suspendedBy = actorName;
+        } else {
+          delete copy.suspendedAt;
+          delete copy.suspendedBy;
+        }
+        updated = copy;
+        return copy;
       }
       return p;
     });
@@ -569,10 +703,16 @@ export const dbService = {
 
     if (updated) {
       try {
-        setDoc(doc(db, 'properties', propertyId), {
-          status: updated.status,
-          updatedAt: now,
-        }, { merge: true }).catch((err) => console.warn('Firestore togglePropertyStatus notice:', err));
+        setDoc(
+          doc(db, 'properties', propertyId),
+          {
+            status: updated.status,
+            suspendedAt: updated.status === 'suspended' ? now : null,
+            suspendedBy: updated.status === 'suspended' ? actorName : null,
+            updatedAt: now,
+          },
+          { merge: true }
+        ).catch((err) => console.warn('Firestore togglePropertyStatus notice:', err));
       } catch (err) {
         console.warn('Firestore setDoc failed:', err);
       }
@@ -596,8 +736,11 @@ export const dbService = {
     roomNumber: string,
     roomType: string,
     options?: {
+      houseType?: string;
       amenities?: string[];
       qrLabel?: string;
+      wifiName?: string;
+      wifiPassword?: string;
       imageUrl?: string;
       notes?: string;
     }
@@ -619,9 +762,12 @@ export const dbService = {
       propertyId,
       roomNumber,
       roomType,
+      ...(options?.houseType ? { houseType: options.houseType } : {}),
       status: 'available',
       amenities: options?.amenities && options.amenities.length > 0 ? options.amenities : DEFAULT_HOUSE_AMENITIES,
       qrLabel: rawQrLabel.trim().toUpperCase().slice(0, 8),
+      ...(options?.wifiName ? { wifiName: options.wifiName } : {}),
+      ...(options?.wifiPassword ? { wifiPassword: options.wifiPassword } : {}),
       ...(options?.imageUrl ? { imageUrl: options.imageUrl } : {}),
       ...(options?.notes ? { notes: options.notes } : {}),
       createdAt: now,
@@ -667,8 +813,11 @@ export const dbService = {
     roomNumber: string,
     roomType: string,
     options?: {
+      houseType?: string;
       amenities?: string[];
       qrLabel?: string;
+      wifiName?: string;
+      wifiPassword?: string;
       imageUrl?: string;
       notes?: string;
     }
@@ -677,7 +826,20 @@ export const dbService = {
   },
   updateRoomDetails: (
     roomId: string,
-    updates: Partial<Pick<Room, 'roomNumber' | 'roomType' | 'amenities' | 'qrLabel' | 'imageUrl' | 'notes'>>
+    updates: Partial<
+      Pick<
+        Room,
+        | 'roomNumber'
+        | 'roomType'
+        | 'houseType'
+        | 'amenities'
+        | 'qrLabel'
+        | 'wifiName'
+        | 'wifiPassword'
+        | 'imageUrl'
+        | 'notes'
+      >
+    >
   ): Room | undefined => {
     let updatedRoom: Room | undefined;
     const now = new Date().toISOString();
@@ -714,6 +876,9 @@ export const dbService = {
           qrLabel: updatedRoom.qrLabel || updatedRoom.roomNumber.trim().toUpperCase().slice(0, 8),
           updatedAt: now,
         };
+        if (updates.houseType !== undefined) patch.houseType = updates.houseType || null;
+        if (updates.wifiName !== undefined) patch.wifiName = updates.wifiName || null;
+        if (updates.wifiPassword !== undefined) patch.wifiPassword = updates.wifiPassword || null;
         if (updates.imageUrl !== undefined) patch.imageUrl = updates.imageUrl || null;
         if (updates.notes !== undefined) patch.notes = updates.notes || null;
 
@@ -809,14 +974,15 @@ export const dbService = {
     roomId: string,
     guestName: string,
     checkOutDate?: string,
-    guestPhone?: string
+    guestPhone?: string,
+    guestTitle?: 'Mr' | 'Mrs' | 'Ms' | 'Dr'
   ): Room | undefined => {
     let updatedRoom: Room | undefined;
     const now = new Date().toISOString();
     const stayId = `stay_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const updated = cache.rooms.map((r) => {
       if (r.id === roomId) {
-        updatedRoom = {
+        const copy: Room = {
           ...r,
           status: 'occupied' as const,
           activeStayId: stayId,
@@ -825,7 +991,13 @@ export const dbService = {
           guestPhone: guestPhone || undefined,
           updatedAt: now,
         };
-        return updatedRoom;
+        if (guestTitle) {
+          copy.guestTitle = guestTitle;
+        } else {
+          delete copy.guestTitle;
+        }
+        updatedRoom = copy;
+        return copy;
       }
       return r;
     });
@@ -842,6 +1014,7 @@ export const dbService = {
         const patch: any = {
           status: 'occupied',
           activeStayId: stayId,
+          guestTitle: guestTitle || null,
           currentGuestName: guestName,
           guestCheckOutDate: checkOutDate || null,
           guestPhone: guestPhone || null,
@@ -868,6 +1041,7 @@ export const dbService = {
           updatedAt: now,
         };
         delete copy.activeStayId;
+        delete copy.guestTitle;
         delete copy.currentGuestName;
         delete copy.guestCheckOutDate;
         delete copy.guestPhone;
@@ -889,6 +1063,7 @@ export const dbService = {
         const patch: any = {
           status: 'available',
           activeStayId: null,
+          guestTitle: null,
           currentGuestName: null,
           guestCheckOutDate: null,
           guestPhone: null,
@@ -1024,8 +1199,11 @@ export const dbService = {
     return cache.requests.find((r) => r.id === id);
   },
   createRequest: (payload: Omit<ServiceRequest, 'id' | 'createdAt' | 'updatedAt'>): ServiceRequest => {
+    const targetRoom = cache.rooms.find((r) => r.id === payload.roomId);
+    const resolvedStayId = payload.stayId || payload.guestSessionId || targetRoom?.activeStayId;
     const newReq: ServiceRequest = {
       ...payload,
+      ...(resolvedStayId ? { stayId: resolvedStayId, guestSessionId: resolvedStayId } : {}),
       id: `req_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -1042,8 +1220,8 @@ export const dbService = {
       notificationService.playOrderPlacedChime();
       notificationService.triggerHaptic('dispatch');
       notificationService.notify({
-        title: `Bedside Order Dispatched`,
-        subtitle: `Room ${newReq.roomNumber} • ${newReq.title}`,
+        title: `Request Sent`,
+        subtitle: `${newReq.roomNumber} • ${newReq.title}`,
         category: newReq.category,
         roomNumber: newReq.roomNumber,
         actionLabel: 'Track Status',
@@ -1096,8 +1274,8 @@ export const dbService = {
           notificationService.playDoorbellChime();
           notificationService.triggerHaptic('success');
           notificationService.notify({
-            title: `Order Delivered & Completed`,
-            subtitle: `Room ${updatedItem.roomNumber} • ${updatedItem.title}`,
+            title: `Request Completed`,
+            subtitle: `${updatedItem.roomNumber} • ${updatedItem.title}`,
             category: updatedItem.category,
             roomNumber: updatedItem.roomNumber,
           });
@@ -1105,8 +1283,8 @@ export const dbService = {
           notificationService.playStatusUpdateChime();
           notificationService.triggerHaptic('medium');
           notificationService.notify({
-            title: `Staff Dispatched to Room`,
-            subtitle: `${assignedTo?.name || 'Staff'} is heading to Room ${updatedItem.roomNumber}`,
+            title: `On the way to your house`,
+            subtitle: `${assignedTo?.name || 'Staff'} is heading to ${updatedItem.roomNumber}`,
             category: updatedItem.category,
             roomNumber: updatedItem.roomNumber,
           });
@@ -1114,8 +1292,8 @@ export const dbService = {
           notificationService.playStatusUpdateChime();
           notificationService.triggerHaptic('light');
           notificationService.notify({
-            title: `Order Acknowledged`,
-            subtitle: `Reception & staff reviewed Room ${updatedItem.roomNumber}'s request`,
+            title: `Request Acknowledged`,
+            subtitle: `Reception reviewed ${updatedItem.roomNumber}'s request`,
             category: updatedItem.category,
             roomNumber: updatedItem.roomNumber,
           });

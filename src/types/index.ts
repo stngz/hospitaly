@@ -49,6 +49,8 @@ export interface Property {
   checkInTime: string;
   checkOutTime: string;
   status: 'active' | 'suspended';
+  suspendedAt?: string;
+  suspendedBy?: string;
   unitLabel?: 'House' | 'Room' | 'Villa' | 'Suite' | 'Chalet';
   diningEnabled?: boolean;
   errandsEnabled?: boolean;
@@ -66,12 +68,16 @@ export interface Room {
   floorId?: string;
   roomNumber: string;
   roomType: string;
+  houseType?: 'studio' | '2bhk' | '3bhk' | '4bhk' | string;
   imageUrl?: string;
   status: 'available' | 'occupied' | 'maintenance' | 'unavailable';
   activeStayId?: string;
+  guestTitle?: 'Mr' | 'Mrs' | 'Ms' | 'Dr';
   currentGuestName?: string;
   guestCheckOutDate?: string;
   guestPhone?: string;
+  wifiName?: string;
+  wifiPassword?: string;
   notes?: string;
   amenities?: string[];
   qrLabel?: string;
@@ -111,6 +117,7 @@ export interface ServiceRequest {
   propertyId: string;
   roomId: string;
   roomNumber: string;
+  stayId?: string;
   guestSessionId?: string;
   serviceId?: string;
   category: 'housekeeping' | 'maintenance' | 'dining' | 'concierge' | 'transport' | 'other';

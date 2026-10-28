@@ -3,19 +3,21 @@ import JSZip from 'jszip';
 import { useAuth } from '../../context/AuthContext';
 import { dbService, subscribeToStore, DEFAULT_HOUSE_AMENITIES } from '../../lib/store';
 import { notificationService } from '../../lib/notifications';
-import { ServiceRequest, RequestStatus, Room, DiningItem, UserProfile, StaffDepartment, UserNotificationSettings } from '../../types';
+import {
+  RequestStatus,
+  Room,
+  DiningItem,
+  UserNotificationSettings,
+} from '../../types';
 import { QRCodeView, renderPrintableQRCardCanvas } from '../common/QRCodeView';
-import { 
-  Check, 
-  Clock, 
-  AlertTriangle, 
-  Filter, 
-  UserCheck, 
-  RotateCcw, 
-  Building2, 
-  LogOut, 
+import {
+  Check,
+  Clock,
+  AlertTriangle,
+  UserCheck,
+  Building2,
+  LogOut,
   Search,
-  Sparkles,
   Phone,
   CheckCircle2,
   XCircle,
@@ -24,35 +26,26 @@ import {
   QrCode,
   Printer,
   UserPlus,
-  DoorOpen,
   Trash2,
   Copy,
   Calendar,
   X,
   ExternalLink,
-  BedDouble,
   User,
   UtensilsCrossed,
   Users,
-  KeyRound,
-  DollarSign,
-  Tag,
-  ShieldAlert,
-  Eye,
-  EyeOff,
   MessageSquare,
   Volume2,
-  Radio,
   Camera,
-  Upload,
   Download,
   RefreshCw,
   Bell,
   BellOff,
   Smartphone,
-  Share,
   Edit3,
-  Moon
+  Moon,
+  MoreHorizontal,
+  Wifi,
 } from 'lucide-react';
 
 interface StaffDashboardProps {
@@ -74,19 +67,46 @@ const AVAILABLE_HOUSE_AMENITIES = [
   'Washing Machine',
 ];
 
-export const StaffDashboard: React.FC<StaffDashboardProps> = ({ 
+const HOUSE_TYPE_LABELS: Record<string, string> = {
+  studio: 'Studio',
+  '2bhk': '2 BHK',
+  '3bhk': '3 BHK',
+  '4bhk': '4 BHK',
+};
+
+function formatRelativeTime(isoDate: string): string {
+  const ts = new Date(isoDate).getTime();
+  if (Number.isNaN(ts)) return '';
+  const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (diffSec < 60) return 'Just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDays = Math.floor(diffHr / 24);
+  return `${diffDays}d ago`;
+}
+
+function getIsoDatePlusDays(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split('T')[0];
+}
+
+export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   onSelectRoomForGuest,
-  onSwitchToAdmin
+  onSwitchToAdmin,
 }) => {
   const { user, signOut } = useAuth();
-  
+
   // Role verification
   const isFounder = user?.role === 'founder';
   const isManagerOrAdmin = user?.role === 'manager' || user?.role === 'founder';
   const isStaffOnly = user?.role === 'staff';
 
-  // Primary tab state (auto fallback if staff tries to open manager tabs)
+  // Primary tab state
   const [dashboardTab, setDashboardTab] = useState<DashboardTab>('requests');
+  const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
 
   // Requests filtering state
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -94,15 +114,18 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [highlightedRequestId, setHighlightedRequestId] = useState<string | null>(null);
 
-  // Rooms filtering state
+  // Houses filtering state
   const [roomSearchQuery, setRoomSearchQuery] = useState('');
   const [roomFilterStatus, setRoomFilterStatus] = useState<'all' | 'available' | 'occupied'>('all');
 
-  // Modals state for Room Management
+  // Modals state for House Management
   const [isAddRoomOpen, setIsAddRoomOpen] = useState(false);
   const [newRoomNumber, setNewRoomNumber] = useState('');
   const [newRoomType, setNewRoomType] = useState('Executive Pool Villa');
+  const [newHouseType, setNewHouseType] = useState<'studio' | '2bhk' | '3bhk' | '4bhk'>('2bhk');
   const [newRoomQrLabel, setNewRoomQrLabel] = useState('');
+  const [newRoomWifiName, setNewRoomWifiName] = useState('');
+  const [newRoomWifiPassword, setNewRoomWifiPassword] = useState('');
   const [newRoomAmenities, setNewRoomAmenities] = useState<string[]>(DEFAULT_HOUSE_AMENITIES);
   const [newCustomAmenity, setNewCustomAmenity] = useState('');
 
@@ -110,15 +133,21 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   const [editHouseRoom, setEditHouseRoom] = useState<Room | null>(null);
   const [editRoomNumber, setEditRoomNumber] = useState('');
   const [editRoomType, setEditRoomType] = useState('');
+  const [editHouseType, setEditHouseType] = useState<'studio' | '2bhk' | '3bhk' | '4bhk'>('2bhk');
   const [editRoomQrLabel, setEditRoomQrLabel] = useState('');
+  const [editRoomWifiName, setEditRoomWifiName] = useState('');
+  const [editRoomWifiPassword, setEditRoomWifiPassword] = useState('');
   const [editRoomAmenities, setEditRoomAmenities] = useState<string[]>(DEFAULT_HOUSE_AMENITIES);
   const [editCustomAmenity, setEditCustomAmenity] = useState('');
 
+  // Check-In modal state
   const [checkInRoom, setCheckInRoom] = useState<Room | null>(null);
+  const [checkInGuestTitle, setCheckInGuestTitle] = useState<'' | 'Mr' | 'Mrs' | 'Ms' | 'Dr'>('');
   const [checkInGuestName, setCheckInGuestName] = useState('');
-  const [checkInCheckoutDate, setCheckInCheckoutDate] = useState('');
+  const [checkInCheckoutDate, setCheckInCheckoutDate] = useState(getIsoDatePlusDays(1));
   const [checkInPhone, setCheckInPhone] = useState('');
 
+  // QR Card modal state
   const [qrPlaqueRoom, setQrPlaqueRoom] = useState<Room | null>(null);
   const [copiedToken, setCopiedToken] = useState(false);
   const [isDownloadingPng, setIsDownloadingPng] = useState(false);
@@ -149,12 +178,14 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   const [diningCategoryFilter, setDiningCategoryFilter] = useState<string>('all');
   const [diningSearchQuery, setDiningSearchQuery] = useState('');
   const [newDiningName, setNewDiningName] = useState('');
-  const [newDiningCategory, setNewDiningCategory] = useState<'breakfast' | 'lunch' | 'dinner' | 'drinks' | 'dessert'>('breakfast');
+  const [newDiningCategory, setNewDiningCategory] = useState<
+    'breakfast' | 'lunch' | 'dinner' | 'drinks' | 'dessert'
+  >('breakfast');
   const [newDiningDescription, setNewDiningDescription] = useState('');
   const [newDiningPrice, setNewDiningPrice] = useState<string>('150');
   const [newDiningImage, setNewDiningImage] = useState('');
 
-  // Subscribe to reactive store with stable snapshots
+  // Subscribe to reactive store
   const allRequests = useSyncExternalStore(
     subscribeToStore,
     dbService.getAllRequests,
@@ -192,23 +223,26 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   );
 
   const currentProperty = properties.find((p) => p.id === user?.propertyId) || properties[0];
+  const isPropertySuspended = currentProperty?.status === 'suspended';
 
   const propertyScopedRequests = user?.propertyId
     ? allRequests.filter((r) => r.propertyId === user.propertyId)
     : allRequests.filter((r) => !currentProperty || r.propertyId === currentProperty.id);
 
-  // Staff can process ONLY authorised requests assigned to them
   const requests = isStaffOnly
     ? propertyScopedRequests.filter((r) => r.assignedTo?.uid === user?.id)
     : propertyScopedRequests;
 
   const pendingCount = requests.filter((r) => r.status === 'pending').length;
-  const inProgressCount = requests.filter((r) => r.status === 'in_progress').length;
+  const inProgressCount = requests.filter(
+    (r) => r.status === 'in_progress' || r.status === 'acknowledged'
+  ).length;
   const completedCount = requests.filter((r) => r.status === 'completed').length;
   const cancelledCount = requests.filter((r) => r.status === 'cancelled').length;
-  const unassignedCount = requests.filter((r) => r.status === 'pending' && !r.assignedTo?.uid).length;
+  const unassignedCount = requests.filter(
+    (r) => r.status === 'pending' && !r.assignedTo?.uid
+  ).length;
 
-  // Capture Android PWA install prompt
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handler = (e: any) => {
@@ -219,7 +253,6 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
-  // Deep link support for /staff?request={id} from push notifications
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const checkUrlRequest = () => {
@@ -242,7 +275,6 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
     return () => window.removeEventListener('popstate', checkUrlRequest);
   }, []);
 
-  // Update browser tab title to "(3) Hospitaly Staff" when open requests exist
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const activeTotal = pendingCount + inProgressCount;
@@ -252,7 +284,6 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
     };
   }, [pendingCount, inProgressCount]);
 
-  // Play alert chime when a new pending request arrives while /staff is open
   useEffect(() => {
     const currentPendingIds = new Set(
       requests.filter((r) => r.status === 'pending').map((r) => r.id)
@@ -284,15 +315,26 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
     ? allDining.filter((d) => d.propertyId === currentProperty.id)
     : allDining;
 
-  const propertyStaff = currentProperty?.id
-    ? allUsers.filter((u) => u.propertyId === currentProperty.id && u.active)
-    : allUsers.filter((u) => u.active);
+  const seenStaffEmails = new Set<string>();
+  const propertyStaff = (
+    currentProperty?.id
+      ? allUsers.filter((u) => u.propertyId === currentProperty.id && u.active !== false)
+      : allUsers.filter((u) => u.active !== false)
+  ).filter((u) => {
+    const emailLower = (u.email || '').toLowerCase();
+    if (emailLower === 'founder.test@example.com') return false;
+    if (u.id === 'user_manager_rocks' && u.active === false) return false;
+    if (emailLower) {
+      if (seenStaffEmails.has(emailLower)) return false;
+      seenStaffEmails.add(emailLower);
+    }
+    return true;
+  });
 
   const isDiningEnabled = currentProperty?.diningEnabled !== false;
   const unitLabel = currentProperty?.unitLabel || 'House';
   const unitLabelPlural = `${unitLabel}s`;
 
-  // Enforce tier guard: staff can only view 'requests', menu hidden when dining disabled
   const activeTab: DashboardTab = !isManagerOrAdmin
     ? 'requests'
     : !isDiningEnabled && dashboardTab === 'menu'
@@ -301,7 +343,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
 
   // Request actions
   const handleStatusUpdate = (requestId: string, newStatus: RequestStatus) => {
-    if (!user) return;
+    if (!user || isPropertySuspended) return;
     const targetReq = requests.find((r) => r.id === requestId);
     if (!targetReq) return;
     if (isStaffOnly && targetReq.assignedTo?.uid !== user.id) {
@@ -314,25 +356,35 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   };
 
   const handleManagerCancel = (requestId: string) => {
-    if (!isManagerOrAdmin) {
+    if (!isManagerOrAdmin || isPropertySuspended) {
       return;
     }
-    dbService.updateRequestStatus(requestId, 'cancelled', user ? { uid: user.id, name: user.name } : undefined);
+    dbService.updateRequestStatus(
+      requestId,
+      'cancelled',
+      user ? { uid: user.id, name: user.name } : undefined
+    );
   };
 
-  // Room actions
+  // House actions
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newRoomNumber.trim() || !newRoomType.trim()) return;
+    if (!newRoomNumber.trim() || !newRoomType.trim() || isPropertySuspended) return;
     const propId = user?.propertyId || currentProperty?.id || 'prop_rocks_lusaka';
     const cleanQrLabel = (newRoomQrLabel.trim() || newRoomNumber.trim()).toUpperCase().slice(0, 8);
     dbService.addRoomWithQR(propId, newRoomNumber.trim(), newRoomType.trim(), {
       amenities: newRoomAmenities.length > 0 ? newRoomAmenities : DEFAULT_HOUSE_AMENITIES,
       qrLabel: cleanQrLabel,
+      houseType: newHouseType,
+      wifiName: newRoomWifiName.trim() || undefined,
+      wifiPassword: newRoomWifiPassword.trim() || undefined,
     });
     setNewRoomNumber('');
     setNewRoomType('Executive Pool Villa');
+    setNewHouseType('2bhk');
     setNewRoomQrLabel('');
+    setNewRoomWifiName('');
+    setNewRoomWifiPassword('');
     setNewRoomAmenities(DEFAULT_HOUSE_AMENITIES);
     setNewCustomAmenity('');
     setIsAddRoomOpen(false);
@@ -342,7 +394,10 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
     setEditHouseRoom(room);
     setEditRoomNumber(room.roomNumber);
     setEditRoomType(room.roomType);
+    setEditHouseType((room.houseType as 'studio' | '2bhk' | '3bhk' | '4bhk') || '2bhk');
     setEditRoomQrLabel((room.qrLabel || room.roomNumber).toUpperCase().slice(0, 8));
+    setEditRoomWifiName(room.wifiName || '');
+    setEditRoomWifiPassword(room.wifiPassword || '');
     setEditRoomAmenities(
       Array.isArray(room.amenities) && room.amenities.length > 0
         ? room.amenities.filter((a) => !/hot\s*tub/i.test(a))
@@ -353,12 +408,19 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
 
   const handleSaveEditHouse = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editHouseRoom || !editRoomNumber.trim() || !editRoomType.trim()) return;
-    const cleanQrLabel = (editRoomQrLabel.trim() || editRoomNumber.trim()).toUpperCase().slice(0, 8);
+    if (!editHouseRoom || !editRoomNumber.trim() || !editRoomType.trim() || isPropertySuspended) {
+      return;
+    }
+    const cleanQrLabel = (editRoomQrLabel.trim() || editRoomNumber.trim())
+      .toUpperCase()
+      .slice(0, 8);
     dbService.updateRoomDetails(editHouseRoom.id, {
       roomNumber: editRoomNumber.trim(),
       roomType: editRoomType.trim(),
+      houseType: editHouseType,
       qrLabel: cleanQrLabel,
+      wifiName: editRoomWifiName.trim() || undefined,
+      wifiPassword: editRoomWifiPassword.trim() || undefined,
       amenities: editRoomAmenities.length > 0 ? editRoomAmenities : DEFAULT_HOUSE_AMENITIES,
     });
     setEditHouseRoom(null);
@@ -410,7 +472,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
       const blob = await zip.generateAsync({ type: 'blob' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.download = `${(currentProperty?.slug || 'rock-apartments')}-qr-cards-300dpi.zip`;
+      link.download = `${currentProperty?.slug || 'rock-apartments'}-qr-cards-300dpi.zip`;
       link.href = url;
       document.body.appendChild(link);
       link.click();
@@ -424,7 +486,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   };
 
   const handleConfirmRegenerateQR = () => {
-    if (!confirmRegenerateRoom) return;
+    if (!confirmRegenerateRoom || isPropertySuspended) return;
     dbService.regenerateRoomQRToken(confirmRegenerateRoom.id);
     setConfirmRegenerateRoom(null);
   };
@@ -506,31 +568,38 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
 
   const handleOpenCheckInModal = (room: Room) => {
     setCheckInRoom(room);
+    setCheckInGuestTitle(room.guestTitle || '');
     setCheckInGuestName(room.currentGuestName || '');
-    setCheckInCheckoutDate(room.guestCheckOutDate || 'Tomorrow, 10:30 AM');
+    const existingDate = room.guestCheckOutDate || '';
+    const isIso = /^\d{4}-\d{2}-\d{2}/.test(existingDate);
+    setCheckInCheckoutDate(isIso ? existingDate.slice(0, 10) : getIsoDatePlusDays(1));
     setCheckInPhone(room.guestPhone || '');
   };
 
   const handleCheckInSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!checkInRoom || !checkInGuestName.trim()) return;
+    if (!checkInRoom || !checkInGuestName.trim() || isPropertySuspended) return;
     dbService.assignGuestToRoom(
       checkInRoom.id,
       checkInGuestName.trim(),
-      checkInCheckoutDate.trim() || undefined,
-      checkInPhone.trim() || undefined
+      checkInCheckoutDate.trim() || getIsoDatePlusDays(1),
+      checkInPhone.trim() || undefined,
+      checkInGuestTitle || undefined
     );
     setCheckInRoom(null);
+    setCheckInGuestTitle('');
     setCheckInGuestName('');
-    setCheckInCheckoutDate('');
+    setCheckInCheckoutDate(getIsoDatePlusDays(1));
     setCheckInPhone('');
   };
 
   const handleCheckOut = (roomId: string, _roomNum: string) => {
+    if (isPropertySuspended) return;
     dbService.checkOutRoom(roomId);
   };
 
   const handleDeleteRoom = (roomId: string, _roomNum: string) => {
+    if (isPropertySuspended) return;
     dbService.deleteRoom(roomId);
   };
 
@@ -554,8 +623,8 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
 
   const handleCreateDining = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newDiningName.trim() || !newDiningPrice.trim()) return;
-    const propId = currentProperty?.id || 'prop_zambezi_01';
+    if (!newDiningName.trim() || !newDiningPrice.trim() || isPropertySuspended) return;
+    const propId = currentProperty?.id || 'prop_rocks_lusaka';
     dbService.addDiningItem(propId, {
       name: newDiningName.trim(),
       category: newDiningCategory,
@@ -572,12 +641,24 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   };
 
   const handleDeleteDining = (id: string, _name: string) => {
+    if (isPropertySuspended) return;
     dbService.deleteDiningItem(id);
   };
 
   const handleToggleDiningAvailable = (item: DiningItem) => {
+    if (isPropertySuspended) return;
     dbService.updateDiningItem(item.id, { available: !item.available });
   };
+
+  // Available department filter options (exclude dining when diningEnabled === false)
+  const departmentFilterOptions = [
+    'all',
+    'housekeeping',
+    'maintenance',
+    'concierge',
+    'transport',
+    ...(isDiningEnabled ? ['dining'] : []),
+  ];
 
   // Filtered requests
   const filteredRequests = requests.filter((r) => {
@@ -594,7 +675,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
     return true;
   });
 
-  // Filtered rooms
+  // Filtered houses
   const filteredRooms = propertyRooms.filter((r) => {
     if (roomFilterStatus !== 'all' && r.status !== roomFilterStatus) return false;
     if (roomSearchQuery) {
@@ -612,7 +693,12 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
     if (diningCategoryFilter !== 'all' && item.category !== diningCategoryFilter) return false;
     if (diningSearchQuery) {
       const q = diningSearchQuery.toLowerCase();
-      if (!item.name.toLowerCase().includes(q) && !item.description.toLowerCase().includes(q)) return false;
+      if (
+        !item.name.toLowerCase().includes(q) &&
+        !item.description.toLowerCase().includes(q)
+      ) {
+        return false;
+      }
     }
     return true;
   });
@@ -620,7 +706,6 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   const occupiedRoomsCount = propertyRooms.filter((r) => r.status === 'occupied').length;
   const availableRoomsCount = propertyRooms.filter((r) => r.status === 'available').length;
 
-  // Selected QR code for plaque modal
   const selectedPlaqueQR = qrPlaqueRoom
     ? allQRCodes.find((q) => q.roomId === qrPlaqueRoom.id && q.status === 'active') ||
       allQRCodes.find((q) => q.roomId === qrPlaqueRoom.id)
@@ -639,142 +724,161 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-stone-100 text-stone-900 pb-20 selection:bg-amber-100 selection:text-emerald-950">
-      {/* Top Navbar */}
-      <header className="bg-white border-b border-stone-900/[0.08] px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-0 z-30 shadow-diffused">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-950 text-amber-300 flex items-center justify-center font-bold text-base shadow-2xs">
+    <div className="min-h-screen bg-stone-100 text-stone-900 pb-20 overflow-x-hidden selection:bg-amber-100 selection:text-emerald-950">
+      {/* Suspended Property Banner */}
+      {isPropertySuspended && (
+        <div className="bg-red-900 text-white px-4 py-2.5 text-xs font-semibold flex items-center justify-center gap-2 text-center">
+          <AlertTriangle className="w-4 h-4 shrink-0 text-amber-300" />
+          <span>Account suspended — contact Hospitaly (Read-only mode)</span>
+        </div>
+      )}
+
+      {/* Compact 56px Sticky Header */}
+      <header className="bg-white border-b border-stone-900/[0.08] h-14 px-4 sm:px-6 flex items-center justify-between gap-3 sticky top-0 z-30 shadow-2xs">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-emerald-950 text-amber-300 flex items-center justify-center font-bold text-sm shrink-0">
             H
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded ${
-                isFounder 
-                  ? 'bg-purple-100 text-purple-900' 
-                  : user?.role === 'manager'
-                  ? 'bg-amber-100 text-amber-900 font-extrabold'
-                  : 'bg-emerald-100 text-emerald-900'
-              }`}>
-                {isFounder ? 'Tier 1 • Founder Admin' : user?.role === 'manager' ? 'Tier 2 • General Manager' : 'Tier 3 • Staff Member'}
-              </span>
-              <span className="text-[10px] bg-stone-100/90 text-stone-600 px-2 py-0.5 rounded font-mono border border-stone-900/[0.05]">
-                {currentProperty?.name || 'All Properties'}
-              </span>
-            </div>
-            <h1 className="text-lg font-bold text-stone-900 flex items-center gap-2 mt-0.5">
-              <span>{user?.name}</span>
-              <span className="capitalize text-stone-500 font-medium text-xs">
-                &bull; {user?.department}
-              </span>
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-sm sm:text-base font-bold text-stone-900 truncate">
+              {currentProperty?.name || 'Rock Apartments'}
             </h1>
+            {isFounder && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-medium whitespace-nowrap">
+                Viewing as founder
+              </span>
+            )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 shrink-0">
           {!userNotifSettings.enabled ? (
             <button
               onClick={handleEnablePushAlerts}
               disabled={isEnablingPush}
-              className="px-3 py-1.5 bg-emerald-900 hover:bg-emerald-800 text-amber-300 rounded-xl text-xs font-bold active:scale-[0.96] transition-all flex items-center gap-1.5 shadow-2xs"
+              title="Turn on request alerts"
+              className="px-2.5 py-1.5 bg-emerald-900 hover:bg-emerald-800 text-amber-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
             >
               <Bell className="w-3.5 h-3.5" />
-              <span>{isEnablingPush ? 'Enabling...' : 'Turn on request alerts'}</span>
+              <span className="hidden sm:inline">
+                {isEnablingPush ? 'Enabling...' : 'Alerts Off'}
+              </span>
             </button>
           ) : (
             <button
               onClick={() => setIsNotifModalOpen(true)}
-              className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 rounded-xl text-xs font-semibold active:scale-[0.96] transition-all flex items-center gap-1.5 border border-emerald-900/[0.12]"
-              title="Manage push notifications, quiet hours & night duty"
+              className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 rounded-lg text-xs font-semibold flex items-center gap-1.5 border border-emerald-900/[0.12] cursor-pointer"
+              title="Request alerts active"
             >
               <Bell className="w-3.5 h-3.5 text-emerald-700" />
-              <span>Alerts On</span>
-              {userNotifSettings.onDutyNight && (
-                <span className="px-1.5 py-0.2 bg-emerald-900 text-amber-300 rounded text-[9px] uppercase font-mono">
-                  Night Duty
-                </span>
-              )}
+              <span className="hidden sm:inline">Alerts On</span>
             </button>
           )}
 
-          <button
-            onClick={() => setIsNotifModalOpen(true)}
-            className="px-2.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-semibold active:scale-[0.96] transition-all flex items-center gap-1"
-            title="Notification & Quiet Hours Settings"
-          >
-            <Moon className="w-3.5 h-3.5 text-stone-600" />
-            <span className="hidden sm:inline">Alert Settings</span>
-          </button>
-
-          <button
-            onClick={() => {
-              notificationService.playStaffAlertChime();
-              notificationService.triggerHaptic('dispatch');
-            }}
-            className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-950 rounded-xl text-xs font-semibold active:scale-[0.96] transition-all flex items-center gap-1 border border-amber-900/[0.1]"
-            title="Test Reception Audio Alert Chime"
-          >
-            <Volume2 className="w-3.5 h-3.5 text-amber-800" />
-            <span>Chime Alert</span>
-          </button>
-
-          {isFounder && onSwitchToAdmin && (
+          {/* Overflow ⋯ menu for secondary actions */}
+          <div className="relative">
             <button
-              onClick={onSwitchToAdmin}
-              className="px-3 py-1.5 bg-amber-400 text-stone-950 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-amber-300 rounded-xl text-xs font-bold active:scale-[0.96] transition-[background-color,transform] duration-140 shadow-xs"
+              type="button"
+              onClick={() => setIsHeaderMenuOpen((v) => !v)}
+              aria-label="Open staff menu"
+              className="w-9 h-9 rounded-lg border border-stone-200 bg-stone-50 hover:bg-stone-100 flex items-center justify-center text-stone-700 cursor-pointer"
             >
-              Founder HQ
+              <MoreHorizontal className="w-5 h-5" />
             </button>
-          )}
 
-          <button
-            onClick={() => signOut()}
-            title="Sign out of Staff Portal"
-            className="px-3 py-1.5 bg-stone-900 text-stone-100 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-800 rounded-xl text-xs font-semibold active:scale-[0.96] transition-[background-color,transform] duration-140 flex items-center gap-1.5"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>Sign Out</span>
-          </button>
+            {isHeaderMenuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setIsHeaderMenuOpen(false)}
+                />
+                <div className="absolute right-0 mt-2 w-56 rounded-xl bg-white border border-stone-200 shadow-xl py-1.5 z-50 text-xs">
+                  <div className="px-3.5 py-2 border-b border-stone-100">
+                    <div className="font-bold text-stone-900 truncate">{user.name}</div>
+                    <div className="text-stone-500 capitalize">
+                      {user.role === 'manager' ? 'General Manager' : user.department || user.role}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsHeaderMenuOpen(false);
+                      setIsNotifModalOpen(true);
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left text-stone-700 hover:bg-stone-50 flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <Moon className="w-4 h-4 text-stone-500" />
+                    Alert & quiet hours settings
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsHeaderMenuOpen(false);
+                      notificationService.playStaffAlertChime();
+                      notificationService.triggerHaptic('dispatch');
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left text-stone-700 hover:bg-stone-50 flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <Volume2 className="w-4 h-4 text-amber-700" />
+                    Test alert chime
+                  </button>
+                  {isFounder && onSwitchToAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsHeaderMenuOpen(false);
+                        onSwitchToAdmin();
+                      }}
+                      className="w-full px-3.5 py-2.5 text-left text-amber-900 font-semibold hover:bg-amber-50 flex items-center gap-2.5 cursor-pointer"
+                    >
+                      <Shield className="w-4 h-4 text-amber-600" />
+                      Founder HQ
+                    </button>
+                  )}
+                  <div className="my-1 border-t border-stone-100" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsHeaderMenuOpen(false);
+                      signOut();
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left text-rose-700 hover:bg-rose-50 flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Sign out
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
-      {/* One-time Dismissible PWA Home Screen Install Banner */}
+      {/* Compact 1-Line Dismissible PWA Banner */}
       {showPwaBanner && (
-        <div className="bg-stone-950 text-stone-100 border-b border-stone-800 px-6 py-3 no-print">
-          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-start sm:items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-amber-400/15 border border-amber-400/30 text-amber-300 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
-                <Smartphone className="w-4 h-4" />
-              </div>
-              <div className="text-xs">
-                <p className="font-bold text-white">
-                  Add Hospitaly to your home screen to get request alerts
-                </p>
-                <p className="text-stone-400 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span className="inline-flex items-center gap-1">
-                    <strong className="text-amber-300">iPhone:</strong> Tap <Share className="w-3 h-3 inline text-amber-300" /> Share &rarr; <em>Add to Home Screen</em>
-                  </span>
-                  <span>&bull;</span>
-                  <span>
-                    <strong className="text-emerald-400">Android:</strong> Tap <em>Install</em> or browser menu &rarr; <em>Install app</em>
-                  </span>
-                </p>
-              </div>
+        <div className="bg-stone-950 text-stone-100 border-b border-stone-800 px-4 py-2 no-print">
+          <div className="max-w-6xl mx-auto flex items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <Smartphone className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+              <span className="truncate">
+                Add Hospitaly to your home screen for instant alerts
+              </span>
             </div>
-            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+            <div className="flex items-center gap-1.5 shrink-0">
               {deferredInstallPrompt && (
                 <button
                   onClick={handleTriggerPwaInstall}
-                  className="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold text-xs rounded-xl transition-colors"
+                  className="px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold text-xs rounded-lg cursor-pointer"
                 >
-                  Install App
+                  Install
                 </button>
               )}
               <button
                 onClick={handleDismissPwaBanner}
-                className="px-2.5 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-semibold rounded-xl transition-colors flex items-center gap-1"
+                aria-label="Dismiss install banner"
+                className="p-1 text-stone-400 hover:text-white rounded-lg cursor-pointer"
               >
-                <X className="w-3.5 h-3.5" />
-                <span>Dismiss</span>
+                <X className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -782,112 +886,126 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
       )}
 
       {/* Main Content Area */}
-      <main className="p-6 max-w-6xl mx-auto space-y-6">
-        {/* Navigation Tab Bar - Manager/Founder sees operational tabs, Staff sees assigned requests */}
-        <div className="flex items-center justify-between gap-4 border-b border-stone-900/[0.08] pb-3 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Tab 1: Live Requests */}
+      <main className="p-3.5 sm:p-6 max-w-6xl mx-auto space-y-3.5">
+        {/* Single Horizontal Scrollable Tab Bar */}
+        <div className="flex items-center justify-between gap-2 border-b border-stone-900/[0.08] pb-2.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar whitespace-nowrap">
             <button
               onClick={() => setDashboardTab('requests')}
-              className={`relative flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold text-xs sm:text-sm active:scale-[0.97] transition-[background-color,color,border-color,transform] duration-160 ease-[cubic-bezier(0.16,1,0.3,1)] select-none ${
+              className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold text-xs transition-colors cursor-pointer shrink-0 ${
                 activeTab === 'requests'
-                  ? 'bg-brand-primary text-brand-secondary shadow-diffused'
-                  : 'bg-white text-stone-600 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-900 border border-stone-900/[0.08]'
+                  ? 'bg-brand-primary text-brand-secondary shadow-2xs'
+                  : 'bg-white text-stone-600 hover:text-stone-900 border border-stone-900/[0.08]'
               }`}
             >
-              <Clock className="w-4 h-4" />
-              <span>{isStaffOnly ? 'My Assigned Requests' : 'Live Requests'}</span>
+              <Clock className="w-3.5 h-3.5" />
+              <span>Requests</span>
               {unassignedCount > 0 && (
                 <span
-                  className="w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-white animate-pulse"
-                  title={`${unassignedCount} unassigned request(s) waiting`}
+                  className="w-2 h-2 rounded-full bg-red-500"
+                  title={`${unassignedCount} unassigned request(s)`}
                 />
               )}
-              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                activeTab === 'requests' ? 'bg-brand-secondary text-stone-950' : 'bg-stone-100 text-stone-600'
-              }`}>
+              <span
+                className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${
+                  activeTab === 'requests'
+                    ? 'bg-brand-secondary text-stone-950'
+                    : 'bg-stone-100 text-stone-600'
+                }`}
+              >
                 {pendingCount + inProgressCount}
               </span>
             </button>
 
-            {/* Tab 2: Houses, Check-In & QR Codes (Manager & Founder only) */}
             {isManagerOrAdmin && (
               <button
                 onClick={() => setDashboardTab('rooms')}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold text-xs sm:text-sm active:scale-[0.97] transition-[background-color,color,border-color,transform] duration-160 ease-[cubic-bezier(0.16,1,0.3,1)] select-none ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold text-xs transition-colors cursor-pointer shrink-0 ${
                   activeTab === 'rooms'
-                    ? 'bg-brand-primary text-brand-secondary shadow-diffused'
-                    : 'bg-white text-stone-600 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-900 border border-stone-900/[0.08]'
+                    ? 'bg-brand-primary text-brand-secondary shadow-2xs'
+                    : 'bg-white text-stone-600 hover:text-stone-900 border border-stone-900/[0.08]'
                 }`}
               >
-                <Building2 className="w-4 h-4" />
-                <span>{unitLabelPlural}, Check-In & QR Codes</span>
-                <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                  activeTab === 'rooms' ? 'bg-brand-secondary text-stone-950' : 'bg-stone-100 text-stone-600'
-                }`}>
+                <Building2 className="w-3.5 h-3.5" />
+                <span>{unitLabelPlural}</span>
+                <span
+                  className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${
+                    activeTab === 'rooms'
+                      ? 'bg-brand-secondary text-stone-950'
+                      : 'bg-stone-100 text-stone-600'
+                  }`}
+                >
                   {propertyRooms.length}
                 </span>
               </button>
             )}
 
-            {/* Tab 3: Menu & Pricing (Only shown when diningEnabled is true) */}
             {isManagerOrAdmin && isDiningEnabled && (
               <button
                 onClick={() => setDashboardTab('menu')}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold text-xs sm:text-sm active:scale-[0.97] transition-[background-color,color,border-color,transform] duration-160 ease-[cubic-bezier(0.16,1,0.3,1)] select-none ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold text-xs transition-colors cursor-pointer shrink-0 ${
                   activeTab === 'menu'
-                    ? 'bg-brand-primary text-brand-secondary shadow-diffused'
-                    : 'bg-white text-stone-600 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-900 border border-stone-900/[0.08]'
+                    ? 'bg-brand-primary text-brand-secondary shadow-2xs'
+                    : 'bg-white text-stone-600 hover:text-stone-900 border border-stone-900/[0.08]'
                 }`}
               >
-                <UtensilsCrossed className="w-4 h-4" />
-                <span>Menu & Pricing</span>
-                <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                  activeTab === 'menu' ? 'bg-brand-secondary text-stone-950' : 'bg-stone-100 text-stone-600'
-                }`}>
+                <UtensilsCrossed className="w-3.5 h-3.5" />
+                <span>Menu</span>
+                <span
+                  className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${
+                    activeTab === 'menu'
+                      ? 'bg-brand-secondary text-stone-950'
+                      : 'bg-stone-100 text-stone-600'
+                  }`}
+                >
                   {propertyDining.length}
                 </span>
               </button>
             )}
 
-            {/* Tab 4: Team & Staff (Tier 2 GM & Founder only) */}
             {isManagerOrAdmin && (
               <button
                 onClick={() => setDashboardTab('team')}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold text-xs sm:text-sm active:scale-[0.97] transition-[background-color,color,border-color,transform] duration-160 ease-[cubic-bezier(0.16,1,0.3,1)] select-none ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold text-xs transition-colors cursor-pointer shrink-0 ${
                   activeTab === 'team'
-                    ? 'bg-brand-primary text-brand-secondary shadow-diffused'
-                    : 'bg-white text-stone-600 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-900 border border-stone-900/[0.08]'
+                    ? 'bg-brand-primary text-brand-secondary shadow-2xs'
+                    : 'bg-white text-stone-600 hover:text-stone-900 border border-stone-900/[0.08]'
                 }`}
               >
-                <Users className="w-4 h-4" />
-                <span>Team & Staff</span>
-                <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                  activeTab === 'team' ? 'bg-brand-secondary text-stone-950' : 'bg-stone-100 text-stone-600'
-                }`}>
+                <Users className="w-3.5 h-3.5" />
+                <span>Team</span>
+                <span
+                  className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${
+                    activeTab === 'team'
+                      ? 'bg-brand-secondary text-stone-950'
+                      : 'bg-stone-100 text-stone-600'
+                  }`}
+                >
                   {propertyStaff.length}
                 </span>
               </button>
             )}
           </div>
 
-          {/* Contextual Action Button */}
           {activeTab === 'rooms' && isManagerOrAdmin && (
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 onClick={handleDownloadAllQRsZip}
                 disabled={isDownloadingZip || propertyRooms.length === 0}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-stone-50 text-stone-800 border border-stone-900/[0.12] rounded-xl text-xs font-semibold shadow-2xs active:scale-[0.96] transition-all select-none disabled:opacity-50"
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-white hover:bg-stone-50 text-stone-800 border border-stone-900/[0.12] rounded-xl text-xs font-semibold disabled:opacity-50 cursor-pointer"
                 title="Download 300 DPI printable QR cards for all houses as a ZIP"
               >
-                <Download className="w-4 h-4 text-emerald-900" />
-                <span>{isDownloadingZip ? 'Bundling ZIP...' : 'Download all (ZIP)'}</span>
+                <Download className="w-3.5 h-3.5 text-emerald-900" />
+                <span className="hidden sm:inline">
+                  {isDownloadingZip ? 'Bundling...' : 'All QRs (ZIP)'}
+                </span>
               </button>
               <button
                 onClick={() => setIsAddRoomOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-brand-primary [@media(hover:hover)_and_(pointer:fine)]:hover:opacity-90 text-brand-secondary rounded-xl text-xs font-semibold shadow-diffused active:scale-[0.96] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
+                disabled={isPropertySuspended}
+                className="flex items-center gap-1 px-3 py-1.5 bg-brand-primary text-brand-secondary rounded-xl text-xs font-semibold disabled:opacity-50 cursor-pointer"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-3.5 h-3.5" />
                 <span>Add {unitLabel}</span>
               </button>
             </div>
@@ -896,366 +1014,336 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
           {activeTab === 'menu' && isManagerOrAdmin && isDiningEnabled && (
             <button
               onClick={() => setIsAddDiningOpen(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-brand-primary [@media(hover:hover)_and_(pointer:fine)]:hover:opacity-90 text-brand-secondary rounded-xl text-xs font-semibold shadow-diffused active:scale-[0.96] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
+              disabled={isPropertySuspended}
+              className="flex items-center gap-1 px-3 py-1.5 bg-brand-primary text-brand-secondary rounded-xl text-xs font-semibold shrink-0 disabled:opacity-50 cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
-              <span>Add Dining Item</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Item</span>
             </button>
           )}
         </div>
 
         {/* TAB 1: LIVE REQUESTS */}
         {activeTab === 'requests' && (
-          <div className="space-y-6">
-            {/* KPI Metrics Bar */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="bg-white p-4 rounded-2xl border border-stone-900/[0.08] shadow-diffused flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Pending</span>
-                  <p className="text-2xl font-bold text-amber-600 mt-1">{pendingCount}</p>
-                </div>
-                <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
-                  <Clock className="w-4 h-4" />
-                </div>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-stone-900/[0.08] shadow-diffused flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">In Progress</span>
-                  <p className="text-2xl font-bold text-blue-600 mt-1">{inProgressCount}</p>
-                </div>
-                <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center font-bold">
-                  <UserCheck className="w-4 h-4" />
-                </div>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-stone-900/[0.08] shadow-diffused flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Completed</span>
-                  <p className="text-2xl font-bold text-emerald-700 mt-1">{completedCount}</p>
-                </div>
-                <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold">
-                  <CheckCircle2 className="w-4 h-4" />
-                </div>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-stone-900/[0.08] shadow-diffused flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Cancelled</span>
-                  <p className="text-2xl font-bold text-stone-600 mt-1">{cancelledCount}</p>
-                </div>
-                <div className="w-9 h-9 rounded-xl bg-stone-100 text-stone-600 flex items-center justify-center font-bold">
-                  <XCircle className="w-4 h-4" />
-                </div>
-              </div>
+          <div className="space-y-3">
+            {/* Compact 1-Line Stat Chips Bar */}
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-stone-200 text-xs font-medium text-stone-700">
+                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                Pending <strong className="text-stone-950">{pendingCount}</strong>
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-stone-200 text-xs font-medium text-stone-700">
+                <span className="w-2 h-2 rounded-full bg-blue-500" />
+                In progress <strong className="text-stone-950">{inProgressCount}</strong>
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-stone-200 text-xs font-medium text-stone-700">
+                <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                Done <strong className="text-stone-950">{completedCount}</strong>
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-stone-200 text-xs font-medium text-stone-700">
+                <span className="w-2 h-2 rounded-full bg-stone-400" />
+                Cancelled <strong className="text-stone-950">{cancelledCount}</strong>
+              </span>
             </div>
 
-            {/* Filter Controls & Search */}
-            <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-xs space-y-3">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            {/* Compact Filter Bar */}
+            <div className="bg-white p-3 rounded-2xl border border-stone-200 shadow-2xs space-y-2.5">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1 min-w-0">
+                  <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    placeholder="Search requests by room, title, guest name..."
+                    placeholder="Search house, request, or guest..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-stone-200 focus:outline-none focus:ring-1 focus:ring-emerald-900"
+                    className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-stone-200 focus:outline-none focus:ring-1 focus:ring-emerald-900"
                   />
                 </div>
 
-                <div className="flex items-center gap-1.5 overflow-x-auto text-xs">
-                  <span className="text-stone-500 font-semibold uppercase text-[10px] tracking-wider pl-1">Dept:</span>
-                  {['all', 'housekeeping', 'maintenance', 'concierge', 'dining', 'transport'].map((dept) => (
-                    <button
-                      key={dept}
-                      onClick={() => setFilterDepartment(dept)}
-                      className={`px-2.5 py-1.5 rounded-lg font-medium capitalize transition-all whitespace-nowrap ${
-                        filterDepartment === dept
-                          ? 'bg-emerald-900 text-white shadow-xs'
-                          : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
-                      }`}
-                    >
-                      {dept}
-                    </button>
+                <select
+                  value={filterDepartment}
+                  onChange={(e) => setFilterDepartment(e.target.value)}
+                  aria-label="Filter by department"
+                  className="px-2.5 py-1.5 text-xs rounded-xl border border-stone-200 bg-stone-50 text-stone-800 font-medium focus:outline-none focus:ring-1 focus:ring-emerald-900 shrink-0"
+                >
+                  {departmentFilterOptions.map((dept) => (
+                    <option key={dept} value={dept}>
+                      {dept === 'all'
+                        ? 'All depts'
+                        : dept.charAt(0).toUpperCase() + dept.slice(1)}
+                    </option>
                   ))}
-                </div>
+                </select>
               </div>
 
-              <div className="flex gap-2 pt-2 border-t border-stone-100 overflow-x-auto">
-                {['all', 'pending', 'acknowledged', 'in_progress', 'completed', 'cancelled'].map((status) => (
-                  <button
-                    key={status}
-                    onClick={() => setFilterStatus(status)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold capitalize transition-colors ${
-                      filterStatus === status
-                        ? 'bg-stone-900 text-white'
-                        : 'bg-stone-50 border border-stone-200 text-stone-600 hover:bg-stone-100'
-                    }`}
-                  >
-                    {status.replace('_', ' ')}
-                  </button>
-                ))}
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar whitespace-nowrap">
+                {['all', 'pending', 'acknowledged', 'in_progress', 'completed', 'cancelled'].map(
+                  (status) => (
+                    <button
+                      key={status}
+                      onClick={() => setFilterStatus(status)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold capitalize transition-colors cursor-pointer shrink-0 ${
+                        filterStatus === status
+                          ? 'bg-stone-900 text-white'
+                          : 'bg-stone-50 border border-stone-200 text-stone-600 hover:bg-stone-100'
+                      }`}
+                    >
+                      {status.replace('_', ' ')}
+                    </button>
+                  )
+                )}
               </div>
             </div>
 
             {/* Request Cards Feed */}
             <div className="space-y-3">
               {filteredRequests.length === 0 ? (
-                <div className="text-center py-16 bg-white rounded-2xl border border-stone-200 text-stone-500 text-sm">
+                <div className="text-center py-12 bg-white rounded-2xl border border-stone-200 text-stone-500 text-xs">
                   No matching service requests found.
                 </div>
               ) : (
-                filteredRequests.map((req) => (
-                  <div
-                    id={`request-card-${req.id}`}
-                    key={req.id}
-                    className={`bg-white rounded-2xl border p-5 shadow-xs transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                      highlightedRequestId === req.id
-                        ? 'border-amber-500 ring-2 ring-amber-400/50 bg-amber-50/20'
-                        : 'border-stone-200/90 hover:border-stone-300'
-                    }`}
-                  >
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-extrabold px-2.5 py-0.5 bg-emerald-100 text-emerald-950 rounded-md">
-                          {unitLabel} {req.roomNumber}
-                        </span>
-                        <span className="text-xs font-semibold uppercase text-stone-600 tracking-wider bg-stone-100 px-2 py-0.5 rounded">
-                          {req.category}
-                        </span>
-                        {req.priority === 'urgent' && (
-                          <span className="text-xs font-bold px-2 py-0.5 bg-red-100 text-red-700 rounded-md flex items-center gap-1">
-                            <AlertTriangle className="w-3.5 h-3.5" /> Urgent
+                filteredRequests.map((req) => {
+                  const cleanHouseName = req.roomNumber.replace(/^house\s+/i, '').trim();
+                  return (
+                    <div
+                      id={`request-card-${req.id}`}
+                      key={req.id}
+                      className={`bg-white rounded-2xl border p-4 shadow-2xs transition-all space-y-3 ${
+                        highlightedRequestId === req.id
+                          ? 'border-amber-500 ring-2 ring-amber-400/50 bg-amber-50/20'
+                          : 'border-stone-200/90 hover:border-stone-300'
+                      }`}
+                    >
+                      {/* Row 1: House pill, category, priority, relative time */}
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-bold px-2.5 py-0.5 bg-emerald-100 text-emerald-950 rounded-md">
+                            {cleanHouseName}
                           </span>
-                        )}
-                        {req.priority === 'high' && (
-                          <span className="text-xs font-bold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-md">
-                            High Priority
+                          <span className="text-xs font-semibold capitalize text-stone-600 bg-stone-100 px-2 py-0.5 rounded-md">
+                            {req.category}
                           </span>
-                        )}
-                        <span className="text-[11px] text-stone-600">
-                          REF: #{req.id.slice(-6).toUpperCase()}
+                          {req.priority === 'urgent' && (
+                            <span className="text-xs font-bold px-2 py-0.5 bg-red-100 text-red-700 rounded-md flex items-center gap-1">
+                              <AlertTriangle className="w-3.5 h-3.5" /> Urgent
+                            </span>
+                          )}
+                          {req.priority === 'high' && (
+                            <span className="text-xs font-bold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-md">
+                              High
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs text-stone-500">
+                          {formatRelativeTime(req.createdAt)}
                         </span>
                       </div>
 
-                      <h3 className="text-base font-bold text-stone-900">{req.title}</h3>
-
-                      {req.description && (
-                        <p className="text-xs text-stone-700 bg-stone-50 p-2.5 rounded-xl border border-stone-100 font-normal">
-                          "{req.description}"
-                        </p>
-                      )}
-
-                      <div className="flex items-center gap-3 text-[11px] text-stone-600 pt-1">
-                        <span>Guest: <strong>{req.guestName || 'Anonymous'}</strong></span>
-                        {req.guestPhone && (
-                          <span className="flex items-center gap-1 font-mono">
-                            <Phone className="w-3 h-3 text-emerald-700" /> {req.guestPhone}
-                          </span>
+                      {/* Row 2: Request title & optional description */}
+                      <div>
+                        <h3 className="text-base font-bold text-stone-900 leading-snug">
+                          {req.title}
+                        </h3>
+                        {req.description && (
+                          <p className="text-xs text-stone-700 bg-stone-50 p-2.5 rounded-xl border border-stone-100 mt-1.5">
+                            &ldquo;{req.description}&rdquo;
+                          </p>
                         )}
-                        <span>&bull;</span>
-                        <span>Received: {new Date(req.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+
+                      {/* Row 3: Guest name · phone on 1 line in sans font */}
+                      <div className="flex items-center justify-between gap-2 text-xs text-stone-600 flex-wrap">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="font-semibold text-stone-800 truncate">
+                            {req.guestName || 'Guest'}
+                          </span>
+                          {req.guestPhone && (
+                            <>
+                              <span>&middot;</span>
+                              <span className="whitespace-nowrap">{req.guestPhone}</span>
+                            </>
+                          )}
+                        </div>
                         {req.assignedTo && (
-                          <>
-                            <span>&bull;</span>
-                            <span className="text-emerald-900 font-semibold">Attended by: {req.assignedTo.name}</span>
-                          </>
+                          <span className="text-emerald-900 font-semibold">
+                            Assigned: {req.assignedTo.name}
+                          </span>
                         )}
                       </div>
 
-                      {/* Staff Assignment Selector for General Manager / Founder */}
+                      {/* Row 4: Full-width Assign Staff selector */}
                       {isManagerOrAdmin && (
-                        <div className="flex items-center gap-2 pt-2 border-t border-stone-100 flex-wrap">
-                          <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wide flex items-center gap-1 font-mono">
-                            <UserCheck className="w-3.5 h-3.5 text-amber-600" />
-                            <span>Assign Staff:</span>
-                          </span>
+                        <div className="pt-2 border-t border-stone-100">
                           <select
+                            aria-label="Assign staff member"
+                            disabled={isPropertySuspended}
                             value={req.assignedTo?.uid || ''}
                             onChange={(e) => {
                               const staffUid = e.target.value;
                               if (!staffUid) {
                                 dbService.updateRequestStatus(req.id, req.status, undefined);
                               } else {
-                                const selectedMember = propertyStaff.find((s) => s.id === staffUid);
+                                const selectedMember = propertyStaff.find(
+                                  (s) => s.id === staffUid
+                                );
                                 if (selectedMember) {
-                                  dbService.updateRequestStatus(req.id, req.status === 'pending' ? 'acknowledged' : req.status, {
-                                    uid: selectedMember.id,
-                                    name: selectedMember.name,
-                                  });
+                                  dbService.updateRequestStatus(
+                                    req.id,
+                                    req.status === 'pending' ? 'acknowledged' : req.status,
+                                    {
+                                      uid: selectedMember.id,
+                                      name: selectedMember.name,
+                                    }
+                                  );
                                   notificationService.notify({
                                     title: 'Staff Assigned',
-                                    subtitle: `${selectedMember.name} assigned to Room ${req.roomNumber}`,
-                                    roomNumber: req.roomNumber,
+                                    subtitle: `${selectedMember.name} assigned to ${cleanHouseName}`,
+                                    roomNumber: cleanHouseName,
                                     category: req.category,
                                   });
                                 }
                               }
                             }}
-                            className="text-xs bg-stone-50 border border-stone-200 rounded-lg px-2.5 py-1 text-stone-800 font-medium focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                            className="w-full text-xs bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-stone-800 font-medium focus:ring-1 focus:ring-amber-500 cursor-pointer"
                           >
-                            <option value="">-- Unassigned (Select Staff) --</option>
+                            <option value="">Assign staff member...</option>
                             {propertyStaff.map((s) => (
                               <option key={s.id} value={s.id}>
-                                {s.name} ({s.role === 'manager' ? 'GM' : s.department.toUpperCase()})
+                                {s.name} (
+                                {s.role === 'manager'
+                                  ? 'General Manager'
+                                  : s.department
+                                  ? s.department.charAt(0).toUpperCase() + s.department.slice(1)
+                                  : 'Staff'}
+                                )
                               </option>
                             ))}
                           </select>
                         </div>
                       )}
+
+                      {/* Row 5: Action buttons in one equal-width row */}
+                      <div className="flex items-center gap-2 pt-1">
+                        <a
+                          href={`https://wa.me/?text=${encodeURIComponent(
+                            `*Hospitally Staff Dispatch*\n` +
+                              `Property: ${currentProperty?.name || 'Rock Apartments'}\n` +
+                              `House: ${cleanHouseName}\n` +
+                              `Guest: ${req.guestName || 'Guest'}${req.guestPhone ? ` (${req.guestPhone})` : ''}\n` +
+                              `Request: ${req.title}\n` +
+                              (req.description ? `Details: ${req.description}\n` : '') +
+                              `Priority: ${req.priority.toUpperCase()}`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 py-2 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                          <span>WhatsApp</span>
+                        </a>
+
+                        {req.status === 'pending' && (
+                          <button
+                            disabled={isPropertySuspended}
+                            onClick={() => handleStatusUpdate(req.id, 'acknowledged')}
+                            className="flex-1 py-2 px-2.5 bg-stone-900 text-white hover:bg-stone-800 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                          >
+                            Acknowledge
+                          </button>
+                        )}
+
+                        {req.status === 'acknowledged' && (
+                          <button
+                            disabled={isPropertySuspended}
+                            onClick={() => handleStatusUpdate(req.id, 'in_progress')}
+                            className="flex-1 py-2 px-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1 disabled:opacity-50 cursor-pointer"
+                          >
+                            <UserCheck className="w-3.5 h-3.5" />
+                            <span>Start</span>
+                          </button>
+                        )}
+
+                        {req.status === 'in_progress' && (
+                          <button
+                            disabled={isPropertySuspended}
+                            onClick={() => handleStatusUpdate(req.id, 'completed')}
+                            className="flex-1 py-2 px-2.5 bg-emerald-700 text-white hover:bg-emerald-800 rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1 disabled:opacity-50 cursor-pointer"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Done</span>
+                          </button>
+                        )}
+
+                        {req.status === 'completed' && (
+                          <span className="flex-1 py-2 px-2.5 text-xs font-bold text-emerald-800 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center justify-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Completed
+                          </span>
+                        )}
+
+                        {req.status === 'cancelled' && (
+                          <span className="flex-1 py-2 px-2.5 text-xs font-bold text-stone-600 bg-stone-100 rounded-xl border border-stone-200 flex items-center justify-center gap-1">
+                            <XCircle className="w-3.5 h-3.5" /> Cancelled
+                          </span>
+                        )}
+
+                        {isManagerOrAdmin &&
+                          req.status !== 'completed' &&
+                          req.status !== 'cancelled' && (
+                            <button
+                              disabled={isPropertySuspended}
+                              onClick={() => handleManagerCancel(req.id)}
+                              title="Cancel request"
+                              className="py-2 px-3 text-xs text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                      </div>
                     </div>
-
-                    {/* Workflow Action Buttons */}
-                    <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-stone-100 flex-wrap">
-                      {/* WhatsApp Staff Dispatch */}
-                      <a
-                        href={`https://wa.me/?text=${encodeURIComponent(
-                          `*Hospitally Staff Dispatch*\n` +
-                          `🏨 *Property:* ${currentProperty?.name || 'Hotel'}\n` +
-                          `🚪 *Room:* ${req.roomNumber}\n` +
-                          `👤 *Guest:* ${req.guestName || 'In-House Guest'}${req.guestPhone ? ` (${req.guestPhone})` : ''}\n` +
-                          `🛎️ *Request:* ${req.title}\n` +
-                          (req.description ? `📝 *Details:* ${req.description}\n` : '') +
-                          `⚡ *Priority:* ${req.priority.toUpperCase()}\n` +
-                          `📍 *Ref:* #${req.id.slice(-6).toUpperCase()}`
-                        )}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title="Dispatch request details via WhatsApp"
-                        className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5"
-                      >
-                        <MessageSquare className="w-4 h-4 shrink-0" />
-                        <span>WhatsApp Dispatch</span>
-                      </a>
-
-                      {req.status === 'pending' && (
-                        <button
-                          onClick={() => handleStatusUpdate(req.id, 'acknowledged')}
-                          className="px-3.5 py-2 bg-stone-900 text-white hover:bg-stone-800 rounded-xl text-xs font-semibold shadow-xs transition-colors"
-                        >
-                          Acknowledge
-                        </button>
-                      )}
-
-                      {req.status === 'acknowledged' && (
-                        <button
-                          onClick={() => handleStatusUpdate(req.id, 'in_progress')}
-                          className="px-3.5 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-xl text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5"
-                        >
-                          <UserCheck className="w-3.5 h-3.5" /> Start Service
-                        </button>
-                      )}
-
-                      {req.status === 'in_progress' && (
-                        <button
-                          onClick={() => handleStatusUpdate(req.id, 'completed')}
-                          className="px-3.5 py-2 bg-emerald-700 text-white hover:bg-emerald-800 rounded-xl text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5"
-                        >
-                          <Check className="w-3.5 h-3.5" /> Mark Fulfilled
-                        </button>
-                      )}
-
-                      {req.status === 'completed' && (
-                        <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200 flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Completed
-                        </span>
-                      )}
-
-                      {req.status === 'cancelled' && (
-                        <span className="text-xs font-bold text-stone-600 bg-stone-100 px-3 py-1.5 rounded-xl border border-stone-200 flex items-center gap-1">
-                          <XCircle className="w-3.5 h-3.5" /> Cancelled
-                        </span>
-                      )}
-
-                      {/* Manager Override Cancel Button */}
-                      {isManagerOrAdmin && req.status !== 'completed' && req.status !== 'cancelled' && (
-                        <button
-                          onClick={() => handleManagerCancel(req.id)}
-                          title="Manager override: cancel request"
-                          className="px-2.5 py-1.5 text-xs text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl font-medium transition-colors flex items-center gap-1"
-                        >
-                          <Shield className="w-3.5 h-3.5" />
-                          <span>Cancel</span>
-                        </button>
-                      )}
-
-                      <span className="text-[10px] uppercase font-mono px-2 py-1 bg-stone-100 text-stone-600 rounded">
-                        {req.status.replace('_', ' ')}
-                      </span>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
         )}
 
-        {/* TAB 2: ROOMS, CHECK-IN & QR CODES */}
+        {/* TAB 2: HOUSES, CHECK-IN & QR CODES */}
         {activeTab === 'rooms' && (
-          <div className="space-y-6">
-            {/* Rooms KPI Summary */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-xs flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Total Rooms</span>
-                  <p className="text-2xl font-bold text-stone-900 mt-1">{propertyRooms.length}</p>
-                </div>
-                <div className="w-9 h-9 rounded-xl bg-stone-100 text-stone-700 flex items-center justify-center font-bold">
-                  <BedDouble className="w-4 h-4" />
-                </div>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-xs flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Occupied</span>
-                  <p className="text-2xl font-bold text-emerald-700 mt-1">{occupiedRoomsCount}</p>
-                </div>
-                <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-800 flex items-center justify-center font-bold">
-                  <User className="w-4 h-4" />
-                </div>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-xs flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Available</span>
-                  <p className="text-2xl font-bold text-blue-600 mt-1">{availableRoomsCount}</p>
-                </div>
-                <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center font-bold">
-                  <DoorOpen className="w-4 h-4" />
-                </div>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-xs flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">Active QR Badges</span>
-                  <p className="text-2xl font-bold text-amber-700 mt-1">{propertyRooms.length}</p>
-                </div>
-                <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center font-bold">
-                  <QrCode className="w-4 h-4" />
-                </div>
-              </div>
+          <div className="space-y-3.5">
+            {/* Compact Houses Stat Chips */}
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-stone-200 text-xs font-medium text-stone-700">
+                {unitLabelPlural} <strong className="text-stone-950">{propertyRooms.length}</strong>
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-stone-200 text-xs font-medium text-stone-700">
+                <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                Occupied <strong className="text-stone-950">{occupiedRoomsCount}</strong>
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-stone-200 text-xs font-medium text-stone-700">
+                <span className="w-2 h-2 rounded-full bg-blue-500" />
+                Available <strong className="text-stone-950">{availableRoomsCount}</strong>
+              </span>
             </div>
 
-            {/* Room Filters & Search */}
-            <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+            {/* House Filters & Search */}
+            <div className="bg-white p-3 rounded-2xl border border-stone-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
               <div className="relative flex-1">
-                <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Search by room number, type, or guest name..."
+                  placeholder="Search by house name, type, or guest..."
                   value={roomSearchQuery}
                   onChange={(e) => setRoomSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-stone-200 focus:outline-none focus:ring-1 focus:ring-emerald-900"
+                  className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-stone-200 focus:outline-none focus:ring-1 focus:ring-emerald-900"
                 />
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 {(['all', 'available', 'occupied'] as const).map((status) => (
                   <button
                     key={status}
                     onClick={() => setRoomFilterStatus(status)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold capitalize transition-colors ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors cursor-pointer ${
                       roomFilterStatus === status
                         ? 'bg-stone-900 text-white'
                         : 'bg-stone-50 border border-stone-200 text-stone-600 hover:bg-stone-100'
@@ -1267,43 +1355,55 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               </div>
             </div>
 
-            {/* Rooms Grid */}
+            {/* Houses Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredRooms.length === 0 ? (
-                <div className="col-span-full text-center py-16 bg-white rounded-2xl border border-stone-200 text-stone-500 text-sm">
-                  No rooms match your filter.
+                <div className="col-span-full text-center py-12 bg-white rounded-2xl border border-stone-200 text-stone-500 text-xs">
+                  No houses match your filter.
                 </div>
               ) : (
                 filteredRooms.map((room) => {
-                  const matchingQR = allQRCodes.find((q) => q.roomId === room.id && q.status === 'active') ||
-                    allQRCodes.find((q) => q.roomId === room.id);
                   const isOccupied = room.status === 'occupied';
                   const roomAmenities = (room.amenities || DEFAULT_HOUSE_AMENITIES).filter(
                     (a) => !/hot\s*tub/i.test(a)
                   );
+                  const houseTypeBadge = room.houseType
+                    ? HOUSE_TYPE_LABELS[room.houseType]
+                    : null;
+                  const formattedGuest = [room.guestTitle, room.currentGuestName]
+                    .filter(Boolean)
+                    .join(' ')
+                    .trim();
 
                   return (
                     <div
                       key={room.id}
-                      className="bg-white rounded-2xl border border-stone-200/90 p-5 shadow-xs hover:border-stone-300 transition-all flex flex-col justify-between"
+                      className="bg-white rounded-2xl border border-stone-200/90 p-4 shadow-2xs hover:border-stone-300 transition-all flex flex-col justify-between"
                     >
                       <div>
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-xl font-serif font-bold text-stone-900">
-                            {room.roomNumber}
-                          </span>
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-xl font-serif font-bold text-stone-900 truncate">
+                              {room.roomNumber}
+                            </span>
+                            {houseTypeBadge && (
+                              <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 shrink-0">
+                                {houseTypeBadge}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
                             {isManagerOrAdmin && (
                               <button
                                 onClick={() => handleOpenEditHouse(room)}
-                                title={`Edit ${unitLabel} details & amenities`}
-                                className="p-1.5 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors"
+                                title={`Edit ${unitLabel} details`}
+                                className="p-1.5 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors cursor-pointer"
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
                               </button>
                             )}
                             <span
-                              className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full capitalize ${
+                              className={`text-xs font-bold px-2.5 py-0.5 rounded-full capitalize ${
                                 isOccupied
                                   ? 'bg-emerald-100 text-emerald-900'
                                   : 'bg-stone-100 text-stone-600'
@@ -1314,16 +1414,14 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                           </div>
                         </div>
 
-                        <p className="text-xs text-stone-500 font-medium mb-2.5">
-                          {room.roomType}
-                        </p>
+                        <p className="text-xs text-stone-500 font-medium mb-2.5">{room.roomType}</p>
 
                         {/* Configured House Amenities */}
                         <div className="flex flex-wrap gap-1 mb-3">
                           {roomAmenities.map((amenity) => (
                             <span
                               key={amenity}
-                              className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 border border-stone-200/70"
+                              className="text-xs font-medium px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 border border-stone-200/70"
                             >
                               {amenity}
                             </span>
@@ -1331,45 +1429,30 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                         </div>
 
                         {/* Guest Personalization Details */}
-                        {isOccupied && room.currentGuestName ? (
-                          <div className="p-3 bg-emerald-50/70 border border-emerald-100 rounded-xl space-y-1 mb-4 text-xs">
+                        {isOccupied && formattedGuest ? (
+                          <div className="p-3 bg-emerald-50/70 border border-emerald-100 rounded-xl space-y-1 mb-3 text-xs">
                             <div className="flex items-center gap-1.5 font-bold text-emerald-950">
                               <User className="w-3.5 h-3.5 text-emerald-800" />
-                              <span>{room.currentGuestName}</span>
+                              <span>{formattedGuest}</span>
                             </div>
                             {room.guestCheckOutDate && (
-                              <div className="flex items-center gap-1.5 text-[11px] text-emerald-800 font-medium">
+                              <div className="flex items-center gap-1.5 text-xs text-emerald-800 font-medium">
                                 <Calendar className="w-3.5 h-3.5" />
-                                <span>Checkout: {room.guestCheckOutDate}</span>
+                                <span>Check-out: {room.guestCheckOutDate}</span>
                               </div>
                             )}
                             {room.guestPhone && (
-                              <div className="flex items-center gap-1.5 text-[11px] text-emerald-800 font-mono">
+                              <div className="flex items-center gap-1.5 text-xs text-emerald-800 whitespace-nowrap">
                                 <Phone className="w-3.5 h-3.5" />
                                 <span>{room.guestPhone}</span>
                               </div>
                             )}
                           </div>
                         ) : (
-                          <div className="p-3 bg-stone-50 border border-stone-100 rounded-xl mb-4 text-xs text-stone-500">
+                          <div className="p-3 bg-stone-50 border border-stone-100 rounded-xl mb-3 text-xs text-stone-500">
                             Ready for arriving guest check-in
                           </div>
                         )}
-
-                        <div className="flex items-center justify-between text-[11px] bg-stone-50 px-2.5 py-1.5 rounded-lg border border-stone-100 font-mono text-stone-600 mb-4">
-                          <span className="truncate">
-                            QR Label: <strong>{(room.qrLabel || room.roomNumber).toUpperCase().slice(0, 8)}</strong> &bull; {matchingQR?.token || 'Minting...'}
-                          </span>
-                          {matchingQR?.token && (
-                            <button
-                              onClick={() => handleCopyToken(matchingQR.token)}
-                              title="Copy QR token"
-                              className="text-stone-400 hover:text-stone-700 ml-1 shrink-0"
-                            >
-                              <Copy className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
                       </div>
 
                       {/* Card Action Buttons */}
@@ -1378,22 +1461,25 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                           {isOccupied ? (
                             <>
                               <button
+                                disabled={isPropertySuspended}
                                 onClick={() => handleCheckOut(room.id, room.roomNumber)}
-                                className="flex-1 py-1.5 px-3 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold rounded-xl transition-colors"
+                                className="flex-1 py-2 px-3 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold rounded-xl transition-colors disabled:opacity-50 cursor-pointer"
                               >
                                 Check Out
                               </button>
                               <button
+                                disabled={isPropertySuspended}
                                 onClick={() => handleOpenCheckInModal(room)}
-                                className="py-1.5 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-xl transition-colors"
+                                className="py-2 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-xl transition-colors disabled:opacity-50 cursor-pointer"
                               >
-                                Guest
+                                Edit Guest
                               </button>
                             </>
                           ) : (
                             <button
+                              disabled={isPropertySuspended}
                               onClick={() => handleOpenCheckInModal(room)}
-                              className="flex-1 py-1.5 px-3 bg-emerald-900 hover:bg-emerald-800 text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                              className="flex-1 py-2 px-3 bg-emerald-900 hover:bg-emerald-800 text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
                             >
                               <UserPlus className="w-3.5 h-3.5" />
                               Check In Guest
@@ -1402,19 +1488,19 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
 
                           {isManagerOrAdmin && (
                             <button
+                              disabled={isPropertySuspended}
                               onClick={() => handleDeleteRoom(room.id, room.roomNumber)}
                               title={`Delete ${unitLabel}`}
-                              className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
+                              className="p-2 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors disabled:opacity-50 cursor-pointer"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
                           )}
                         </div>
 
-                        {/* View Printable QR Plaque */}
                         <button
                           onClick={() => setQrPlaqueRoom(room)}
-                          className="w-full py-2 px-3 bg-[#1B3B2B] text-amber-300 hover:bg-[#152e22] text-xs font-semibold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5"
+                          className="w-full py-2 px-3 bg-[#1B3B2B] text-amber-300 hover:bg-[#152e22] text-xs font-semibold rounded-xl shadow-2xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                         >
                           <QrCode className="w-4 h-4" />
                           <span>Print / Download QR Card</span>
@@ -1428,11 +1514,10 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
           </div>
         )}
 
-        {/* TAB 3: MENU & PRICING (Tier 2 GM & Admin only) */}
+        {/* TAB 3: MENU & PRICING */}
         {activeTab === 'menu' && isManagerOrAdmin && (
-          <div className="space-y-6">
-            {/* Header / Filter bar */}
-            <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="space-y-4">
+            <div className="bg-white p-3.5 rounded-2xl border border-stone-200 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -1444,29 +1529,30 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                 />
               </div>
 
-              <div className="flex items-center gap-1.5 overflow-x-auto text-xs">
-                {(['all', 'breakfast', 'lunch', 'dinner', 'drinks', 'dessert'] as const).map((cat) => (
-                  <button
-                    key={cat}
-                    onClick={() => setDiningCategoryFilter(cat)}
-                    className={`px-3 py-1.5 rounded-lg font-bold capitalize transition-colors ${
-                      diningCategoryFilter === cat
-                        ? 'bg-emerald-950 text-amber-300'
-                        : 'bg-stone-50 border border-stone-200 text-stone-600 hover:bg-stone-100'
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar text-xs">
+                {(['all', 'breakfast', 'lunch', 'dinner', 'drinks', 'dessert'] as const).map(
+                  (cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setDiningCategoryFilter(cat)}
+                      className={`px-3 py-1.5 rounded-lg font-bold capitalize transition-colors cursor-pointer ${
+                        diningCategoryFilter === cat
+                          ? 'bg-emerald-950 text-amber-300'
+                          : 'bg-stone-50 border border-stone-200 text-stone-600 hover:bg-stone-100'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  )
+                )}
               </div>
             </div>
 
-            {/* Menu Items High-Density Editorial Data Table */}
-            <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-xs">
+            <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-2xs">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-stone-50 border-b border-stone-200 text-[11px] font-bold uppercase tracking-wider text-stone-600">
+                    <tr className="bg-stone-50 border-b border-stone-200 text-xs font-bold uppercase tracking-wider text-stone-600">
                       <th className="py-3 px-4">Item & Description</th>
                       <th className="py-3 px-4">Category</th>
                       <th className="py-3 px-4">Price</th>
@@ -1478,7 +1564,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                     {filteredDining.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="py-12 text-center text-stone-500">
-                          No dining items found for this filter. Click "+ Add Dining Item" to add items to the menu.
+                          No dining items found for this filter.
                         </td>
                       </tr>
                     ) : (
@@ -1498,29 +1584,37 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                                 </div>
                               )}
                               <div>
-                                <span className="font-bold text-stone-900 block leading-tight">{item.name}</span>
-                                <span className="text-[11px] text-stone-500 line-clamp-1 max-w-sm mt-0.5">{item.description}</span>
+                                <span className="font-bold text-stone-900 block leading-tight">
+                                  {item.name}
+                                </span>
+                                <span className="text-xs text-stone-500 line-clamp-1 max-w-sm mt-0.5">
+                                  {item.description}
+                                </span>
                               </div>
                             </div>
                           </td>
                           <td className="py-3 px-4">
-                            <span className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-stone-100 text-stone-700 capitalize">
+                            <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-stone-100 text-stone-700 capitalize">
                               {item.category}
                             </span>
                           </td>
-                          <td className="py-3 px-4 font-mono font-bold text-stone-900">
+                          <td className="py-3 px-4 font-bold text-stone-900">
                             {currentProperty?.currency || 'ZMW'} {item.price}
                           </td>
                           <td className="py-3 px-4">
                             <button
                               onClick={() => handleToggleDiningAvailable(item)}
-                              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors inline-flex items-center gap-1.5 ${
+                              className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
                                 item.available
                                   ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
                                   : 'bg-stone-100 text-stone-500 border border-stone-200 hover:bg-stone-200'
                               }`}
                             >
-                              <span className={`w-1.5 h-1.5 rounded-full ${item.available ? 'bg-emerald-600' : 'bg-stone-400'}`}></span>
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  item.available ? 'bg-emerald-600' : 'bg-stone-400'
+                                }`}
+                              />
                               <span>{item.available ? 'In Stock' : 'Sold Out'}</span>
                             </button>
                           </td>
@@ -1528,7 +1622,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                             <button
                               onClick={() => handleDeleteDining(item.id, item.name)}
                               title="Delete menu item"
-                              className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors inline-flex"
+                              className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors inline-flex cursor-pointer"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -1543,38 +1637,85 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
           </div>
         )}
 
-        {/* TAB 4: TEAM & STAFF (Tier 2 GM & Founder only — Read-Only Roster for Managers) */}
+        {/* TAB 4: TEAM & STAFF */}
         {activeTab === 'team' && isManagerOrAdmin && (
-          <div className="space-y-6">
-            <div className="bg-brand-primary text-stone-100 p-6 rounded-3xl shadow-sm border border-stone-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-4">
+            <div className="bg-brand-primary text-stone-100 p-5 rounded-2xl shadow-2xs border border-stone-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-brand-secondary">
-                  Property Team Directory
-                </span>
-                <h2 className="text-xl font-serif font-bold text-white mt-1">
+                <h2 className="text-lg font-serif font-bold text-white">
                   Authorised Property Staff
                 </h2>
-                <p className="text-xs text-stone-300 mt-1 max-w-xl">
-                  During the pilot, account creation, role assignments, and password resets are centrally managed by Hospitally HQ. Contact the Founder if additional staff accounts or access changes are needed.
+                <p className="text-xs text-stone-300 mt-0.5 max-w-xl">
+                  Account creation, role assignments, and password resets are managed in Hospitally
+                  HQ.
                 </p>
               </div>
               {isFounder && onSwitchToAdmin && (
                 <button
                   onClick={onSwitchToAdmin}
-                  className="px-4 py-2.5 bg-brand-secondary hover:opacity-90 text-stone-950 rounded-xl text-xs font-bold shadow-md transition-opacity flex items-center gap-1.5 shrink-0"
+                  className="px-3.5 py-2 bg-brand-secondary hover:opacity-90 text-stone-950 rounded-xl text-xs font-bold transition-opacity flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
                 >
                   <Shield className="w-4 h-4" />
-                  <span>Manage Accounts in Founder HQ</span>
+                  <span>Manage in Founder HQ</span>
                 </button>
               )}
             </div>
 
-            {/* Team & Staff Read-Only Roster */}
-            <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-xs">
+            {/* Mobile Stacked Cards (< 768px) — zero horizontal scroll */}
+            <div className="md:hidden space-y-2.5">
+              {propertyStaff.map((staff) => {
+                const isCurrent = user?.id === staff.id;
+                const isGM = staff.role === 'manager';
+                return (
+                  <div
+                    key={staff.id}
+                    className={`bg-white rounded-2xl border p-4 space-y-2 ${
+                      isCurrent ? 'border-amber-300 bg-amber-50/20' : 'border-stone-200'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-bold text-sm text-stone-900">{staff.name}</span>
+                          {isCurrent && (
+                            <span className="text-xs font-semibold bg-brand-primary text-brand-secondary px-2 py-0.5 rounded-full">
+                              You
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-stone-600 capitalize mt-0.5">
+                          {staff.role === 'founder'
+                            ? 'Founder'
+                            : isGM
+                            ? 'General Manager'
+                            : `Staff · ${staff.department || 'Reception'}`}
+                        </div>
+                      </div>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                        Active
+                      </span>
+                    </div>
+
+                    <div className="pt-2 border-t border-stone-100 text-xs text-stone-600 space-y-1">
+                      <div className="break-all">{staff.email}</div>
+                      {staff.phone && (
+                        <div className="whitespace-nowrap font-medium text-stone-700">
+                          {staff.phone}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Table (>= 768px) */}
+            <div className="hidden md:block bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-2xs">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-stone-50 border-b border-stone-200 text-[11px] font-bold uppercase tracking-wider text-stone-600">
+                    <tr className="bg-stone-50 border-b border-stone-200 text-xs font-bold uppercase tracking-wider text-stone-600">
                       <th className="py-3 px-4">Team Member</th>
                       <th className="py-3 px-4">Role</th>
                       <th className="py-3 px-4">Department</th>
@@ -1586,39 +1727,52 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                       const isCurrent = user?.id === staff.id;
                       const isGM = staff.role === 'manager';
                       return (
-                        <tr key={staff.id} className={`hover:bg-stone-50/70 transition-colors ${isCurrent ? 'bg-amber-50/30' : ''}`}>
+                        <tr
+                          key={staff.id}
+                          className={`hover:bg-stone-50/70 transition-colors ${
+                            isCurrent ? 'bg-amber-50/30' : ''
+                          }`}
+                        >
                           <td className="py-3 px-4">
                             <div>
                               <div className="flex items-center gap-1.5">
                                 <span className="font-bold text-stone-900">{staff.name}</span>
                                 {isCurrent && (
-                                  <span className="text-[10px] font-bold bg-brand-primary text-brand-secondary px-1.5 py-0.5 rounded font-mono">
+                                  <span className="text-xs font-bold bg-brand-primary text-brand-secondary px-2 py-0.5 rounded-full">
                                     You
                                   </span>
                                 )}
                               </div>
-                              <div className="text-[11px] text-stone-500 font-mono flex items-center gap-2 mt-0.5">
+                              <div className="text-xs text-stone-500 flex items-center gap-2 mt-0.5">
                                 <span>{staff.email}</span>
-                                {staff.phone && <span>&bull; {staff.phone}</span>}
+                                {staff.phone && (
+                                  <span className="whitespace-nowrap">&bull; {staff.phone}</span>
+                                )}
                               </div>
                             </div>
                           </td>
                           <td className="py-3 px-4">
-                            <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase ${
-                              staff.role === 'founder'
-                                ? 'bg-purple-100 text-purple-900'
+                            <span
+                              className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                                staff.role === 'founder'
+                                  ? 'bg-purple-100 text-purple-900'
+                                  : isGM
+                                  ? 'bg-amber-100 text-amber-900'
+                                  : 'bg-stone-100 text-stone-700'
+                              }`}
+                            >
+                              {staff.role === 'founder'
+                                ? 'Founder'
                                 : isGM
-                                ? 'bg-amber-100 text-amber-900'
-                                : 'bg-stone-100 text-stone-700'
-                            }`}>
-                              {staff.role === 'founder' ? 'Founder' : isGM ? 'General Manager' : 'Staff'}
+                                ? 'General Manager'
+                                : 'Staff'}
                             </span>
                           </td>
                           <td className="py-3 px-4 capitalize font-medium text-stone-700">
                             {staff.department}
                           </td>
                           <td className="py-3 px-4 text-right">
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
                               Active
                             </span>
@@ -1634,20 +1788,20 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
         )}
       </main>
 
-      {/* MODAL 1: ADD NEW HOUSE / ROOM */}
+      {/* MODAL 1: ADD NEW HOUSE */}
       {isAddRoomOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto modal-backdrop-animate">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-modal border border-stone-900/[0.08] my-8 modal-content-animate">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-modal border border-stone-900/[0.08] my-8">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-emerald-950 text-amber-300 flex items-center justify-center shadow-2xs">
+                <div className="w-8 h-8 rounded-xl bg-emerald-950 text-amber-300 flex items-center justify-center">
                   <Plus className="w-4 h-4" />
                 </div>
                 <h2 className="text-base font-bold text-stone-900">Add New {unitLabel}</h2>
               </div>
               <button
                 onClick={() => setIsAddRoomOpen(false)}
-                className="p-1.5 text-stone-400 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-700 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-100 rounded-full active:scale-[0.92] transition-colors"
+                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1657,21 +1811,24 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
-                    {unitLabel} Name or Number *
+                    {unitLabel} Name *
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Bobo, Chisenga, 105"
+                    placeholder="e.g. Bobo, Chisenga"
                     value={newRoomNumber}
                     onChange={(e) => {
                       const val = e.target.value;
                       setNewRoomNumber(val);
-                      if (!newRoomQrLabel || newRoomQrLabel === newRoomNumber.toUpperCase().slice(0, 8)) {
+                      if (
+                        !newRoomQrLabel ||
+                        newRoomQrLabel === newRoomNumber.toUpperCase().slice(0, 8)
+                      ) {
                         setNewRoomQrLabel(val.trim().toUpperCase().slice(0, 8));
                       }
                     }}
-                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900"
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900"
                   />
                 </div>
 
@@ -1685,63 +1842,107 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                     placeholder="BOBO"
                     value={newRoomQrLabel}
                     onChange={(e) => setNewRoomQrLabel(e.target.value.toUpperCase().slice(0, 8))}
-                    className="w-full px-3 py-2.5 text-sm font-mono font-bold uppercase rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900"
+                    className="w-full px-3 py-2.5 text-sm font-mono font-bold uppercase rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
+                    Size / Layout
+                  </label>
+                  <select
+                    value={newHouseType}
+                    onChange={(e) =>
+                      setNewHouseType(e.target.value as 'studio' | '2bhk' | '3bhk' | '4bhk')
+                    }
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900 bg-white"
+                  >
+                    <option value="studio">Studio</option>
+                    <option value="2bhk">2 BHK</option>
+                    <option value="3bhk">3 BHK</option>
+                    <option value="4bhk">4 BHK</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
+                    Subtitle / Description
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newRoomType}
+                    onChange={(e) => setNewRoomType(e.target.value)}
+                    placeholder="Executive Pool Villa"
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
+                    House Wi-Fi Name (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={newRoomWifiName}
+                    onChange={(e) => setNewRoomWifiName(e.target.value)}
+                    placeholder={currentProperty?.wifiName || 'Rocks_Guest_5G'}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-stone-200 focus:outline-none focus:ring-1 focus:ring-emerald-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
+                    House Wi-Fi Password
+                  </label>
+                  <input
+                    type="text"
+                    value={newRoomWifiPassword}
+                    onChange={(e) => setNewRoomWifiPassword(e.target.value)}
+                    placeholder={currentProperty?.wifiPassword || 'Rocks Lusaka2026'}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-stone-200 focus:outline-none focus:ring-1 focus:ring-emerald-900"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
-                  {unitLabel} Category / Type
-                </label>
-                <select
-                  value={newRoomType}
-                  onChange={(e) => setNewRoomType(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900 bg-white"
-                >
-                  <option value="Executive Pool Villa">Executive Pool Villa</option>
-                  <option value="Garden Studio Apartment">Garden Studio Apartment</option>
-                  <option value="Bedroom 3 (Executive Twin)">Bedroom 3 (Executive Twin)</option>
-                  <option value="2-Bedroom Pool Residence">2-Bedroom Pool Residence</option>
-                  <option value="3-Bedroom Presidential Residence">3-Bedroom Presidential Residence</option>
-                  <option value="Deluxe River Suite">Deluxe River Suite</option>
-                </select>
-              </div>
-
-              {/* House Amenities Picker */}
-              <div>
                 <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1.5">
-                  {unitLabel} Amenities (Shown on Guest Banner)
+                  {unitLabel} Amenities
                 </label>
                 <div className="flex flex-wrap gap-1.5 mb-2">
-                  {Array.from(new Set([...AVAILABLE_HOUSE_AMENITIES, ...newRoomAmenities])).map((amenity) => {
-                    const selected = newRoomAmenities.includes(amenity);
-                    return (
-                      <button
-                        key={amenity}
-                        type="button"
-                        onClick={() => {
-                          setNewRoomAmenities((prev) =>
-                            prev.includes(amenity)
-                              ? prev.filter((a) => a !== amenity)
-                              : [...prev, amenity]
-                          );
-                        }}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all border ${
-                          selected
-                            ? 'bg-emerald-950 text-amber-300 border-emerald-950'
-                            : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
-                        }`}
-                      >
-                        {selected ? `✓ ${amenity}` : `+ ${amenity}`}
-                      </button>
-                    );
-                  })}
+                  {Array.from(new Set([...AVAILABLE_HOUSE_AMENITIES, ...newRoomAmenities])).map(
+                    (amenity) => {
+                      const selected = newRoomAmenities.includes(amenity);
+                      return (
+                        <button
+                          key={amenity}
+                          type="button"
+                          onClick={() => {
+                            setNewRoomAmenities((prev) =>
+                              prev.includes(amenity)
+                                ? prev.filter((a) => a !== amenity)
+                                : [...prev, amenity]
+                            );
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all border cursor-pointer ${
+                            selected
+                              ? 'bg-emerald-950 text-amber-300 border-emerald-950'
+                              : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
+                          }`}
+                        >
+                          {selected ? `✓ ${amenity}` : `+ ${amenity}`}
+                        </button>
+                      );
+                    }
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
-                    placeholder="Add custom amenity (e.g. Private Patio)..."
+                    placeholder="Add custom amenity..."
                     value={newCustomAmenity}
                     onChange={(e) => setNewCustomAmenity(e.target.value)}
                     className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-stone-200 focus:outline-none focus:ring-1 focus:ring-emerald-900"
@@ -1755,7 +1956,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                       }
                       setNewCustomAmenity('');
                     }}
-                    className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold rounded-xl"
+                    className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold rounded-xl cursor-pointer"
                   >
                     Add
                   </button>
@@ -1766,13 +1967,13 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsAddRoomOpen(false)}
-                  className="px-4 py-2 text-xs font-bold text-stone-600 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-100 rounded-xl active:scale-[0.96] transition-[background-color,transform] duration-140"
+                  className="px-4 py-2 text-xs font-bold text-stone-600 hover:bg-stone-100 rounded-xl cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-900 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-diffused active:scale-[0.96] transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
+                  className="px-5 py-2 bg-emerald-900 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl cursor-pointer"
                 >
                   Create {unitLabel} & Generate QR
                 </button>
@@ -1784,18 +1985,18 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
 
       {/* MODAL 1B: EDIT HOUSE DETAILS & AMENITIES */}
       {editHouseRoom && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto modal-backdrop-animate">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-modal border border-stone-900/[0.08] my-8 modal-content-animate">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-modal border border-stone-900/[0.08] my-8">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-emerald-950 text-amber-300 flex items-center justify-center shadow-2xs">
+                <div className="w-8 h-8 rounded-xl bg-emerald-950 text-amber-300 flex items-center justify-center">
                   <Edit3 className="w-4 h-4" />
                 </div>
-                <h2 className="text-base font-bold text-stone-900">Edit {unitLabel} & Amenities</h2>
+                <h2 className="text-base font-bold text-stone-900">Edit {unitLabel}</h2>
               </div>
               <button
                 onClick={() => setEditHouseRoom(null)}
-                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-colors"
+                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1812,7 +2013,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                     required
                     value={editRoomNumber}
                     onChange={(e) => setEditRoomNumber(e.target.value)}
-                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900"
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900"
                   />
                 </div>
 
@@ -1825,52 +2026,101 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                     maxLength={8}
                     value={editRoomQrLabel}
                     onChange={(e) => setEditRoomQrLabel(e.target.value.toUpperCase().slice(0, 8))}
-                    className="w-full px-3 py-2.5 text-sm font-mono font-bold uppercase rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900"
+                    className="w-full px-3 py-2.5 text-sm font-mono font-bold uppercase rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
+                    Size / Layout
+                  </label>
+                  <select
+                    value={editHouseType}
+                    onChange={(e) =>
+                      setEditHouseType(e.target.value as 'studio' | '2bhk' | '3bhk' | '4bhk')
+                    }
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900 bg-white"
+                  >
+                    <option value="studio">Studio</option>
+                    <option value="2bhk">2 BHK</option>
+                    <option value="3bhk">3 BHK</option>
+                    <option value="4bhk">4 BHK</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
+                    Subtitle / Description
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editRoomType}
+                    onChange={(e) => setEditRoomType(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
+                    House Wi-Fi Name
+                  </label>
+                  <input
+                    type="text"
+                    value={editRoomWifiName}
+                    onChange={(e) => setEditRoomWifiName(e.target.value)}
+                    placeholder={currentProperty?.wifiName || 'Rocks_Guest_5G'}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-stone-200 focus:outline-none focus:ring-1 focus:ring-emerald-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
+                    House Wi-Fi Password
+                  </label>
+                  <input
+                    type="text"
+                    value={editRoomWifiPassword}
+                    onChange={(e) => setEditRoomWifiPassword(e.target.value)}
+                    placeholder={currentProperty?.wifiPassword || 'Rocks Lusaka2026'}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-stone-200 focus:outline-none focus:ring-1 focus:ring-emerald-900"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
-                  {unitLabel} Category / Type
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editRoomType}
-                  onChange={(e) => setEditRoomType(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900"
-                />
-              </div>
-
-              <div>
                 <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1.5">
-                  {unitLabel} Amenities (Guest Banner Pills)
+                  {unitLabel} Amenities
                 </label>
                 <div className="flex flex-wrap gap-1.5 mb-2">
-                  {Array.from(new Set([...AVAILABLE_HOUSE_AMENITIES, ...editRoomAmenities])).map((amenity) => {
-                    const selected = editRoomAmenities.includes(amenity);
-                    return (
-                      <button
-                        key={amenity}
-                        type="button"
-                        onClick={() => {
-                          setEditRoomAmenities((prev) =>
-                            prev.includes(amenity)
-                              ? prev.filter((a) => a !== amenity)
-                              : [...prev, amenity]
-                          );
-                        }}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all border ${
-                          selected
-                            ? 'bg-emerald-950 text-amber-300 border-emerald-950'
-                            : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
-                        }`}
-                      >
-                        {selected ? `✓ ${amenity}` : `+ ${amenity}`}
-                      </button>
-                    );
-                  })}
+                  {Array.from(new Set([...AVAILABLE_HOUSE_AMENITIES, ...editRoomAmenities])).map(
+                    (amenity) => {
+                      const selected = editRoomAmenities.includes(amenity);
+                      return (
+                        <button
+                          key={amenity}
+                          type="button"
+                          onClick={() => {
+                            setEditRoomAmenities((prev) =>
+                              prev.includes(amenity)
+                                ? prev.filter((a) => a !== amenity)
+                                : [...prev, amenity]
+                            );
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all border cursor-pointer ${
+                            selected
+                              ? 'bg-emerald-950 text-amber-300 border-emerald-950'
+                              : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
+                          }`}
+                        >
+                          {selected ? `✓ ${amenity}` : `+ ${amenity}`}
+                        </button>
+                      );
+                    }
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <input
@@ -1889,7 +2139,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                       }
                       setEditCustomAmenity('');
                     }}
-                    className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold rounded-xl"
+                    className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold rounded-xl cursor-pointer"
                   >
                     Add
                   </button>
@@ -1900,13 +2150,13 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                 <button
                   type="button"
                   onClick={() => setEditHouseRoom(null)}
-                  className="px-4 py-2 text-xs font-bold text-stone-600 hover:bg-stone-100 rounded-xl transition-colors"
+                  className="px-4 py-2 text-xs font-bold text-stone-600 hover:bg-stone-100 rounded-xl cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-900 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+                  className="px-5 py-2 bg-emerald-900 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl cursor-pointer"
                 >
                   Save Changes
                 </button>
@@ -1918,88 +2168,110 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
 
       {/* MODAL 2: CHECK IN GUEST */}
       {checkInRoom && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 modal-backdrop-animate">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-modal border border-stone-900/[0.08] modal-content-animate">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-modal border border-stone-900/[0.08]">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-emerald-950 text-amber-300 flex items-center justify-center shadow-2xs">
+                <div className="w-8 h-8 rounded-xl bg-emerald-950 text-amber-300 flex items-center justify-center">
                   <UserPlus className="w-4 h-4" />
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-stone-900">Check In Guest</h2>
-                  <p className="text-xs text-stone-500 font-medium">Room {checkInRoom.roomNumber} &bull; {checkInRoom.roomType}</p>
+                  <p className="text-xs text-stone-500 font-medium">
+                    {checkInRoom.roomNumber} &bull; {checkInRoom.roomType}
+                  </p>
                 </div>
               </div>
               <button
                 onClick={() => setCheckInRoom(null)}
-                className="p-1.5 text-stone-400 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-700 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-100 rounded-full active:scale-[0.92] transition-colors"
+                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleCheckInSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
-                  Guest Name & Honorific *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Mr. Mwape Mulenga, Dr. Finch, Elena Rostova"
-                  value={checkInGuestName}
-                  onChange={(e) => setCheckInGuestName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900"
-                />
+              <div className="grid grid-cols-3 gap-2.5">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
+                    Title
+                  </label>
+                  <select
+                    value={checkInGuestTitle}
+                    onChange={(e) =>
+                      setCheckInGuestTitle(e.target.value as '' | 'Mr' | 'Mrs' | 'Ms' | 'Dr')
+                    }
+                    className="w-full px-3 py-2.5 text-sm rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900 bg-white"
+                  >
+                    <option value="">None</option>
+                    <option value="Mr">Mr</option>
+                    <option value="Mrs">Mrs</option>
+                    <option value="Ms">Ms</option>
+                    <option value="Dr">Dr</option>
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
+                    Guest Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Mwape, Mulenga"
+                    value={checkInGuestName}
+                    onChange={(e) => setCheckInGuestName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900"
+                  />
+                </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
-                  Checkout Date & Time
+                  Check-Out Date *
                 </label>
                 <input
-                  type="text"
-                  placeholder="e.g. Tomorrow, 10:30 AM or 28 Sep 2026, 11:00 AM"
+                  type="date"
+                  required
                   value={checkInCheckoutDate}
                   onChange={(e) => setCheckInCheckoutDate(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900 mb-2"
                 />
-                <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
-                  <span className="text-stone-400">Presets:</span>
+                <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                  <span className="text-stone-400">Quick select:</span>
                   <button
                     type="button"
-                    onClick={() => setCheckInCheckoutDate('Tomorrow, 10:30 AM')}
-                    className="px-2 py-0.5 bg-stone-100 hover:bg-stone-200 rounded text-stone-700 font-medium"
+                    onClick={() => setCheckInCheckoutDate(getIsoDatePlusDays(1))}
+                    className="px-2.5 py-1 bg-stone-100 hover:bg-stone-200 rounded-lg text-stone-700 font-medium cursor-pointer"
                   >
-                    Tomorrow 10:30 AM
+                    Tomorrow
                   </button>
                   <button
                     type="button"
-                    onClick={() => setCheckInCheckoutDate('In 2 Days, 10:30 AM')}
-                    className="px-2 py-0.5 bg-stone-100 hover:bg-stone-200 rounded text-stone-700 font-medium"
+                    onClick={() => setCheckInCheckoutDate(getIsoDatePlusDays(2))}
+                    className="px-2.5 py-1 bg-stone-100 hover:bg-stone-200 rounded-lg text-stone-700 font-medium cursor-pointer"
                   >
-                    In 2 Days
+                    +2 Nights
                   </button>
                   <button
                     type="button"
-                    onClick={() => setCheckInCheckoutDate('In 3 Days, 11:00 AM')}
-                    className="px-2 py-0.5 bg-stone-100 hover:bg-stone-200 rounded text-stone-700 font-medium"
+                    onClick={() => setCheckInCheckoutDate(getIsoDatePlusDays(3))}
+                    className="px-2.5 py-1 bg-stone-100 hover:bg-stone-200 rounded-lg text-stone-700 font-medium cursor-pointer"
                   >
-                    In 3 Days
+                    +3 Nights
                   </button>
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
-                  Guest Contact Phone (Optional)
+                  Guest Phone (Optional)
                 </label>
                 <input
-                  type="text"
-                  placeholder="e.g. +260 97 123 4567"
+                  type="tel"
+                  placeholder="+260 97 123 4567"
                   value={checkInPhone}
                   onChange={(e) => setCheckInPhone(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900 font-mono"
+                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900"
                 />
               </div>
 
@@ -2007,13 +2279,13 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                 <button
                   type="button"
                   onClick={() => setCheckInRoom(null)}
-                  className="px-4 py-2 text-xs font-bold text-stone-600 hover:bg-stone-100 rounded-xl transition-colors"
+                  className="px-4 py-2 text-xs font-bold text-stone-600 hover:bg-stone-100 rounded-xl cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-900 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+                  className="px-5 py-2 bg-emerald-900 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl cursor-pointer"
                 >
                   Confirm Check-In
                 </button>
@@ -2023,177 +2295,183 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
         </div>
       )}
 
-      {/* MODAL 3: PRINTABLE 85 × 120 MM QR CARD MODAL */}
+      {/* MODAL 3: PRINTABLE 85 × 120 MM QR CARD MODAL (Full-screen mobile sheet on small viewports) */}
       {qrPlaqueRoom && selectedPlaqueQR && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto modal-backdrop-animate">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-modal border border-stone-900/[0.08] my-8 modal-content-animate">
-            <div className="flex items-center justify-between mb-4 no-print">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-emerald-950 text-amber-300 flex items-center justify-center shadow-2xs">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-xs z-50 flex flex-col justify-end sm:justify-center sm:items-center sm:p-4">
+          <div className="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl max-h-[96vh] flex flex-col justify-between overflow-hidden shadow-modal border border-stone-900/[0.08]">
+            {/* Sheet Header */}
+            <div className="flex items-center justify-between px-4 py-3.5 border-b border-stone-100 shrink-0 no-print">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-emerald-950 text-amber-300 flex items-center justify-center shrink-0">
                   <QrCode className="w-4 h-4" />
                 </div>
-                <div>
-                  <h2 className="text-base font-bold text-stone-900">Printable QR Card (85 &times; 120 mm)</h2>
-                  <p className="text-[11px] text-stone-500">Single-page A6/plaque card &bull; 300 DPI print-ready</p>
+                <div className="min-w-0">
+                  <h2 className="text-sm font-bold text-stone-900 truncate">
+                    {qrPlaqueRoom.roomNumber} &middot; QR Card
+                  </h2>
+                  <p className="text-xs text-stone-500 truncate">85 &times; 120 mm &bull; 300 DPI</p>
                 </div>
               </div>
               <button
-                onClick={() => setQrPlaqueRoom(null)}
-                className="p-1.5 text-stone-400 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-700 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-100 rounded-full active:scale-[0.92] transition-colors"
+                onClick={() => {
+                  setConfirmRegenerateRoom(null);
+                  setQrPlaqueRoom(null);
+                }}
+                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Clean 85 × 120 mm Portrait Card */}
-            <div
-              id="printable-plaque-card"
-              className="mx-auto bg-white text-stone-950 border border-stone-900 shadow-elevated relative overflow-hidden flex flex-col items-center justify-between text-center"
-              style={{
-                width: '320px',
-                minHeight: '452px',
-                padding: '0 24px 22px 24px',
-              }}
-            >
-              {/* Thin top band in property primary color */}
+            {/* Scrollable Preview Body — fits inside 390px viewport with zero horizontal clipping */}
+            <div className="p-4 overflow-y-auto flex-1 flex flex-col items-center justify-center">
               <div
-                className="w-[calc(100%+48px)] -mx-6 h-2.5 shrink-0"
-                style={{ backgroundColor: currentProperty?.primaryColor || '#1C2826' }}
-              />
-
-              {/* Top: ROCK APARTMENTS (small, letter-spaced) */}
-              <div className="pt-5">
-                <span className="text-[11px] font-bold tracking-[0.26em] uppercase text-stone-900 block">
-                  {(currentProperty?.name || 'ROCK APARTMENTS').replace(/\s+LUSAKA$/i, '').toUpperCase()}
-                </span>
-              </div>
-
-              {/* Centre: High-EC QR code with centered house name label */}
-              <div className="my-2 flex items-center justify-center">
-                <QRCodeView
-                  value={selectedPlaqueQR.token}
-                  size={216}
-                  houseName={qrPlaqueRoom.roomNumber}
-                  qrLabel={qrPlaqueRoom.qrLabel}
-                  className="mx-auto"
+                id="printable-plaque-card"
+                className="w-full max-w-[290px] sm:max-w-[310px] mx-auto bg-white text-stone-950 border border-stone-900 shadow-elevated rounded-xl relative overflow-hidden flex flex-col items-center justify-between text-center px-5 pb-4"
+              >
+                {/* Thin top band in property primary color */}
+                <div
+                  className="w-[calc(100%+40px)] -mx-5 h-2 shrink-0"
+                  style={{ backgroundColor: currentProperty?.primaryColor || '#1C2826' }}
                 />
+
+                {/* Top: ROCK APARTMENTS */}
+                <div className="pt-4">
+                  <span className="text-xs font-bold tracking-[0.22em] uppercase text-stone-900 block">
+                    {(currentProperty?.name || 'ROCK APARTMENTS')
+                      .replace(/\s+LUSAKA$/i, '')
+                      .toUpperCase()}
+                  </span>
+                </div>
+
+                {/* Centre: High-EC QR code with centered house name label */}
+                <div className="my-2.5 flex items-center justify-center w-full">
+                  <QRCodeView
+                    value={selectedPlaqueQR.token}
+                    size={196}
+                    houseName={qrPlaqueRoom.roomNumber}
+                    qrLabel={qrPlaqueRoom.qrLabel}
+                    className="mx-auto"
+                  />
+                </div>
+
+                {/* Under QR: Big serif house name + 1-line instruction */}
+                <div className="space-y-1">
+                  <h3 className="text-2xl sm:text-3xl font-serif font-bold text-stone-950 tracking-tight leading-none">
+                    {qrPlaqueRoom.roomNumber}
+                  </h3>
+                  <p className="text-xs font-medium text-stone-700">
+                    Scan for Wi-Fi, house guide &amp; requests
+                  </p>
+                </div>
+
+                {/* Bottom note */}
+                <div className="pt-2.5 mt-2.5 border-t border-stone-200 w-full">
+                  <p className="text-xs text-stone-500 font-normal">
+                    No app needed &middot; Works on any phone camera
+                  </p>
+                </div>
               </div>
 
-              {/* Under QR: Big serif house name + 1-line instruction */}
-              <div className="space-y-1.5">
-                <h3 className="text-3xl font-serif font-bold text-stone-950 tracking-tight leading-none">
-                  {qrPlaqueRoom.roomNumber}
-                </h3>
-                <p className="text-xs font-medium text-stone-700">
-                  Scan for Wi-Fi, house guide &amp; requests
-                </p>
-              </div>
-
-              {/* Bottom, small */}
-              <div className="pt-3 border-t border-stone-200 w-full">
-                <p className="text-[10px] text-stone-500 font-normal">
-                  No app needed &middot; Works on any phone camera
-                </p>
-              </div>
-            </div>
-
-            {/* Regenerate QR Warning Confirmation */}
-            {confirmRegenerateRoom?.id === qrPlaqueRoom.id && (
-              <div className="mt-4 p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-xs text-amber-950 space-y-2.5 no-print">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-bold">Invalidate current printed QR card?</p>
-                    <p className="text-amber-800 mt-0.5">
-                      Generating a new QR token for <strong>{qrPlaqueRoom.roomNumber}</strong> will immediately deactivate the old card. You will need to reprint and replace the card in the house.
-                    </p>
+              {/* Regenerate QR Warning Confirmation */}
+              {confirmRegenerateRoom?.id === qrPlaqueRoom.id && (
+                <div className="mt-3 w-full p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-xs text-amber-950 space-y-2.5 no-print">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">
+                        Old printed cards for {qrPlaqueRoom.roomNumber} will stop working
+                      </p>
+                      <p className="text-amber-800 mt-0.5">
+                        You will need to download and print the new QR card for this house.
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setConfirmRegenerateRoom(null)}
-                    className="px-3 py-1.5 bg-white hover:bg-stone-100 text-stone-700 font-semibold rounded-xl border border-stone-200"
-                  >
-                    Keep Current QR
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleConfirmRegenerateQR}
-                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl"
-                  >
-                    Yes, Regenerate QR
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Action Bar (Excluded from Print) */}
-            <div className="mt-5 flex flex-col gap-3 pt-2 no-print">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <button
-                    onClick={() => handleCopyToken(qrCanonicalUrl || selectedPlaqueQR.token)}
-                    className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-xl active:scale-[0.96] transition-all flex items-center gap-1.5 select-none"
-                  >
-                    {copiedToken ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Copied Link!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>Copy URL</span>
-                      </>
-                    )}
-                  </button>
-
-                  {onSelectRoomForGuest && (
-                    <button
-                      onClick={() => {
-                        onSelectRoomForGuest(currentProperty.slug, qrPlaqueRoom.id);
-                        setQrPlaqueRoom(null);
-                      }}
-                      className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-xl active:scale-[0.96] transition-all flex items-center gap-1.5 select-none"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>Test as Guest</span>
-                    </button>
-                  )}
-
-                  {isManagerOrAdmin && (
+                  <div className="flex items-center justify-end gap-2">
                     <button
                       type="button"
-                      onClick={() => setConfirmRegenerateRoom(qrPlaqueRoom)}
-                      className="px-3 py-2 bg-stone-100 hover:bg-amber-50 hover:text-amber-900 text-stone-600 text-xs font-semibold rounded-xl active:scale-[0.96] transition-all flex items-center gap-1.5 select-none"
-                      title="Generate a new token and invalidate the old card"
+                      onClick={() => setConfirmRegenerateRoom(null)}
+                      className="px-3 py-1.5 bg-white hover:bg-stone-100 text-stone-700 font-semibold rounded-xl border border-stone-200 cursor-pointer"
                     >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Regenerate QR</span>
+                      Cancel
                     </button>
-                  )}
+                    <button
+                      type="button"
+                      onClick={handleConfirmRegenerateQR}
+                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl cursor-pointer"
+                    >
+                      Regenerate QR
+                    </button>
+                  </div>
                 </div>
+              )}
+            </div>
 
-                <div className="flex items-center gap-2">
+            {/* Sticky Bottom Action Bar (Excluded from Print) */}
+            <div className="p-4 border-t border-stone-100 bg-stone-50/80 space-y-2.5 shrink-0 no-print">
+              <div className="flex items-center justify-between gap-1.5">
+                <button
+                  onClick={() => handleCopyToken(qrCanonicalUrl || selectedPlaqueQR.token)}
+                  className="flex-1 py-2 px-2.5 bg-white hover:bg-stone-100 border border-stone-200 text-stone-700 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  {copiedToken ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy URL</span>
+                    </>
+                  )}
+                </button>
+
+                {onSelectRoomForGuest && (
+                  <button
+                    onClick={() => {
+                      onSelectRoomForGuest(currentProperty.slug, qrPlaqueRoom.id);
+                      setQrPlaqueRoom(null);
+                    }}
+                    className="flex-1 py-2 px-2.5 bg-white hover:bg-stone-100 border border-stone-200 text-stone-700 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Test as guest</span>
+                  </button>
+                )}
+
+                {isManagerOrAdmin && (
                   <button
                     type="button"
-                    disabled={isDownloadingPng}
-                    onClick={() => handleDownloadSingleQRPng(qrPlaqueRoom, selectedPlaqueQR.token)}
-                    className="px-3.5 py-2 bg-stone-900 text-white hover:bg-stone-800 text-xs font-bold rounded-xl shadow-xs active:scale-[0.96] transition-all flex items-center gap-1.5 select-none disabled:opacity-50"
+                    disabled={isPropertySuspended}
+                    onClick={() => setConfirmRegenerateRoom(qrPlaqueRoom)}
+                    className="py-2 px-2.5 bg-white hover:bg-amber-50 border border-stone-200 text-stone-600 hover:text-amber-900 text-xs font-semibold rounded-xl flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+                    title="Regenerate QR"
                   >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>{isDownloadingPng ? 'Rendering...' : 'Download PNG'}</span>
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Regenerate</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => window.print()}
-                    className="px-4 py-2 bg-emerald-950 text-amber-300 hover:bg-emerald-900 text-xs font-bold rounded-xl shadow-diffused active:scale-[0.96] transition-all flex items-center gap-1.5 select-none"
-                  >
-                    <Printer className="w-4 h-4" />
-                    <span>Print Card</span>
-                  </button>
-                </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isDownloadingPng}
+                  onClick={() => handleDownloadSingleQRPng(qrPlaqueRoom, selectedPlaqueQR.token)}
+                  className="flex-1 py-2.5 px-3.5 bg-stone-900 text-white hover:bg-stone-800 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>{isDownloadingPng ? 'Rendering...' : 'Download PNG'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="flex-1 py-2.5 px-3.5 bg-emerald-950 text-amber-300 hover:bg-emerald-900 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Print</span>
+                </button>
               </div>
             </div>
           </div>
@@ -2202,21 +2480,25 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
 
       {/* MODAL 5: PUSH NOTIFICATIONS & QUIET HOURS SETTINGS */}
       {isNotifModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 modal-backdrop-animate">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-modal border border-stone-900/[0.08] modal-content-animate space-y-5">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-modal border border-stone-900/[0.08] space-y-5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-950 text-amber-300 flex items-center justify-center shadow-2xs">
+                <div className="w-9 h-9 rounded-xl bg-emerald-950 text-amber-300 flex items-center justify-center">
                   <Bell className="w-4 h-4" />
                 </div>
                 <div>
-                  <h2 className="text-base font-bold text-stone-900">Request Alerts &amp; Quiet Hours</h2>
-                  <p className="text-xs text-stone-500">Phone push notifications &amp; night shift controls</p>
+                  <h2 className="text-base font-bold text-stone-900">
+                    Request Alerts &amp; Quiet Hours
+                  </h2>
+                  <p className="text-xs text-stone-500">
+                    Phone push notifications &amp; night shift controls
+                  </p>
                 </div>
               </div>
               <button
                 onClick={() => setIsNotifModalOpen(false)}
-                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full transition-colors"
+                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2228,7 +2510,6 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               </div>
             )}
 
-            {/* Toggle 1: Push Notifications On / Off */}
             <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200/80 flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-bold text-stone-900">Push Request Alerts</p>
@@ -2240,7 +2521,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                 <button
                   type="button"
                   onClick={handleDisablePushAlerts}
-                  className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0"
+                  className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer"
                 >
                   <BellOff className="w-3.5 h-3.5" />
                   <span>Turn Off</span>
@@ -2250,7 +2531,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                   type="button"
                   disabled={isEnablingPush}
                   onClick={handleEnablePushAlerts}
-                  className="px-3.5 py-2 bg-emerald-900 hover:bg-emerald-800 text-amber-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0"
+                  className="px-3.5 py-2 bg-emerald-900 hover:bg-emerald-800 text-amber-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer"
                 >
                   <Bell className="w-3.5 h-3.5" />
                   <span>{isEnablingPush ? 'Enabling...' : 'Turn On'}</span>
@@ -2258,41 +2539,41 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               )}
             </div>
 
-            {/* Quiet Hours Window */}
             <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200/80 space-y-3">
               <div>
                 <p className="text-sm font-bold text-stone-900">Quiet Hours (22:00 &ndash; 07:00)</p>
                 <p className="text-xs text-stone-500 mt-0.5">
-                  Non-urgent requests are silenced overnight unless you are marked on night duty. Urgent emergencies always ring through.
+                  Non-urgent requests are silenced overnight unless you are marked on night duty.
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">
+                  <label className="block text-xs font-bold text-stone-600 uppercase mb-1">
                     Quiet Start
                   </label>
                   <input
                     type="time"
                     value={userNotifSettings.quietHoursStart || '22:00'}
-                    onChange={(e) => handleSaveNotifPreference({ quietHoursStart: e.target.value })}
-                    className="w-full px-3 py-2 text-xs font-mono bg-white border border-stone-200 rounded-xl"
+                    onChange={(e) =>
+                      handleSaveNotifPreference({ quietHoursStart: e.target.value })
+                    }
+                    className="w-full px-3 py-2 text-xs bg-white border border-stone-200 rounded-xl"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">
+                  <label className="block text-xs font-bold text-stone-600 uppercase mb-1">
                     Quiet End
                   </label>
                   <input
                     type="time"
                     value={userNotifSettings.quietHoursEnd || '07:00'}
                     onChange={(e) => handleSaveNotifPreference({ quietHoursEnd: e.target.value })}
-                    className="w-full px-3 py-2 text-xs font-mono bg-white border border-stone-200 rounded-xl"
+                    className="w-full px-3 py-2 text-xs bg-white border border-stone-200 rounded-xl"
                   />
                 </div>
               </div>
             </div>
 
-            {/* Night Duty Override Toggle */}
             <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200/80 flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-bold text-stone-900">On Duty Tonight</p>
@@ -2302,8 +2583,10 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => handleSaveNotifPreference({ onDutyNight: !userNotifSettings.onDutyNight })}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shrink-0 ${
+                onClick={() =>
+                  handleSaveNotifPreference({ onDutyNight: !userNotifSettings.onDutyNight })
+                }
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-colors shrink-0 cursor-pointer ${
                   userNotifSettings.onDutyNight
                     ? 'bg-emerald-950 text-amber-300'
                     : 'bg-stone-200 text-stone-700 hover:bg-stone-300'
@@ -2324,14 +2607,14 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                     category: 'housekeeping',
                   });
                 }}
-                className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-200 rounded-xl text-xs font-semibold"
+                className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-200 rounded-xl text-xs font-semibold cursor-pointer"
               >
                 Send Test Alert
               </button>
               <button
                 type="button"
                 onClick={() => setIsNotifModalOpen(false)}
-                className="px-5 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-bold"
+                className="px-5 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-bold cursor-pointer"
               >
                 Done
               </button>
@@ -2340,20 +2623,20 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
         </div>
       )}
 
-      {/* MODAL 4: ADD DINING ITEM (Tier 2) */}
+      {/* MODAL 4: ADD DINING ITEM */}
       {isAddDiningOpen && isManagerOrAdmin && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 modal-backdrop-animate">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-modal border border-stone-900/[0.08] modal-content-animate">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-modal border border-stone-900/[0.08]">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-emerald-950 text-amber-300 flex items-center justify-center shadow-2xs">
+                <div className="w-8 h-8 rounded-xl bg-emerald-950 text-amber-300 flex items-center justify-center">
                   <UtensilsCrossed className="w-4 h-4" />
                 </div>
                 <h2 className="text-base font-bold text-stone-900">Add Dining Menu Item</h2>
               </div>
               <button
                 onClick={() => setIsAddDiningOpen(false)}
-                className="p-1.5 text-stone-400 [@media(hover:hover)_and_(pointer:fine)]:hover:text-stone-700 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-100 rounded-full active:scale-[0.92] transition-colors"
+                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2367,10 +2650,10 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Kariba Tigerfish Fillet, Victoria Mist Cocktail"
+                  placeholder="e.g. Kariba Tigerfish Fillet"
                   value={newDiningName}
                   onChange={(e) => setNewDiningName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900"
+                  className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900"
                 />
               </div>
 
@@ -2382,7 +2665,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                   <select
                     value={newDiningCategory}
                     onChange={(e) => setNewDiningCategory(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900 bg-white"
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900 bg-white"
                   >
                     <option value="breakfast">Breakfast</option>
                     <option value="lunch">Lunch</option>
@@ -2403,7 +2686,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                     placeholder="150"
                     value={newDiningPrice}
                     onChange={(e) => setNewDiningPrice(e.target.value)}
-                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900 font-bold"
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900 font-bold"
                   />
                 </div>
               </div>
@@ -2414,10 +2697,10 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                 </label>
                 <textarea
                   rows={2}
-                  placeholder="Freshly grilled with garlic herb butter and spiced village chips..."
+                  placeholder="Freshly grilled with garlic herb butter..."
                   value={newDiningDescription}
                   onChange={(e) => setNewDiningDescription(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900"
+                  className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900"
                 />
               </div>
 
@@ -2425,12 +2708,11 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                 <label className="block text-xs font-bold text-stone-700 uppercase tracking-wide mb-1">
                   Dish / Menu Photo
                 </label>
-                
-                {/* File Upload Button */}
+
                 <div className="flex items-center gap-2 mb-2">
                   <label className="cursor-pointer px-3.5 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold rounded-xl border border-stone-200 flex items-center gap-1.5 transition-colors">
                     <Camera className="w-3.5 h-3.5 text-stone-600" />
-                    <span>Upload Image or Photo</span>
+                    <span>Upload Image</span>
                     <input
                       type="file"
                       accept="image/*"
@@ -2449,20 +2731,22 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                   )}
                 </div>
 
-                {/* Image Preview Thumbnail */}
                 {newDiningImage && (
-                  <div className="mb-2 relative w-20 h-20 rounded-xl overflow-hidden border border-stone-200 shadow-2xs">
-                    <img src={newDiningImage} alt="Preview" className="w-full h-full object-cover" />
+                  <div className="mb-2 relative w-20 h-20 rounded-xl overflow-hidden border border-stone-200">
+                    <img
+                      src={newDiningImage}
+                      alt="Preview"
+                      className="w-full h-full object-cover"
+                    />
                   </div>
                 )}
 
-                {/* Or Image URL */}
                 <input
                   type="url"
                   placeholder="Or paste web image URL: https://..."
                   value={newDiningImage.startsWith('data:') ? '' : newDiningImage}
                   onChange={(e) => setNewDiningImage(e.target.value)}
-                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-stone-900/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-900"
+                  className="w-full px-3.5 py-2 text-xs rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-900"
                 />
               </div>
 
@@ -2470,13 +2754,13 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsAddDiningOpen(false)}
-                  className="px-4 py-2 text-xs font-bold text-stone-600 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-stone-100 rounded-xl active:scale-[0.96] transition-colors"
+                  className="px-4 py-2 text-xs font-bold text-stone-600 hover:bg-stone-100 rounded-xl cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-900 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-diffused active:scale-[0.96] transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] select-none"
+                  className="px-5 py-2 bg-emerald-900 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl cursor-pointer"
                 >
                   Publish to Menu
                 </button>

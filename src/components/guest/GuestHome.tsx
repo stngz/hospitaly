@@ -1,621 +1,444 @@
-import React, { useState, useEffect, useSyncExternalStore } from 'react';
+import React, { useState, useSyncExternalStore } from 'react';
 import { useTenant } from '../../context/TenantContext';
 import { dbService, subscribeToStore } from '../../lib/store';
 import { notificationService } from '../../lib/notifications';
-import { 
-  ChevronRight,
-  Copy,
-  Check,
-  MapPin,
-  X,
-  AlertCircle,
-  Wifi,
-  Clock,
-  ShieldCheck,
-  ExternalLink,
-  History,
+import { Room } from '../../types';
+import { GuestHeroBanner } from './GuestHeroBanner';
+import { WifiCard } from './WifiCard';
+import {
   Phone,
   Sparkles,
-  Compass,
-  Car,
-  Headset,
+  Check,
+  Clock,
+  ChevronRight,
+  Plane,
   UtensilsCrossed,
-  ConciergeBell,
   Waves,
-  Bath,
-  ChefHat,
-  Wind,
-  Sun,
-  Coffee,
   Feather,
-  Droplet,
+  Wind,
   Moon,
-  Volume2,
-  VolumeX,
-  Zap,
-  ArrowRight,
   Radio,
-  Send,
-  Building2,
-  ShoppingBag
+  ShieldAlert,
+  Lock,
+  QrCode,
+  ChefHat,
+  MapPin,
 } from 'lucide-react';
 import { GuestBottomNav } from './GuestBottomNav';
 
 interface GuestHomeProps {
   onNavigate: (view: string, data?: any) => void;
-  onOpenQRScanner?: () => void;
 }
 
-interface BedsideReceptor {
-  id: string;
-  label: string;
-  category: 'housekeeping' | 'dining' | 'concierge' | 'maintenance';
-  icon: any;
-  desc: string;
-  eta: string;
-}
+const houseTypeLabel = (room: Room) => {
+  const map: Record<string, string> = {
+    studio: 'Studio',
+    '2bhk': '2 BHK',
+    '3bhk': '3 BHK',
+    '4bhk': '4 BHK',
+  };
+  return (room.houseType && map[room.houseType]) || room.roomType || undefined;
+};
 
-export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanner }) => {
-  const { property, room, stayState, isInvalidToken } = useTenant();
+export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
+  const { property, room, stayState, clearGuestSession } = useTenant();
+  const [dispatchedId, setDispatchedId] = useState<string | null>(null);
 
-  const [copiedWifi, setCopiedWifi] = useState(false);
-  const [copiedPhone, setCopiedPhone] = useState(false);
-  const [isFrontDeskOpen, setIsFrontDeskOpen] = useState(false);
-  const [isNightstandOpen, setIsNightstandOpen] = useState(false);
-  const [selectedReceptor, setSelectedReceptor] = useState<BedsideReceptor | null>(null);
-  const [isDndActive, setIsDndActive] = useState(false);
-  const [deliveryNote, setDeliveryNote] = useState('Knock softly');
-  const [currentTime, setCurrentTime] = useState(() =>
-    new Date().toLocaleTimeString('en-GB', {
-      timeZone: property?.timezone || 'Africa/Lusaka',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  );
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(
-        new Date().toLocaleTimeString('en-GB', {
-          timeZone: property?.timezone || 'Africa/Lusaka',
-          hour: '2-digit',
-          minute: '2-digit',
-        })
-      );
-    }, 30000);
-    return () => clearInterval(timer);
-  }, [property?.timezone]);
-
-  // Receptors designed specifically for bedside in-room needs (no food/drinks when dining is disabled)
-  const isDiningEnabled = property?.diningEnabled !== false;
-  const unitLabel = property?.unitLabel || 'House';
-
-  const BEDSIDE_RECEPTORS: BedsideReceptor[] = isDiningEnabled
-    ? [
-        {
-          id: 'ice',
-          label: 'Ice Bucket',
-          category: 'dining',
-          icon: Sparkles,
-          desc: 'Freshly prepared crushed ice & insulated silver bucket with tongs',
-          eta: '~8-10 mins',
-        },
-        {
-          id: 'coffee',
-          label: 'Espresso / Coffee',
-          category: 'dining',
-          icon: Coffee,
-          desc: 'Freshly pressed artisanal roast coffee with whole milk & demerara sugar',
-          eta: '~10-12 mins',
-        },
-        {
-          id: 'towels',
-          label: 'Plush Towels',
-          category: 'housekeeping',
-          icon: Waves,
-          desc: 'Set of two oversized, warm Egyptian cotton bath sheets',
-          eta: '~10-15 mins',
-        },
-        {
-          id: 'pillows',
-          label: 'Feather Pillows',
-          category: 'housekeeping',
-          icon: Feather,
-          desc: 'Two hypoallergenic Hungarian goose-down pillows & soft duvet fresh refresh',
-          eta: '~12-15 mins',
-        },
-        {
-          id: 'water',
-          label: 'Mineral Water',
-          category: 'dining',
-          icon: Droplet,
-          desc: 'Chilled 750ml glass bottle of San Pellegrino mineral water with lemon slices',
-          eta: '~6-8 mins',
-        },
-        {
-          id: 'dnd',
-          label: 'Do Not Disturb',
-          category: 'concierge',
-          icon: Moon,
-          desc: 'Privacy toggle: alerts reception & room attendants to refrain from door knocks',
-          eta: 'Instant',
-        },
-      ]
-    : [
-        {
-          id: 'towels',
-          label: 'Plush Towels',
-          category: 'housekeeping',
-          icon: Waves,
-          desc: 'Set of two oversized, warm Egyptian cotton bath sheets',
-          eta: '~10-15 mins',
-        },
-        {
-          id: 'pool_towels',
-          label: 'Pool Towels',
-          category: 'housekeeping',
-          icon: Waves,
-          desc: 'Extra absorbent, quick-drying sun lounger pool towels for the private pool',
-          eta: '~10-12 mins',
-        },
-        {
-          id: 'pillows',
-          label: 'Feather Pillows',
-          category: 'housekeeping',
-          icon: Feather,
-          desc: 'Two hypoallergenic Hungarian goose-down pillows & soft duvet fresh refresh',
-          eta: '~12-15 mins',
-        },
-        {
-          id: 'pool_deck',
-          label: 'Pool & Deck Care',
-          category: 'housekeeping',
-          icon: Sun,
-          desc: 'Pool surface skimming, sun lounger setup & fresh patio tidy',
-          eta: '~15 mins',
-        },
-        {
-          id: 'ac_check',
-          label: 'AC & Climate Check',
-          category: 'maintenance',
-          icon: Wind,
-          desc: 'Air conditioning inverter temperature and remote control check',
-          eta: '~15 mins',
-        },
-        {
-          id: 'dnd',
-          label: 'Do Not Disturb',
-          category: 'concierge',
-          icon: Moon,
-          desc: 'Privacy toggle: alerts reception & house attendants to refrain from gate knocks',
-          eta: 'Instant',
-        },
-      ];
-
-  // Reactive store subscriptions
   const allRequests = useSyncExternalStore(
     subscribeToStore,
     dbService.getAllRequests,
     dbService.getAllRequests
   );
 
-  const renderAmenityIcon = (labelOrIcon: string) => {
-    const lower = (labelOrIcon || '').toLowerCase();
-    if (lower.includes('pool')) return <Waves className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
-    if (lower.includes('kitchen') || lower.includes('stove') || lower.includes('cook')) return <ChefHat className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
-    if (lower.includes('ac') || lower.includes('air') || lower.includes('climate')) return <Wind className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
-    if (lower.includes('wifi') || lower.includes('wi-fi') || lower.includes('internet')) return <Wifi className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
-    if (lower.includes('deck') || lower.includes('garden') || lower.includes('sun') || lower.includes('braai')) return <Sun className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
-    if (lower.includes('security') || lower.includes('parking') || lower.includes('gate')) return <ShieldCheck className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
-    if (lower.includes('restaurant') || lower.includes('dining')) return <UtensilsCrossed className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
-    return <Sparkles className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
-  };
-
-  if (!property) {
-    return (
-      <div className="min-h-screen bg-stone-50 flex flex-col items-center justify-center p-6 text-center">
-        <AlertCircle className="w-10 h-10 text-amber-600 mb-3" />
-        <h1 className="text-xl font-serif text-stone-800 mb-2">Hospitality Property Loading</h1>
-        <p className="text-stone-600 text-xs mb-4">Please wait while your guest session initializes...</p>
-      </div>
-    );
-  }
-
-  // 1. Invalid or Revoked QR Code Screen
-  if (stayState.status === 'invalid_token') {
-    return (
-      <div className="min-h-screen bg-[#FDFBF7] text-stone-900 flex flex-col justify-between p-6">
-        <div className="space-y-6 pt-8 text-center max-w-sm mx-auto">
-          <div className="w-16 h-16 rounded-3xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-center mx-auto shadow-xs">
-            <AlertCircle className="w-8 h-8" />
-          </div>
-
-          <div>
-            <span className="text-[10px] font-mono uppercase tracking-widest text-stone-500 font-bold block mb-1">
-              {property.name}
-            </span>
-            <h1 className="text-2xl font-serif font-bold text-stone-900">
-              Invalid Access Code
-            </h1>
-            <p className="text-xs text-stone-600 mt-2 leading-relaxed">
-              {stayState.errorMessage ||
-                'This QR code is invalid, revoked, or unassigned. Possession of an outdated or unassigned link does not grant guest access.'}
-            </p>
-          </div>
-
-          <div className="p-4 bg-white rounded-2xl border border-stone-200/80 shadow-xs text-left space-y-2">
-            <span className="text-[11px] font-bold text-stone-700 uppercase tracking-wide block">
-              How to access in-house services:
-            </span>
-            <p className="text-xs text-stone-600 leading-relaxed">
-              Please use your smartphone camera to scan the physical QR plaque inside your house, or contact reception to verify your stay.
-            </p>
-          </div>
-        </div>
-
-        <div className="pt-6 border-t border-stone-200 max-w-sm mx-auto w-full space-y-2">
-          {property.contactPhone && (
-            <a
-              href={`tel:${property.contactPhone}`}
-              className="w-full py-3 bg-stone-900 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow-xs"
-            >
-              <Phone className="w-4 h-4 text-amber-400" />
-              <span>Call Reception ({property.contactPhone})</span>
-            </a>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // 2. Unoccupied House Screen (Posession of QR code alone does not grant access)
-  if (stayState.status === 'unoccupied') {
-    return (
-      <div className="min-h-screen bg-[#FDFBF7] text-stone-900 flex flex-col justify-between p-6">
-        <div className="space-y-6 pt-8 text-center max-w-sm mx-auto">
-          <div className="w-16 h-16 rounded-3xl bg-amber-50 border border-amber-200 text-amber-800 flex items-center justify-center mx-auto shadow-xs">
-            <Building2 className="w-8 h-8 text-amber-700" />
-          </div>
-
-          <div>
-            <span className="text-[10px] font-mono uppercase tracking-widest text-stone-500 font-bold block mb-1">
-              {property.name} &bull; {stayState.houseName || 'House'}
-            </span>
-            <h1 className="text-2xl font-serif font-bold text-stone-900">
-              House Awaiting Check-In
-            </h1>
-            <p className="text-xs text-stone-600 mt-2 leading-relaxed">
-              This house does not currently have an active guest stay registered. For your privacy and security, private guest services, Wi-Fi credentials, and request tracking will activate once check-in is recorded.
-            </p>
-          </div>
-
-          <div className="p-4 bg-white rounded-2xl border border-stone-200/80 shadow-xs text-left space-y-2">
-            <div className="flex items-center gap-2 text-stone-700 font-semibold text-xs">
-              <Sparkles className="w-4 h-4 text-amber-600" />
-              <span>Just arrived?</span>
-            </div>
-            <p className="text-xs text-stone-600 leading-relaxed">
-              Please contact reception or your host. Once reception completes check-in, refresh this page to instantly access your in-house guest services.
-            </p>
-          </div>
-        </div>
-
-        <div className="pt-6 border-t border-stone-200 max-w-sm mx-auto w-full space-y-2">
-          {property.contactPhone && (
-            <a
-              href={`tel:${property.contactPhone}`}
-              className="w-full py-3 bg-emerald-950 text-amber-300 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs"
-            >
-              <Phone className="w-4 h-4" />
-              <span>Contact Host &bull; Reception</span>
-            </a>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // 3. Checked Out Screen
-  if (stayState.status === 'checked_out') {
-    return (
-      <div className="min-h-screen bg-[#FDFBF7] text-stone-900 flex flex-col justify-between p-6">
-        <div className="space-y-6 pt-8 text-center max-w-sm mx-auto">
-          <div className="w-16 h-16 rounded-3xl bg-stone-100 border border-stone-200 text-stone-600 flex items-center justify-center mx-auto shadow-xs">
-            <Check className="w-8 h-8 text-emerald-700" />
-          </div>
-
-          <div>
-            <span className="text-[10px] font-mono uppercase tracking-widest text-stone-500 font-bold block mb-1">
-              {property.name}
-            </span>
-            <h1 className="text-2xl font-serif font-bold text-stone-900">
-              Stay Completed
-            </h1>
-            <p className="text-xs text-stone-600 mt-2 leading-relaxed">
-              Your stay has concluded and guest access has ended. We hope you enjoyed your time at {property.name}!
-            </p>
-          </div>
-        </div>
-
-        <div className="pt-6 border-t border-stone-200 max-w-sm mx-auto w-full">
-          {property.contactPhone && (
-            <a
-              href={`tel:${property.contactPhone}`}
-              className="w-full py-3 bg-stone-900 text-stone-100 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow-xs"
-            >
-              <Phone className="w-4 h-4 text-amber-400" />
-              <span>Contact Reception</span>
-            </a>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  const activeRequests = room
+  // Strict privacy isolation: only show requests belonging to the current room AND current activeStayId
+  const activeRequests = room?.activeStayId
     ? allRequests.filter(
         (r) =>
-          r.propertyId === property.id &&
+          r.propertyId === property?.id &&
           r.roomId === room.id &&
-          (r.status === 'pending' || r.status === 'in_progress' || r.status === 'acknowledged')
+          (r.stayId === room.activeStayId || r.guestSessionId === room.activeStayId) &&
+          (r.status === 'pending' || r.status === 'acknowledged' || r.status === 'in_progress')
       )
     : [];
 
-  const latestActiveRequest = activeRequests[0];
+  if (!property) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#FDFBF7] text-stone-800 p-6 text-center">
+        <div className="space-y-2">
+          <div className="w-8 h-8 border-2 border-emerald-950 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs font-medium uppercase tracking-widest text-stone-500">
+            Loading Residence...
+          </p>
+        </div>
+      </div>
+    );
+  }
 
-  const copyWifi = () => {
-    if (property.wifiPassword) {
-      navigator.clipboard?.writeText(property.wifiPassword);
-      setCopiedWifi(true);
-      setTimeout(() => setCopiedWifi(false), 2000);
-    }
-  };
+  const unitName = property.unitLabel || 'House';
+  const isDiningEnabled = property.diningEnabled === true;
+  const cleanPhone = (property.contactPhone || '+260 97 000 0100').replace(/[^0-9+]/g, '');
+  const cleanWaPhone = (property.contactPhone || '+260 97 000 0100').replace(/[^0-9]/g, '');
 
-  const handleInstantDispatchReceptor = (receptor: BedsideReceptor) => {
-    if (!room) {
-      if (onOpenQRScanner) {
-        onOpenQRScanner();
-      } else {
-        alert('Please scan your room QR plaque to activate in-room service.');
-      }
-      return;
-    }
+  // Property Suspended Guard: block requests and show direct reception phone call
+  if (property.status === 'suspended') {
+    return (
+      <div className="min-h-dvh bg-[#FDFBF7] text-stone-900 flex flex-col justify-between p-6">
+        <div className="flex items-center justify-between pt-2">
+          <span className="text-xs font-semibold uppercase tracking-widest text-stone-500">
+            {property.name}
+          </span>
+          <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-semibold">
+            Service Paused
+          </span>
+        </div>
 
-    if (receptor.id === 'dnd') {
-      const nextDnd = !isDndActive;
-      setIsDndActive(nextDnd);
-      notificationService.triggerHaptic('medium');
-      notificationService.notify({
-        title: nextDnd ? 'Privacy Active (DND)' : 'Privacy Deactivated',
-        subtitle: nextDnd ? 'Front desk alerted. Housekeeping is on hold.' : 'Standard room service resumed.',
-        category: 'concierge',
-        roomNumber: room.roomNumber,
-      });
-      setSelectedReceptor(null);
-      return;
-    }
+        <div className="my-auto max-w-sm mx-auto w-full bg-white rounded-3xl p-6 border border-stone-200 shadow-sm text-center space-y-4">
+          <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto">
+            <Phone className="w-6 h-6 text-amber-800" />
+          </div>
+          <h1 className="text-xl font-serif font-bold text-stone-900">Requests are paused</h1>
+          <p className="text-sm text-stone-600 leading-relaxed">
+            Requests are paused. Please call reception:{' '}
+            <strong className="text-stone-900">{property.contactPhone || '+260 97 000 0100'}</strong>
+          </p>
+          <a
+            href={`tel:${cleanPhone}`}
+            className="w-full py-3 bg-[#1C3A31] text-[#F7F3EC] font-semibold text-sm rounded-xl flex items-center justify-center gap-2"
+          >
+            <Phone className="w-4 h-4" />
+            <span>Call Reception ({property.contactPhone || '+260 97 000 0100'})</span>
+          </a>
+        </div>
 
-    // Create the service request with Uber-style instant tracking
-    const newReq = dbService.createRequest({
+        <div className="text-center text-xs text-stone-400 pb-2">
+          {property.city}, {property.country}
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================================
+  // QR & STAY LIFECYCLE ACCESS GATE
+  // Guests only gain private house access when they scan an active QR code for
+  // an OCCUPIED house with a valid activeStayId.
+  // ============================================================================
+  if (stayState.status !== 'active' || !room || !room.activeStayId) {
+    const isInvalid = stayState.status === 'invalid_token';
+    const isUnoccupied = stayState.status === 'unoccupied';
+    const isCheckedOut = stayState.status === 'checked_out';
+
+    return (
+      <div className="min-h-dvh bg-stone-950 text-stone-100 flex flex-col justify-between p-6 selection:bg-amber-300 selection:text-stone-950">
+        {/* Top Property Header */}
+        <div className="flex items-center justify-between pt-2">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-amber-400 text-stone-950 flex items-center justify-center font-serif font-bold text-sm">
+              RA
+            </div>
+            <div>
+              <span className="text-xs uppercase tracking-widest text-amber-300 font-semibold block">
+                {property.name}
+              </span>
+              <span className="text-xs text-stone-400">
+                {property.city}, {property.country}
+              </span>
+            </div>
+          </div>
+
+          <span className="px-2.5 py-1 rounded-full bg-stone-900 border border-white/10 text-xs uppercase tracking-wider text-stone-400">
+            In-House QR Access
+          </span>
+        </div>
+
+        {/* Center Lifecycle Status Card */}
+        <div className="my-auto max-w-sm mx-auto w-full space-y-5 text-center">
+          <div className="p-6 rounded-3xl bg-stone-900/90 border border-white/10 shadow-modal space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-stone-800 border border-amber-400/30 flex items-center justify-center mx-auto">
+              {isInvalid ? (
+                <ShieldAlert className="w-7 h-7 text-rose-400" />
+              ) : isUnoccupied || isCheckedOut ? (
+                <Lock className="w-7 h-7 text-amber-400" />
+              ) : (
+                <QrCode className="w-7 h-7 text-amber-400" />
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-widest text-amber-400 block">
+                {isInvalid
+                  ? 'Unrecognised QR Token'
+                  : isUnoccupied
+                  ? `${unitName} Currently Unoccupied`
+                  : isCheckedOut
+                  ? 'Stay Concluded'
+                  : `Private ${unitName} Portal`}
+              </span>
+              <h1 className="text-2xl font-serif font-bold text-white leading-tight">
+                {isInvalid
+                  ? 'Invalid or Revoked QR Code'
+                  : isUnoccupied
+                  ? `${stayState.houseName || unitName} Awaiting Check-In`
+                  : isCheckedOut
+                  ? 'Thank You for Staying With Us'
+                  : `Scan Your In-${unitName} QR Code`}
+              </h1>
+              <p className="text-xs text-stone-300 leading-relaxed pt-1">
+                {stayState.errorMessage ||
+                  `To protect guest privacy and ensure requests reach your exact ${unitName.toLowerCase()}, please scan the physical QR plaque inside your ${unitName.toLowerCase()} after check-in.`}
+              </p>
+            </div>
+
+            {/* Public Property Information Summary */}
+            <div className="p-3.5 rounded-2xl bg-stone-950/80 border border-white/[0.06] text-left space-y-2 text-xs">
+              <div className="flex items-center justify-between text-stone-300">
+                <span className="text-stone-400">Location</span>
+                <span className="font-medium text-white">Waterfalls Estate, Lusaka</span>
+              </div>
+              <div className="flex items-center justify-between text-stone-300">
+                <span className="text-stone-400">Check-In / Out</span>
+                <span className="text-amber-300 font-medium">
+                  {property.checkInTime} / {property.checkOutTime}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-stone-300">
+                <span className="text-stone-400">Reception Desk</span>
+                <span className="text-emerald-400 font-medium">{property.contactPhone}</span>
+              </div>
+            </div>
+
+            {/* Direct Reception Contact Button */}
+            <div className="pt-1 space-y-2">
+              {property.contactPhone && (
+                <a
+                  href={`https://wa.me/${cleanWaPhone}?text=${encodeURIComponent(
+                    `Hello ${property.name} Reception, I need assistance with my ${unitName.toLowerCase()} check-in.`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-3 bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors"
+                >
+                  <Phone className="w-4 h-4" />
+                  <span>Contact Reception via WhatsApp</span>
+                </a>
+              )}
+
+              {(isInvalid || isCheckedOut) && (
+                <button
+                  onClick={clearGuestSession}
+                  className="w-full py-2.5 bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                >
+                  Reset Session
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="text-center text-xs text-stone-500">
+          <span>{property.name} &bull; Verified Guest Access</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Quick 1-Tap Requests (plain wording, no "Bedside Receptors" or "Hot Tub")
+  const quickRequests = [
+    {
+      id: 'towels',
+      label: 'Fresh Bath Towels',
+      eta: '~10-15 mins',
+      category: 'housekeeping' as const,
+      icon: Waves,
+      desc: 'Please deliver 2 fresh bath towels.',
+    },
+    {
+      id: 'pool_towels',
+      label: 'Pool Towels',
+      eta: '~10-12 mins',
+      category: 'housekeeping' as const,
+      icon: Waves,
+      desc: 'Deliver fresh swimming pool towels.',
+    },
+    {
+      id: 'pillows',
+      label: 'Extra Pillows',
+      eta: '~12-15 mins',
+      category: 'housekeeping' as const,
+      icon: Feather,
+      desc: 'Deliver 2 extra pillows.',
+    },
+    {
+      id: 'gas_kitchen',
+      label: 'Gas & Kitchen Help',
+      eta: '~10-15 mins',
+      category: 'maintenance' as const,
+      icon: ChefHat,
+      desc: 'Please assist with the kitchen gas stove or cookware.',
+    },
+    {
+      id: 'ac_check',
+      label: 'AC & Climate Check',
+      eta: '~15 mins',
+      category: 'maintenance' as const,
+      icon: Wind,
+      desc: 'Maintenance check on the air conditioning unit.',
+    },
+    {
+      id: 'dnd',
+      label: 'Privacy / Quiet Mode',
+      eta: 'Instant',
+      category: 'concierge' as const,
+      icon: Moon,
+      desc: 'Guest requested privacy — please hold routine housekeeping until further notice.',
+    },
+  ];
+
+  const handleQuickRequest = (item: (typeof quickRequests)[0]) => {
+    if (!room || !room.activeStayId) return;
+
+    notificationService.triggerHaptic('medium');
+    setDispatchedId(item.id);
+
+    const effectiveName = room.currentGuestName
+      ? `${room.guestTitle ? `${room.guestTitle} ` : ''}${room.currentGuestName}`
+      : `${unitName} ${room.roomNumber} Guest`;
+
+    const created = dbService.createRequest({
       propertyId: property.id,
       roomId: room.id,
       roomNumber: room.roomNumber,
-      category: receptor.category,
-      title: `Bedside Express: ${receptor.label}`,
-      description: `${receptor.desc}\nDelivery Note: ${deliveryNote}`,
-      priority: 'high',
+      stayId: room.activeStayId,
+      guestSessionId: room.activeStayId,
+      category: item.category,
+      title: item.label,
+      description: `${item.desc} (Estimated time: ${item.eta})`,
+      priority: 'normal',
       status: 'pending',
-      guestName: room.currentGuestName || `Guest in Room ${room.roomNumber}`,
+      guestName: effectiveName,
       guestPhone: room.guestPhone || '',
     });
 
-    setSelectedReceptor(null);
-    onNavigate('status', { requestId: newReq.id });
+    setTimeout(() => {
+      setDispatchedId(null);
+      onNavigate('status', { requestId: created.id });
+    }, 350);
   };
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7] text-stone-900 selection:bg-amber-100">
-      
-      {/* 1. EDGE-TO-EDGE TOP HERO IMAGE */}
-      <div className="relative w-full h-72 overflow-hidden bg-stone-950">
-        <img 
-          src={property.coverImageUrl} 
-          alt={property.name} 
-          fetchPriority="high"
-          decoding="async"
-          className="h-72 w-full object-cover brightness-[0.78]"
+    <div className="min-h-dvh bg-[#FDFBF7] text-stone-900 select-none overflow-x-hidden">
+      {/* ★ NEW HERO BANNER */}
+      <GuestHeroBanner
+        propertyName={property.name}
+        city={property.city}
+        country={property.country}
+        houseName={room.roomNumber}
+        houseTypeLabel={houseTypeLabel(room)}
+        guestTitle={room.guestTitle}
+        guestName={room.currentGuestName}
+        checkOutDate={room.guestCheckOutDate}
+        checkOutTime={property.checkOutTime}
+        photoUrl={room.imageUrl}
+      />
+
+      {/* ★ MAIN SHEET */}
+      <main className="relative -mt-[18px] rounded-t-[22px] bg-[#FDFBF7] px-[18px] pt-[18px] pb-[calc(96px+env(safe-area-inset-bottom))] flex flex-col gap-3.5">
+        {/* 1. Wi-Fi Card directly under hero banner */}
+        <WifiCard
+          ssid={room.wifiName || property.wifiName || 'RockApartments_Guest'}
+          password={room.wifiPassword || property.wifiPassword || ''}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-stone-950 via-stone-950/30 to-stone-950/70" />
 
-        {/* Subtle Top Header Overlay */}
-        <header className="absolute top-0 inset-x-0 z-10 px-5 pt-5 pb-3 flex justify-between items-center text-white">
-          <div>
-            <span className="text-[10px] tracking-widest uppercase font-mono font-medium text-stone-300 block">
-              {property.name}
-            </span>
-            <div className="text-xs font-medium tracking-tight text-white/90 flex items-center gap-1.5 mt-0.5">
-              {room ? (
-                <>
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                  <span>{unitLabel} {room.roomNumber}</span>
-                  {room.roomType && room.roomType.toLowerCase() !== room.roomNumber.toLowerCase() && (
-                    <span className="text-white/60 font-mono text-[10px]">&bull; {room.roomType}</span>
-                  )}
-                </>
-              ) : (
-                <span className="text-white/70 text-[11px] font-mono">
-                  In-House Guest Portal &bull; {property.city}
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsNightstandOpen(true)}
-              className="p-2 rounded-full bg-white/10 hover:bg-white/20 active:scale-[0.92] backdrop-blur-md border border-white/20 text-amber-200 shadow-xs transition-all cursor-pointer"
-              title="Open Bedside Nightstand Mode"
-            >
-              <Moon className="w-4 h-4" />
-            </button>
-
-            <div className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-xs font-serif font-bold text-amber-200 overflow-hidden shadow-xs">
-              {property.logoUrl ? (
-                <img src={property.logoUrl} alt={property.name} className="w-full h-full object-cover" />
-              ) : (
-                property.name.split(' ').map(w => w[0]).slice(0, 2).join('')
-              )}
-            </div>
-          </div>
-        </header>
-
-        {/* Hero Lower Title */}
-        <div className="absolute bottom-9 inset-x-0 px-6 z-10">
-          <div className="flex items-center gap-1.5 text-[11px] font-mono tracking-wider text-amber-300/90 uppercase mb-1">
-            <MapPin className="w-3.5 h-3.5 text-amber-300" />
-            <span>{property.city}, {property.country} &bull; {room ? `${unitLabel} ${room.roomNumber}` : 'Holiday House'}</span>
-          </div>
-          <h1 className="text-2xl font-serif text-white font-medium tracking-tight leading-snug">
-            {room ? (
-              <>
-                Welcome to {room.roomNumber}
-                <span className="block italic font-serif text-amber-100/80 text-sm font-light mt-0.5">
-                  {room.roomType && room.roomType.toLowerCase() !== room.roomNumber.toLowerCase()
-                    ? `${room.roomType} • Furnished Holiday House`
-                    : 'Furnished Holiday House'}
-                </span>
-              </>
-            ) : (
-              <>
-                {property.name}
-                <span className="block italic font-serif text-amber-100/80 text-sm font-light mt-0.5">
-                  Private holiday houses & in-house guest services.
-                </span>
-              </>
-            )}
-          </h1>
-        </div>
-      </div>
-
-      {/* 2. SLEEK OVERLAPPING CONTENT SHEET */}
-      <div className="relative -mt-6 rounded-t-3xl bg-[#FDFBF7] px-5 pt-6 z-20 space-y-6 pb-32 shadow-sm">
-        
-        {/* Invalid QR / Unrecognized Key Alert */}
-        {isInvalidToken && (
-          <div className="p-3.5 bg-rose-950 text-white rounded-2xl border border-rose-800 shadow-sm flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
-            <div className="text-xs">
-              <span className="font-semibold block text-rose-200">Unrecognized Room Token</span>
-              <span className="text-stone-300 text-[11px]">
-                Please scan the official QR plaque in your room to activate bedside dispatch.
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Unattached Session Notice (Root URL direct visit) */}
-        {!room && !isInvalidToken && (
-          <div className="p-3.5 bg-stone-900 text-stone-200 rounded-2xl border border-stone-800 shadow-sm flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-amber-400/10 border border-amber-400/20 text-amber-400 flex items-center justify-center shrink-0">
-                <Sparkles className="w-4 h-4" />
-              </div>
-              <div className="text-xs">
-                <span className="font-semibold block text-stone-100">Welcome to Rocks Apartments</span>
-                <span className="text-stone-400 text-[11px]">Scan your room QR plaque to unlock bedside dispatch.</span>
-              </div>
-            </div>
-            {onOpenQRScanner && (
-              <button
-                type="button"
-                onClick={onOpenQRScanner}
-                className="px-2.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-stone-950 text-[11px] font-bold shrink-0 active:scale-95 transition-transform"
-              >
-                Scan QR
-              </button>
-            )}
-          </div>
-        )}
-        
-        {/* a) UBER-STYLE LIVE ACTIVITY BAR (If an order is currently active!) */}
-        {latestActiveRequest && (
-          <div 
-            onClick={() => onNavigate('status', { requestId: latestActiveRequest.id })}
-            role="button"
-            tabIndex={0}
-            className="w-full bg-stone-950 text-white rounded-2xl p-4 border border-stone-800 shadow-modal flex items-center justify-between active:scale-[0.98] transition-transform cursor-pointer"
+        {/* 2. Active Request Pill (strictly scoped to current activeStayId) */}
+        {activeRequests.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onNavigate('status', { requestId: activeRequests[0].id })}
+            className="w-full p-4 rounded-2xl bg-[#1C3A31] text-white shadow-sm border border-white/10 flex items-center justify-between text-left active:scale-[0.98] transition-transform cursor-pointer"
           >
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-amber-400 text-stone-950 flex items-center justify-center font-bold relative shrink-0">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-[#E0B973] text-stone-950 flex items-center justify-center shrink-0">
                 <Radio className="w-5 h-5 animate-pulse" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-300">
-                    Live Dispatch
+                  <span className="text-xs font-semibold uppercase tracking-wider text-[#E0B973]">
+                    Active Request
                   </span>
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
                 </div>
-                <h4 className="text-xs font-semibold text-white truncate max-w-[200px]">
-                  {latestActiveRequest.title}
-                </h4>
-                <p className="text-[11px] text-stone-400">
-                  {latestActiveRequest.status === 'in_progress' ? 'Attendant heading to your room' : 'Staff assigned • Tap to track'}
+                <p className="text-sm font-bold text-white truncate mt-0.5">
+                  {activeRequests[0].title}
+                </p>
+                <p className="text-xs text-stone-200 mt-0.5">
+                  {activeRequests[0].status === 'in_progress'
+                    ? 'On the way to your house'
+                    : activeRequests[0].status === 'acknowledged'
+                    ? 'Staff assigned · Tap to view'
+                    : 'Sent to reception · Tap to view'}
                 </p>
               </div>
             </div>
-
-            <div className="flex items-center gap-1 text-xs font-mono font-bold text-amber-300">
-              <span>Track</span>
+            <div className="flex items-center gap-1 text-[#E0B973] text-xs font-bold shrink-0 pl-2">
+              <span>View</span>
               <ChevronRight className="w-4 h-4" />
             </div>
-          </div>
+          </button>
         )}
 
-        {/* b) BEDSIDE RECEPTORS HUB (The core feature requested by user!) */}
-        <section className="space-y-3">
+        {/* 3. Quick 1-Tap Requests */}
+        <section className="pt-1 space-y-2.5">
           <div className="flex items-center justify-between px-0.5">
             <div>
-              <span className="text-[11px] font-mono uppercase tracking-widest text-stone-400 font-bold block">
-                Bedside Receptors
-              </span>
-              <p className="text-xs text-stone-600 font-medium mt-0.5">
-                1-tap express orders dispatched directly to your bed
+              <h2 className="text-sm font-bold text-stone-900">Quick requests</h2>
+              <p className="text-xs text-stone-500 mt-0.5">
+                Tap an item to send directly to our team
               </p>
             </div>
-            {isDndActive && (
-              <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 font-mono text-[10px] font-bold border border-rose-200">
-                DND Active
-              </span>
-            )}
+            <button
+              type="button"
+              onClick={() => onNavigate('request', {})}
+              className="text-xs font-semibold text-[#1C3A31] hover:underline flex items-center gap-0.5 cursor-pointer"
+            >
+              <span>Custom request</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
           </div>
 
           <div className="grid grid-cols-3 gap-2.5">
-            {BEDSIDE_RECEPTORS.map((receptor) => {
-              const Icon = receptor.icon;
-              const isDnd = receptor.id === 'dnd';
+            {quickRequests.map((item) => {
+              const Icon = item.icon;
+              const isJustSent = dispatchedId === item.id;
+
               return (
                 <button
-                  key={receptor.id}
-                  onClick={() => setSelectedReceptor(receptor)}
-                  className={`group relative flex flex-col items-center justify-center p-3 rounded-2xl border text-center transition-all select-none active:scale-[0.95] shadow-2xs ${
-                    isDnd && isDndActive
-                      ? 'bg-rose-50 border-rose-300 text-rose-900'
-                      : 'bg-white border-stone-200/90 hover:border-amber-400/70 text-stone-800'
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleQuickRequest(item)}
+                  className={`flex flex-col items-center justify-between p-3.5 rounded-2xl border text-center active:scale-[0.96] transition-all cursor-pointer ${
+                    isJustSent
+                      ? 'bg-[#1C3A31] text-white border-[#1C3A31]'
+                      : 'bg-white hover:bg-stone-50/90 text-stone-900 border-stone-900/[0.08]'
                   }`}
                 >
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-2 transition-colors ${
-                    isDnd && isDndActive 
-                      ? 'bg-rose-600 text-white' 
-                      : 'bg-stone-100 group-hover:bg-amber-100 text-stone-700 group-hover:text-amber-900'
-                  }`}>
-                    <Icon className="w-5 h-5" />
+                  <div
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center mb-2 transition-colors ${
+                      isJustSent ? 'bg-[#E0B973] text-stone-950' : 'bg-stone-100 text-stone-800'
+                    }`}
+                  >
+                    {isJustSent ? <Check className="w-5 h-5" /> : <Icon className="w-5 h-5" />}
                   </div>
-                  <span className="text-xs font-semibold block leading-tight">
-                    {receptor.label}
+
+                  <span className="text-xs font-bold leading-snug line-clamp-2">
+                    {isJustSent ? 'Request Sent' : item.label}
                   </span>
-                  <span className="text-[10px] font-mono text-stone-400 mt-1 block">
-                    {receptor.eta}
+
+                  <span
+                    className={`text-xs mt-1 ${
+                      isJustSent ? 'text-[#E0B973]' : 'text-stone-500'
+                    }`}
+                  >
+                    {item.eta}
                   </span>
                 </button>
               );
@@ -623,443 +446,138 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
           </div>
         </section>
 
-        {/* c) Sleek Horizontal Pill Bar for House Amenities (set by GM on house.amenities) */}
-        {room?.amenities && room.amenities.length > 0 && (
-          <div className="overflow-x-auto no-scrollbar -mx-5 px-5">
-            <div className="flex items-center gap-2 w-max pb-1">
-              {room.amenities.map((amenityLabel, idx) => (
-                <div
-                  key={idx}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white border border-stone-200/80 text-stone-700 text-xs font-medium shadow-2xs"
-                >
-                  {renderAmenityIcon(amenityLabel)}
-                  <span className="whitespace-nowrap">{amenityLabel}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* d) Two Refined Editorial Action Cards */}
-        <section className="grid grid-cols-2 gap-3.5">
-          {/* Action 1: House Guide (when dining disabled) or In-Room Dining */}
-          <button
-            onClick={() => onNavigate('dining')}
-            className="group relative flex flex-col justify-between p-4 rounded-2xl bg-white border border-stone-200/80 hover:border-amber-400/50 shadow-2xs text-left min-h-[148px] active:scale-[0.97] transition-all select-none"
-          >
-            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center group-hover:bg-amber-400 group-hover:text-stone-950 transition-colors shadow-2xs">
-              {isDiningEnabled ? <UtensilsCrossed className="w-5 h-5" /> : <Waves className="w-5 h-5" />}
-            </div>
-            <div className="mt-3">
-              <span className="text-[10px] uppercase font-mono tracking-wider text-stone-400 block mb-0.5 font-semibold">
-                {isDiningEnabled ? 'Kitchen' : 'Holiday House'}
-              </span>
-              <span className="text-base font-serif font-bold text-stone-900 block leading-tight">
-                {isDiningEnabled ? 'In-Room Dining' : 'House Guide'}
-              </span>
-              <span className="text-[11px] text-stone-500 block mt-1 leading-snug">
-                {isDiningEnabled ? 'Culinary orders & room delivery' : 'Pool, kitchen & house guide'}
-              </span>
-            </div>
-          </button>
-
-          {/* Action 2: Request Service */}
-          <button
-            onClick={() => onNavigate('request')}
-            className="group relative flex flex-col justify-between p-4 rounded-2xl bg-white border border-stone-200/80 hover:border-stone-400 shadow-2xs text-left min-h-[148px] active:scale-[0.97] transition-all select-none"
-          >
-            <div className="w-10 h-10 rounded-xl bg-stone-100 text-stone-700 flex items-center justify-center group-hover:bg-stone-900 group-hover:text-white transition-colors shadow-2xs">
-              <ConciergeBell className="w-5 h-5" />
-            </div>
-            <div className="mt-3">
-              <span className="text-[10px] uppercase font-mono tracking-wider text-stone-400 block mb-0.5 font-semibold">
-                Concierge
-              </span>
-              <span className="text-base font-serif font-bold text-stone-900 block leading-tight">
-                Service Request
-              </span>
-              <span className="text-[11px] text-stone-500 block mt-1 leading-snug">
-                Housekeeping, linens & maintenance
-              </span>
-            </div>
-          </button>
-        </section>
-
-        {/* Phase 7: Inactive Promotional Card for Errands */}
-        <section className="bg-gradient-to-br from-amber-50/80 to-stone-50 border border-amber-900/[0.08] p-4 rounded-2xl shadow-2xs flex items-center justify-between gap-3 select-none">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-100/90 text-amber-900 flex items-center justify-center shrink-0 shadow-2xs">
-              <ShoppingBag className="w-5 h-5 text-amber-800" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold text-stone-900">Local Errands</span>
-                <span className="text-[9px] font-mono font-bold uppercase tracking-wider bg-amber-200/70 text-amber-900 px-1.5 py-0.5 rounded">
-                  Coming Soon
-                </span>
-              </div>
-              <p className="text-[11px] text-stone-600 mt-0.5 leading-snug">
-                Errands coming soon. If you have any questions, please ask.
-              </p>
-            </div>
-          </div>
-          {property.contactPhone && (
-            <a
-              href={`https://wa.me/${property.contactPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                `Hello Reception, I have a question regarding local errands/shopping for ${room ? `${unitLabel} ${room.roomNumber}` : 'my stay'}.`
-              )}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-3 py-1.5 bg-white border border-stone-200/90 rounded-xl text-[11px] font-semibold text-stone-800 shadow-2xs hover:bg-stone-50 shrink-0 select-none transition-colors"
+        {/* 4. House Guide & Airport Transfer Action Cards */}
+        <section className="pt-1 space-y-2.5">
+          {isDiningEnabled ? (
+            <button
+              type="button"
+              onClick={() => onNavigate('dining')}
+              className="w-full p-4 rounded-2xl bg-white border border-stone-900/[0.08] flex items-center justify-between text-left active:scale-[0.98] transition-transform cursor-pointer"
             >
-              Ask Us
-            </a>
+              <div className="flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center shrink-0">
+                  <UtensilsCrossed className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-stone-900">In-Room Dining Menu</h3>
+                  <p className="text-xs text-stone-500 mt-0.5">
+                    Order freshly prepared dishes &amp; drinks
+                  </p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-stone-400 shrink-0" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onNavigate('dining')}
+              className="w-full p-4 rounded-2xl bg-white border border-stone-900/[0.08] flex items-center justify-between text-left active:scale-[0.98] transition-transform cursor-pointer"
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-[#1C3A31]/[0.08] text-[#1C3A31] flex items-center justify-center shrink-0">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-stone-900">House Guide &amp; Amenities</h3>
+                  <p className="text-xs text-stone-500 mt-0.5">
+                    Private pool, full kitchen, gated parking &amp; house timings
+                  </p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-stone-400 shrink-0" />
+            </button>
+          )}
+
+          {property.airportTransfersEnabled !== false && (
+            <button
+              type="button"
+              onClick={() =>
+                onNavigate('request', {
+                  category: 'concierge',
+                  item: 'Kenneth Kaunda Airport Transfer (KKIA - 11 km)',
+                })
+              }
+              className="w-full p-4 rounded-2xl bg-white border border-stone-900/[0.08] flex items-center justify-between text-left active:scale-[0.98] transition-transform cursor-pointer"
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center shrink-0">
+                  <Plane className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-stone-900">Airport &amp; City Transfers</h3>
+                  <p className="text-xs text-stone-500 mt-0.5">
+                    11 km to Kenneth Kaunda Airport (KKIA) · Book pickup or drop-off
+                  </p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-stone-400 shrink-0" />
+            </button>
           )}
         </section>
 
-        {/* e) Minimalist Quick Row */}
-        <section className="pt-1">
-          <div className="flex items-center justify-between mb-3 px-0.5">
-            <span className="text-[11px] font-mono uppercase tracking-widest text-stone-400 font-semibold">
-              Residence Services
-            </span>
-            <span className="text-[10px] text-stone-400 font-mono">Direct dispatch</span>
-          </div>
-
-          <div className="grid grid-cols-4 gap-2">
-            {[
-              { label: 'Housekeeping', icon: Sparkles, action: () => onNavigate('request', { category: 'housekeeping' }) },
-              { label: 'Concierge', icon: Compass, action: () => onNavigate('request', { category: 'concierge' }) },
-              { label: 'Transport', icon: Car, action: () => onNavigate('request', { category: 'transport' }) },
-              { label: 'Front Desk', icon: Headset, action: () => setIsFrontDeskOpen(true) },
-            ].map((item, index) => {
-              const Icon = item.icon;
-              return (
-                <button
-                  key={index}
-                  onClick={item.action}
-                  className="flex flex-col items-center gap-2 group text-center active:scale-[0.95] transition-transform p-1 select-none"
-                >
-                  <div className="w-12 h-12 rounded-2xl border border-stone-200/90 bg-white flex items-center justify-center text-stone-700 group-hover:border-stone-400 group-hover:text-stone-900 group-hover:bg-stone-50 transition-all shadow-2xs">
-                    <Icon className="w-5 h-5" />
-                  </div>
-                  <span className="text-[11px] font-medium text-stone-600 group-hover:text-stone-900 tracking-tight leading-tight">
-                    {item.label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* f) Good to Know - Wi-Fi, Checkout & Contact */}
-        <section className="pt-2">
-          <span className="text-[11px] font-mono uppercase tracking-widest text-stone-400 font-semibold block mb-1 px-0.5">
-            Good to Know
-          </span>
-          <div className="divide-y divide-stone-200/70">
-            {/* Wi-Fi with Instant Copy */}
-            <div className="py-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center text-stone-500 shrink-0">
-                  <Wifi className="w-4 h-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-stone-800">High-Speed Wi-Fi</p>
-                  <p className="text-[11px] text-stone-500 font-mono">Network: {property.wifiName}</p>
-                </div>
-              </div>
-              {property.wifiPassword && (
-                <button
-                  onClick={copyWifi}
-                  className="text-xs font-mono font-medium px-2.5 py-1 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-lg active:scale-[0.96] transition-all flex items-center gap-1.5 select-none"
-                  title="Click to copy password"
-                >
-                  <span>{property.wifiPassword}</span>
-                  {copiedWifi ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-stone-400" />}
-                </button>
-              )}
-            </div>
-
-            {/* Departure */}
-            <div className="py-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center text-stone-500 shrink-0">
-                  <Clock className="w-4 h-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-stone-800">Departure & Checkout</p>
-                  <p className="text-[11px] text-stone-500">
-                    {room?.guestCheckOutDate ? (
-                      <>
-                        Checkout: <span className="font-medium text-stone-800">{room.guestCheckOutDate}</span> ({property.checkOutTime})
-                      </>
-                    ) : (
-                      `Standard checkout at ${property.checkOutTime}`
-                    )}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => onNavigate('request', { category: 'concierge', item: 'Late Checkout Request' })}
-                className="text-xs font-medium text-amber-700 hover:underline select-none"
-              >
-                Extend
-              </button>
-            </div>
-
-            {/* Front Desk & Reception Assistance */}
-            <div className="py-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center text-stone-500 shrink-0">
-                  <ShieldCheck className="w-4 h-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-stone-800">Reception & Duty Manager</p>
-                  <p className="text-[11px] text-stone-500">
-                    24/7 in-stay guest assistance &bull; Ext 0
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsFrontDeskOpen(true)}
-                className="text-xs font-mono font-medium px-2.5 py-1 text-stone-700 bg-stone-100 hover:bg-stone-200 rounded-lg active:scale-[0.96] transition-all select-none"
-              >
-                Contact
-              </button>
-            </div>
-          </div>
-        </section>
-
-      </div>
-
-      {/* MODAL / BOTTOM SHEET: BEDSIDE EXPRESS RECEPTOR DISPATCH */}
-      {selectedReceptor && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-4 z-50 animate-[modalBackdropIn_200ms_cubic-bezier(0.16,1,0.3,1)_forwards]">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-modal border border-stone-900/[0.08] space-y-4 animate-[sheetSlideUp_260ms_cubic-bezier(0.16,1,0.3,1)_forwards]">
-            <div className="flex items-center justify-between pb-2 border-b border-stone-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center shadow-2xs">
-                  {React.createElement(selectedReceptor.icon, { className: 'w-5 h-5' })}
-                </div>
-                <div>
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-800 block">
-                    Bedside Express
-                  </span>
-                  <h3 className="text-sm font-bold text-stone-900">{selectedReceptor.label}</h3>
-                </div>
-              </div>
-              <button
-                onClick={() => setSelectedReceptor(null)}
-                className="p-1 rounded-full text-stone-400 hover:text-stone-700 active:scale-[0.92]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-xs text-stone-600 leading-relaxed">
-              {selectedReceptor.desc}
-            </p>
-
-            <div className="bg-stone-50 p-3 rounded-2xl border border-stone-200/80 flex items-center justify-between text-xs">
-              <span className="text-stone-500">Destination:</span>
-              <span className="font-mono font-bold text-stone-900">Room {room?.roomNumber || '—'}</span>
-            </div>
-
-            <div className="bg-stone-50 p-3 rounded-2xl border border-stone-200/80 flex items-center justify-between text-xs">
-              <span className="text-stone-500">Estimated Delivery:</span>
-              <span className="font-mono font-bold text-amber-900">{selectedReceptor.eta}</span>
-            </div>
-
-            {selectedReceptor.id !== 'dnd' && (
-              <div className="space-y-1.5">
-                <span className="text-[10px] font-mono uppercase text-stone-400 font-bold block">
-                  Delivery Note:
-                </span>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  {['Knock softly', 'Leave outside door'].map((note) => (
-                    <button
-                      key={note}
-                      type="button"
-                      onClick={() => setDeliveryNote(note)}
-                      className={`p-2 rounded-xl border text-center transition-all ${
-                        deliveryNote === note
-                          ? 'bg-stone-900 text-white font-semibold border-stone-900'
-                          : 'bg-white border-stone-200 text-stone-600'
-                      }`}
-                    >
-                      {note}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <button
-              onClick={() => handleInstantDispatchReceptor(selectedReceptor)}
-              className="w-full py-3 bg-stone-900 hover:bg-stone-850 active:scale-[0.98] text-white text-xs font-bold rounded-2xl shadow-elevated flex items-center justify-center gap-2 select-none"
-            >
-              <span>{selectedReceptor.id === 'dnd' ? (isDndActive ? 'Turn Off DND' : 'Activate Do Not Disturb') : 'Dispatch to Bedside'}</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: NIGHTSTAND AMBIENT OLED MODE */}
-      {isNightstandOpen && (
-        <div className="fixed inset-0 bg-black z-50 flex flex-col justify-between p-6 text-white animate-[modalBackdropIn_200ms_cubic-bezier(0.16,1,0.3,1)_forwards]">
+        {/* 5. Good to Know (No duplicate Wi-Fi row, distances in km) */}
+        <section className="bg-white rounded-2xl p-4 border border-stone-900/[0.07] space-y-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs font-mono uppercase tracking-widest text-stone-400">
-                Nightstand Hub &bull; Room {room?.roomNumber || 'Portal'}
-              </span>
-            </div>
-            <button
-              onClick={() => setIsNightstandOpen(false)}
-              className="p-2 rounded-full bg-stone-900 text-stone-400 hover:text-white active:scale-[0.92]"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Giant Minimalist Clock */}
-          <div className="text-center my-auto space-y-3">
-            <div className="text-7xl font-serif tracking-tight text-white/95 font-light">
-              {currentTime}
-            </div>
-            <p className="text-xs font-mono text-stone-500 uppercase tracking-widest">
-              {property.city} Local Time &bull; {property.name}
-            </p>
-
-            <div className="pt-6 flex justify-center gap-3">
-              <button
-                onClick={() => {
-                  const nextDnd = !isDndActive;
-                  setIsDndActive(nextDnd);
-                  notificationService.triggerHaptic('medium');
-                }}
-                className={`px-4 py-2.5 rounded-2xl text-xs font-semibold flex items-center gap-2 border transition-all ${
-                  isDndActive
-                    ? 'bg-rose-950/80 border-rose-500 text-rose-200'
-                    : 'bg-stone-900 border-stone-800 text-stone-300'
-                }`}
-              >
-                <Moon className="w-4 h-4" />
-                <span>{isDndActive ? 'DND Is On' : 'Turn On DND'}</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setIsNightstandOpen(false);
-                  onNavigate('request', { category: 'concierge', item: 'Morning Wake-up Call' });
-                }}
-                className="px-4 py-2.5 rounded-2xl text-xs font-semibold flex items-center gap-2 bg-stone-900 border border-stone-800 text-stone-300 hover:text-white"
-              >
-                <Clock className="w-4 h-4 text-amber-400" />
-                <span>Wake-up Call</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="text-center text-[11px] font-mono text-stone-600">
-            Tap screen or exit to return to normal hotel view
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: FRONT DESK & RECEPTION DIRECT DISPATCH */}
-      {isFrontDeskOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-4 z-50 animate-[modalBackdropIn_200ms_cubic-bezier(0.16,1,0.3,1)_forwards]">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-modal border border-stone-900/[0.08] space-y-4 animate-[modalContentIn_240ms_cubic-bezier(0.16,1,0.3,1)_forwards]">
-            <div className="flex items-center justify-between pb-2 border-b border-stone-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-stone-900 text-amber-300 flex items-center justify-center shadow-2xs">
-                  <Headset className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-stone-900">Hotel Reception Desk</h3>
-                  <p className="text-[11px] text-stone-500">Direct In-Stay Assistance</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsFrontDeskOpen(false)}
-                className="p-1 rounded-full text-stone-400 hover:text-stone-700 active:scale-[0.92]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-2 text-xs">
-              <button
-                onClick={() => {
-                  setIsFrontDeskOpen(false);
-                  onNavigate('request', { category: 'concierge', item: 'Late Checkout Request' });
-                }}
-                className="w-full p-3 bg-stone-50 hover:bg-stone-100 rounded-2xl border border-stone-200 text-left flex items-center justify-between transition-colors"
-              >
-                <div>
-                  <span className="font-bold text-stone-900 block">Late Checkout Request</span>
-                  <span className="text-[11px] text-stone-500">Extend departure time past {property.checkOutTime}</span>
-                </div>
-                <ChevronRight className="w-4 h-4 text-stone-400" />
-              </button>
-
-              <button
-                onClick={() => {
-                  setIsFrontDeskOpen(false);
-                  onNavigate('request', { category: 'concierge', item: 'Luggage Collection & Porter' });
-                }}
-                className="w-full p-3 bg-stone-50 hover:bg-stone-100 rounded-2xl border border-stone-200 text-left flex items-center justify-between transition-colors"
-              >
-                <div>
-                  <span className="font-bold text-stone-900 block">Luggage Collection & Porter</span>
-                  <span className="text-[11px] text-stone-500">Assistance with luggage to lobby</span>
-                </div>
-                <ChevronRight className="w-4 h-4 text-stone-400" />
-              </button>
-
-              <button
-                onClick={() => {
-                  setIsFrontDeskOpen(false);
-                  onNavigate('request', { category: 'concierge', item: 'Morning Wake-up Call' });
-                }}
-                className="w-full p-3 bg-stone-50 hover:bg-stone-100 rounded-2xl border border-stone-200 text-left flex items-center justify-between transition-colors"
-              >
-                <div>
-                  <span className="font-bold text-stone-900 block">Morning Wake-up Call</span>
-                  <span className="text-[11px] text-stone-500">Automated or reception call to room phone</span>
-                </div>
-                <ChevronRight className="w-4 h-4 text-stone-400" />
-              </button>
-            </div>
-
-            <div className="pt-2 flex gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-stone-500">
+              House Essentials
+            </span>
+            {property.contactPhone && (
               <a
-                href={`tel:${property.contactPhone}`}
-                className="flex-1 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-900 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+                href={`https://wa.me/${cleanWaPhone}?text=${encodeURIComponent(
+                  `Hello Reception, I am in ${unitName} ${room.roomNumber} at ${property.name} and need assistance.`
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F5F1E8] text-[#1C3A31] text-xs font-semibold active:scale-95 transition-transform"
               >
-                <Phone className="w-3.5 h-3.5 text-stone-600" />
-                <span>Call Ext 0</span>
+                <Phone className="w-3.5 h-3.5" />
+                <span>WhatsApp Desk</span>
               </a>
+            )}
+          </div>
 
-              <button
-                onClick={() => {
-                  setIsFrontDeskOpen(false);
-                  onNavigate('request', { category: 'concierge', item: 'Custom In-Room Assistance' });
-                }}
-                className="flex-1 py-2.5 bg-stone-900 text-white text-xs font-bold rounded-xl active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>Send Note</span>
-              </button>
+          <div className="grid grid-cols-2 gap-2.5 text-xs">
+            <div className="p-3 rounded-xl bg-stone-50 border border-stone-200/60">
+              <div className="flex items-center gap-1.5 text-stone-500">
+                <Clock className="w-3.5 h-3.5 text-amber-700" />
+                <span>Check-in / Check-out</span>
+              </div>
+              <p className="font-bold text-stone-900 mt-1">
+                {property.checkInTime} / {property.checkOutTime}
+              </p>
+            </div>
+
+            <div className="p-3 rounded-xl bg-stone-50 border border-stone-200/60">
+              <div className="flex items-center gap-1.5 text-stone-500">
+                <MapPin className="w-3.5 h-3.5 text-emerald-800" />
+                <span>Airport (KKIA)</span>
+              </div>
+              <p className="font-bold text-stone-900 mt-1">11 km · ~12 mins</p>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* SLIM, ACCESSIBLE BOTTOM NAVIGATION */}
+          {property.nearbyAttractions && property.nearbyAttractions.length > 0 && (
+            <div className="pt-2 border-t border-stone-100 space-y-1.5">
+              <span className="text-xs font-semibold text-stone-500 block">
+                Nearby in Lusaka
+              </span>
+              <div className="grid grid-cols-2 gap-1.5 text-xs">
+                {property.nearbyAttractions.map((place, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between bg-stone-50 px-2.5 py-1.5 rounded-lg border border-stone-200/50"
+                  >
+                    <span className="text-stone-700 truncate pr-1.5">{place.name}</span>
+                    <span className="font-semibold text-stone-900 shrink-0">{place.distance}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      </main>
+
+      {/* Bottom Navigation */}
       <GuestBottomNav activeTab="home" onNavigate={onNavigate} />
     </div>
   );

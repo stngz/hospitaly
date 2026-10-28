@@ -181,12 +181,14 @@ function AppContent() {
   // 3. PUBLIC GUEST EXPERIENCE (/)
   return (
     <div className="min-h-screen bg-stone-100 font-sans antialiased text-stone-900 relative">
-      <InAppNotificationBanner
-        onNavigateToRequest={(reqId) => {
-          setActiveRequestId(reqId);
-          setGuestView('status');
-        }}
-      />
+      {guestView !== 'status' && (
+        <InAppNotificationBanner
+          onNavigateToRequest={(reqId) => {
+            if (reqId) setActiveRequestId(reqId);
+            setGuestView('status');
+          }}
+        />
+      )}
 
       <div className="max-w-md mx-auto shadow-modal min-h-dvh bg-[#FDFBF7] relative border-x border-stone-900/[0.08]">
         {guestView === 'home' && <GuestHome onNavigate={handleGuestNavigate} />}

@@ -32,6 +32,8 @@ service cloud.firestore {
     //   - checkInTime: string (optional, 0..20 chars)
     //   - checkOutTime: string (optional, 0..20 chars)
     //   - status: string (required, 'active' | 'suspended')
+    //   - suspendedAt: string (optional/null, 0..50 chars)
+    //   - suspendedBy: string (optional/null, 0..100 chars)
     //   - amenities: list (optional, <= 30 items)
     //   - nearbyAttractions: list (optional, <= 30 items)
     //   - unitLabel: string (optional, 1..30 chars, e.g. 'House' or 'Room')
@@ -53,8 +55,12 @@ service cloud.firestore {
     //   - buildingId: string (optional, 0..50 chars)
     //   - floorId: string (optional, 0..50 chars)
     //   - currentGuestName: string (optional/null, 0..100 chars, PII)
+    //   - guestTitle: string (optional/null, 0..20 chars)
     //   - guestCheckOutDate: string (optional/null, 0..50 chars)
     //   - guestPhone: string (optional/null, 0..50 chars, PII)
+    //   - houseType: string (optional/null, 0..60 chars)
+    //   - wifiName: string (optional/null, 0..100 chars)
+    //   - wifiPassword: string (optional/null, 0..100 chars)
     //   - notes: string (optional/null, 0..1000 chars)
     //   - activeStayId: string (optional, 0..100 chars)
     //   - amenities: list (optional, <= 30 items)
@@ -95,6 +101,7 @@ service cloud.firestore {
     //   - roomId: string (required, 1..64 chars, immutable)
     //   - roomNumber: string (required, 1..30 chars)
     //   - guestSessionId: string (optional, 0..100 chars)
+    //   - stayId: string (optional, 0..100 chars)
     //   - serviceId: string (optional, 0..100 chars)
     //   - category: string (required, 'housekeeping' | 'maintenance' | 'dining' | 'concierge' | 'transport' | 'other')
     //   - title: string (required, 1..150 chars)
@@ -151,7 +158,7 @@ service cloud.firestore {
     // Bootstrap and recovery founders explicitly verified by authenticated email
     function isKnownFounderEmail() {
       return isAuthenticated() &&
-        request.auth.token.email in ['nathanielmazaba@gmail.com', 'founder.test@example.com'];
+        request.auth.token.email in ['nathanielmazaba@gmail.com'];
     }
 
     function hasUserProfile() {
@@ -259,7 +266,7 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidProperty(data) {
-      return data.keys().hasOnly(['id', 'name', 'slug', 'description', 'logoUrl', 'coverImageUrl', 'primaryColor', 'secondaryColor', 'accentColor', 'contactPhone', 'contactEmail', 'address', 'city', 'country', 'timezone', 'currency', 'wifiName', 'wifiPassword', 'checkInTime', 'checkOutTime', 'status', 'amenities', 'nearbyAttractions', 'unitLabel', 'diningEnabled', 'errandsEnabled', 'airportTransfersEnabled', 'createdAt', 'updatedAt']) &&
+      return data.keys().hasOnly(['id', 'name', 'slug', 'description', 'logoUrl', 'coverImageUrl', 'primaryColor', 'secondaryColor', 'accentColor', 'contactPhone', 'contactEmail', 'address', 'city', 'country', 'timezone', 'currency', 'wifiName', 'wifiPassword', 'checkInTime', 'checkOutTime', 'status', 'suspendedAt', 'suspendedBy', 'amenities', 'nearbyAttractions', 'unitLabel', 'diningEnabled', 'errandsEnabled', 'airportTransfersEnabled', 'createdAt', 'updatedAt']) &&
         data.keys().hasAll(['id', 'name', 'slug', 'description', 'city', 'country', 'timezone', 'currency', 'status', 'createdAt', 'updatedAt']) &&
         data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
         data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
@@ -282,6 +289,8 @@ service cloud.firestore {
         isValidOptionalString(data, 'checkInTime', 0, 20) &&
         isValidOptionalString(data, 'checkOutTime', 0, 20) &&
         data.status in ['active', 'suspended'] &&
+        isValidOptionalString(data, 'suspendedAt', 0, 50) &&
+        isValidOptionalString(data, 'suspendedBy', 0, 100) &&
         isValidAmenities(data) &&
         isValidNearbyAttractions(data) &&
         isValidOptionalString(data, 'unitLabel', 1, 30) &&
@@ -293,7 +302,7 @@ service cloud.firestore {
     }
 
     function isValidRoom(data) {
-      return data.keys().hasOnly(['id', 'propertyId', 'roomNumber', 'roomType', 'status', 'imageUrl', 'buildingId', 'floorId', 'currentGuestName', 'guestCheckOutDate', 'guestPhone', 'notes', 'activeStayId', 'amenities', 'qrLabel', 'createdAt', 'updatedAt']) &&
+      return data.keys().hasOnly(['id', 'propertyId', 'roomNumber', 'roomType', 'status', 'imageUrl', 'buildingId', 'floorId', 'currentGuestName', 'guestTitle', 'guestCheckOutDate', 'guestPhone', 'houseType', 'wifiName', 'wifiPassword', 'notes', 'activeStayId', 'amenities', 'qrLabel', 'createdAt', 'updatedAt']) &&
         data.keys().hasAll(['id', 'propertyId', 'roomNumber', 'roomType', 'status', 'createdAt', 'updatedAt']) &&
         data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
         data.propertyId is string && data.propertyId.size() >= 1 && data.propertyId.size() <= 64 &&
@@ -304,8 +313,12 @@ service cloud.firestore {
         isValidOptionalString(data, 'buildingId', 0, 50) &&
         isValidOptionalString(data, 'floorId', 0, 50) &&
         isValidOptionalString(data, 'currentGuestName', 0, 100) &&
+        isValidOptionalString(data, 'guestTitle', 0, 20) &&
         isValidOptionalString(data, 'guestCheckOutDate', 0, 50) &&
         isValidOptionalString(data, 'guestPhone', 0, 50) &&
+        isValidOptionalString(data, 'houseType', 0, 60) &&
+        isValidOptionalString(data, 'wifiName', 0, 100) &&
+        isValidOptionalString(data, 'wifiPassword', 0, 100) &&
         isValidOptionalString(data, 'notes', 0, 1000) &&
         isValidOptionalString(data, 'activeStayId', 0, 100) &&
         isValidAmenities(data) &&
@@ -342,13 +355,14 @@ service cloud.firestore {
     }
 
     function isValidServiceRequest(data) {
-      return data.keys().hasOnly(['id', 'propertyId', 'roomId', 'roomNumber', 'guestSessionId', 'serviceId', 'category', 'title', 'description', 'priority', 'status', 'assignedTo', 'guestName', 'guestPhone', 'createdAt', 'updatedAt', 'completedAt']) &&
+      return data.keys().hasOnly(['id', 'propertyId', 'roomId', 'roomNumber', 'guestSessionId', 'stayId', 'serviceId', 'category', 'title', 'description', 'priority', 'status', 'assignedTo', 'guestName', 'guestPhone', 'createdAt', 'updatedAt', 'completedAt']) &&
         data.keys().hasAll(['id', 'propertyId', 'roomId', 'roomNumber', 'category', 'title', 'description', 'priority', 'status', 'createdAt', 'updatedAt']) &&
         data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
         data.propertyId is string && data.propertyId.size() >= 1 && data.propertyId.size() <= 64 &&
         data.roomId is string && data.roomId.size() >= 1 && data.roomId.size() <= 64 &&
         data.roomNumber is string && data.roomNumber.size() >= 1 && data.roomNumber.size() <= 30 &&
         isValidOptionalString(data, 'guestSessionId', 0, 100) &&
+        isValidOptionalString(data, 'stayId', 0, 100) &&
         isValidOptionalString(data, 'serviceId', 0, 100) &&
         data.category in ['housekeeping', 'maintenance', 'dining', 'concierge', 'transport', 'other'] &&
         data.title is string && data.title.size() >= 1 && data.title.size() <= 150 &&
@@ -467,7 +481,9 @@ service cloud.firestore {
 
       allow create: if isValidServiceRequest(request.resource.data) &&
                        request.resource.data.id == requestId &&
-                       request.resource.data.status == 'pending';
+                       request.resource.data.status == 'pending' &&
+                       exists(/databases/$(database)/documents/properties/$(request.resource.data.propertyId)) &&
+                       get(/databases/$(database)/documents/properties/$(request.resource.data.propertyId)).data.status == 'active';
 
       // Updates strictly protect tenant boundaries and state transitions
       allow update: if isValidServiceRequest(request.resource.data) &&

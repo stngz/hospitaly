@@ -10,6 +10,14 @@ import {
 } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import {
+  clearSessionTimestamps,
+  ensureSessionTimestampsInitialized,
+  isSessionExpired,
+  markSessionExpiredBanner,
+  recordSessionStart,
+  touchSessionActivity,
+} from '../lib/sessionPolicy';
 
 export interface ProvisionAccountInput {
   name: string;
@@ -103,7 +111,7 @@ async function resolveAuthoritativeProfile(fbUser: FirebaseUser): Promise<UserPr
   }
 
   // 3. Fallback bootstrapping for pilot seed accounts (Founder, Manager, Staff)
-  if (cleanEmail === 'nathanielmazaba@gmail.com' || cleanEmail === 'founder.test@example.com') {
+  if (cleanEmail === 'nathanielmazaba@gmail.com') {
     const founderProfile = normalizeUserProfile({
       id: fbUser.uid,
       propertyId: '',
@@ -173,12 +181,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         const profile = await resolveAuthoritativeProfile(fbUser);
-        if (!profile || !profile.active) {
+        if (!profile || !profile.active || profile.email === 'founder.test@example.com') {
+          await firebaseSignOut(auth).catch(() => {});
+          clearSessionTimestamps();
+          dbService.clearSensitiveSession();
+          return;
+        }
+
+        // Enforce idle & max session length policy on restore
+        if (isSessionExpired(profile.role)) {
+          markSessionExpiredBanner('Signed out due to inactivity');
+          clearSessionTimestamps();
           await firebaseSignOut(auth).catch(() => {});
           dbService.clearSensitiveSession();
           return;
         }
 
+        ensureSessionTimestampsInitialized();
         dbService.setCurrentUser(profile);
       } catch (err) {
         console.warn('Auth state restoration error:', err);
@@ -193,26 +212,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginWithEmail = async (email: string, pass: string): Promise<UserProfile> => {
     const cleanEmail = email.toLowerCase().trim();
+    if (cleanEmail === 'founder.test@example.com') {
+      throw new Error('Access denied: This test founder account has been permanently disabled.');
+    }
     const cred = await signInWithEmailAndPassword(auth, cleanEmail, pass);
 
     const profile = await resolveAuthoritativeProfile(cred.user);
     if (!profile) {
       await firebaseSignOut(auth).catch(() => {});
+      clearSessionTimestamps();
       dbService.clearSensitiveSession();
       throw new Error('Access denied: No authorised Hospitally account profile found for this email.');
     }
 
     if (!profile.active) {
       await firebaseSignOut(auth).catch(() => {});
+      clearSessionTimestamps();
       dbService.clearSensitiveSession();
       throw new Error('Access denied: This account has been deactivated by the Founder.');
     }
 
+    recordSessionStart();
     dbService.setCurrentUser(profile);
     return profile;
   };
 
   const signOut = async () => {
+    clearSessionTimestamps();
     try {
       await firebaseSignOut(auth);
     } catch (e) {
@@ -221,6 +247,61 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       dbService.clearSensitiveSession();
     }
   };
+
+  // Enforce role-based idle timeout (30m founder, 60m manager/staff) & max session length (8h/12h)
+  useEffect(() => {
+    if (!currentUser || currentUser.role === 'guest' || typeof window === 'undefined') {
+      return;
+    }
+
+    ensureSessionTimestampsInitialized();
+
+    let lastWrite = 0;
+    const handleUserActivity = () => {
+      const now = Date.now();
+      if (now - lastWrite > 5000) {
+        lastWrite = now;
+        touchSessionActivity();
+      }
+    };
+
+    const checkExpiration = () => {
+      if (isSessionExpired(currentUser.role)) {
+        markSessionExpiredBanner('Signed out due to inactivity');
+        signOut();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        if (isSessionExpired(currentUser.role)) {
+          markSessionExpiredBanner('Signed out due to inactivity');
+          signOut();
+        } else {
+          touchSessionActivity();
+        }
+      }
+    };
+
+    const activityEvents: (keyof WindowEventMap)[] = [
+      'pointerdown',
+      'keydown',
+      'touchstart',
+      'scroll',
+    ];
+    activityEvents.forEach((evt) =>
+      window.addEventListener(evt, handleUserActivity, { passive: true })
+    );
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    const intervalId = window.setInterval(checkExpiration, 15000);
+
+    return () => {
+      activityEvents.forEach((evt) => window.removeEventListener(evt, handleUserActivity));
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.clearInterval(intervalId);
+    };
+  }, [currentUser?.id, currentUser?.role]);
 
   const sendPasswordReset = async (email: string) => {
     const cleanEmail = email.toLowerCase().trim();

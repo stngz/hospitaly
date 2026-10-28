@@ -308,15 +308,15 @@ export const QRCodeView: React.FC<QRCodeProps> = ({
   }, [fullUrl, centerLabel, size]);
 
   return (
-    <div className={`inline-flex flex-col items-center ${className}`}>
+    <div className={`inline-flex flex-col items-center max-w-full ${className}`}>
       <canvas
         ref={canvasRef}
         aria-label={alt}
-        style={{ width: size, height: size }}
-        className="block bg-white rounded-lg"
+        style={{ width: size, maxWidth: '100%', height: 'auto' }}
+        className="block bg-white rounded-lg aspect-square"
       />
       {labelRemoved && (
-        <span className="mt-1.5 text-[10px] font-mono text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+        <span className="mt-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
           Label removed so the code scans reliably
         </span>
       )}

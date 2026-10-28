@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { consumeSessionExpiredBanner } from '../../lib/sessionPolicy';
 import { UserProfile } from '../../types';
 import {
   ShieldAlert,
@@ -11,6 +12,7 @@ import {
   EyeOff,
   CheckCircle2,
   Lock,
+  Clock,
 } from 'lucide-react';
 
 interface LoginGateProps {
@@ -25,6 +27,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [expiredBanner, setExpiredBanner] = useState<string | null>(() => consumeSessionExpiredBanner());
   const [resetSentMsg, setResetSentMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -33,6 +36,8 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
     setErrorMsg(null);
     setResetSentMsg(null);
     setPassword('');
+    const msg = consumeSessionExpiredBanner();
+    if (msg) setExpiredBanner(msg);
   }, [portal]);
 
   const handleEmailAuthSubmit = async (e: React.FormEvent) => {
@@ -113,12 +118,12 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
     <div className="fixed inset-0 overflow-y-auto min-h-screen min-h-dvh bg-stone-950 flex flex-col justify-between p-6 text-stone-100 overscroll-none selection:bg-amber-400 selection:text-stone-950 z-50">
       {/* Top Status Bar */}
       <div className="flex items-center justify-between max-w-sm mx-auto w-full pt-2">
-        <div className="flex items-center gap-2 text-xs font-mono text-stone-400">
+        <div className="flex items-center gap-2 text-xs text-stone-400">
           <Lock className="w-3.5 h-3.5 text-amber-400" />
           <span>{isHq ? 'Hospitally HQ (/hq)' : 'Property Operations (/staff)'}</span>
         </div>
-        <span className="px-2.5 py-0.5 rounded-full bg-stone-900 border border-white/10 text-[10px] font-mono uppercase tracking-wider text-stone-400">
-          Authenticated Access Only
+        <span className="px-2.5 py-0.5 rounded-full bg-stone-900 border border-white/10 text-xs uppercase tracking-wider text-stone-400">
+          Authorised Access
         </span>
       </div>
 
@@ -142,6 +147,13 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
           </p>
         </div>
 
+        {expiredBanner && (
+          <div className="p-3 rounded-xl bg-amber-950/70 border border-amber-500/40 text-xs text-amber-200 flex items-center gap-2.5 text-left">
+            <Clock className="w-4 h-4 shrink-0 text-amber-400" />
+            <span>{expiredBanner}</span>
+          </div>
+        )}
+
         {errorMsg && (
           <div className="p-3 rounded-xl bg-rose-950/70 border border-rose-500/40 text-xs text-rose-200 flex items-start gap-2.5 text-left">
             <ShieldAlert className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
@@ -160,7 +172,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
           <div>
             <label
               htmlFor="login-email"
-              className="text-[11px] font-semibold text-stone-300 uppercase tracking-wider mb-1.5 flex items-center justify-between"
+              className="text-xs font-semibold text-stone-300 uppercase tracking-wider mb-1.5 flex items-center justify-between"
             >
               <span>Email Address</span>
               <Mail className="w-3.5 h-3.5 text-stone-500" />
@@ -172,7 +184,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              placeholder={isHq ? 'founder.test@example.com' : 'manager.test@example.com'}
+              placeholder={isHq ? 'nathanielmazaba@gmail.com' : 'manager.pilot@rocks.co.zm'}
               className="w-full text-base bg-stone-900 border border-white/[0.12] rounded-xl px-3.5 py-2.5 text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-1 focus:ring-amber-400"
             />
           </div>
@@ -181,14 +193,14 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
             <div className="flex items-center justify-between mb-1.5">
               <label
                 htmlFor="login-password"
-                className="text-[11px] font-semibold text-stone-300 uppercase tracking-wider"
+                className="text-xs font-semibold text-stone-300 uppercase tracking-wider"
               >
                 Password
               </label>
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="text-[11px] text-stone-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer transition-colors select-none font-mono"
+                className="text-xs text-stone-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer transition-colors select-none"
               >
                 {showPassword ? (
                   <>
@@ -239,7 +251,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
             )}
           </button>
 
-          <div className="pt-1 flex items-center justify-between text-[11px] font-mono">
+          <div className="pt-1 flex items-center justify-between text-xs">
             <button
               type="button"
               disabled={isResetting}
@@ -252,7 +264,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
         </form>
 
         {!isHq && (
-          <div className="p-3 rounded-xl bg-stone-900/80 border border-white/[0.06] text-[11px] text-stone-400 leading-relaxed text-left">
+          <div className="p-3 rounded-xl bg-stone-900/80 border border-white/[0.06] text-xs text-stone-400 leading-relaxed text-left">
             <span className="font-semibold text-stone-300 block mb-0.5">Account Provisioning Policy</span>
             Staff and Manager accounts are provisioned exclusively by the Founder. Managers should contact Hospitally HQ when additional team access is needed.
           </div>
@@ -260,7 +272,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
       </div>
 
       {/* Footer Branding */}
-      <div className="text-center text-[11px] text-stone-500 pb-1 font-mono">
+      <div className="text-center text-xs text-stone-500 pb-1">
         <span>Hospitally Security &bull; Authorised Access Only</span>
       </div>
     </div>
