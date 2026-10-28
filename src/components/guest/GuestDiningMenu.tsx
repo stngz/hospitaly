@@ -127,7 +127,7 @@ const HouseGuideView: React.FC<{
             Welcome to Rock Apartments
           </h2>
           <p className="text-xs text-stone-300 leading-relaxed">
-            Separate furnished holiday houses with private swimming pool and hot tub. We do not sell food or drink, allowing full private use of your fully equipped kitchen.
+            Separate furnished holiday houses with a private swimming pool and sun deck. We do not sell food or drink, allowing full private use of your fully equipped kitchen.
           </p>
         </section>
 
@@ -159,33 +159,7 @@ const HouseGuideView: React.FC<{
             </button>
           </section>
 
-          {/* Card 2: Private Heated Hot Tub */}
-          <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-2.5">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center shrink-0">
-                  <Bath className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-bold text-stone-900 leading-tight">Private Heated Hot Tub</h3>
-                  <span className="text-[10px] text-stone-500 font-mono">Hydrotherapy Jets &bull; Up to 38°C</span>
-                </div>
-              </div>
-            </div>
-            <p className="text-xs text-stone-600 leading-relaxed">
-              The heated tub is serviced daily. For temperature adjustments or assistance with jets, send a quick note to Maintenance.
-            </p>
-            <button
-              type="button"
-              onClick={() => handleAction('maintenance', 'Hot Tub Temperature & Jets')}
-              className="w-full py-2 px-3 rounded-xl bg-amber-50/80 hover:bg-amber-100/80 text-amber-950 text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer"
-            >
-              <span>Hot Tub Assistance / Jets</span>
-              <ChevronRight className="w-3.5 h-3.5 text-amber-800" />
-            </button>
-          </section>
-
-          {/* Card 3: Fully Equipped Kitchen */}
+          {/* Card 2: Fully Equipped Kitchen */}
           <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-2.5">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-800 flex items-center justify-center shrink-0">

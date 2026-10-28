@@ -5,7 +5,7 @@ export const SEED_PROPERTIES: Property[] = [
     id: "prop_rocks_lusaka",
     name: "Rocks Apartments Lusaka",
     slug: "rocks-apartments",
-    description: "Comfortable 5-bedroom luxury serviced apartment in Waterfalls Estate, Airport Road Corridor, Lusaka. Features private swimming pool, relaxing hot tub, fully equipped kitchen, individual air-conditioning, smart TVs, free high-speed WiFi, and secure parking. 6.8 mi from Kenneth Kaunda International Airport, 11 mi from Lusaka Golf Club, and 12 mi from the National Museum.",
+    description: "Comfortable furnished holiday houses in Waterfalls Estate, Airport Road Corridor, Lusaka. Features private swimming pool, sun deck, fully equipped self-catering kitchen, individual air-conditioning, smart TVs, free high-speed WiFi, and 24/7 secure parking. 6.8 mi from Kenneth Kaunda International Airport, 11 mi from Lusaka Golf Club, and 12 mi from the National Museum.",
     logoUrl: "",
     coverImageUrl: "/images/rocks-suite-enhanced.jpg",
     primaryColor: "#1E3A5F", // Slate Sapphire
@@ -29,9 +29,9 @@ export const SEED_PROPERTIES: Property[] = [
     airportTransfersEnabled: true,
     amenities: [
       { icon: "pool", label: "Private Pool" },
-      { icon: "hot_tub", label: "Hot Tub" },
       { icon: "kitchen", label: "Full Kitchen" },
       { icon: "ac_unit", label: "Unit AC" },
+      { icon: "wifi", label: "High-Speed Wi-Fi" },
     ],
     nearbyAttractions: [
       { name: "Kenneth Kaunda Int'l Airport (KKIA)", distance: "6.8 mi" },
@@ -52,6 +52,8 @@ export const SEED_ROOMS: Room[] = [
     roomType: "Master En-Suite with Pool View", 
     status: "available", 
     imageUrl: "/images/rocks-suite-enhanced.jpg",
+    amenities: ["Private Pool", "Full Kitchen", "Unit AC", "High-Speed Wi-Fi"],
+    qrLabel: "SUITE 1",
     createdAt: "2026-02-01T00:00:00Z", 
     updatedAt: "2026-02-01T00:00:00Z" 
   },
@@ -62,6 +64,8 @@ export const SEED_ROOMS: Room[] = [
     roomType: "Deluxe Queen Bedroom", 
     status: "available", 
     imageUrl: "/images/rocks-suite-enhanced.jpg",
+    amenities: ["Private Pool", "Full Kitchen", "Unit AC", "High-Speed Wi-Fi"],
+    qrLabel: "BED 2",
     createdAt: "2026-02-01T00:00:00Z", 
     updatedAt: "2026-02-01T00:00:00Z" 
   },
@@ -71,6 +75,8 @@ export const SEED_ROOMS: Room[] = [
     roomNumber: "Bedroom 3 (Executive Twin)", 
     roomType: "Executive Twin Bedroom", 
     status: "available", 
+    amenities: ["Private Pool", "Full Kitchen", "Unit AC", "High-Speed Wi-Fi"],
+    qrLabel: "BED 3",
     createdAt: "2026-02-01T00:00:00Z", 
     updatedAt: "2026-02-01T00:00:00Z" 
   },
@@ -81,6 +87,8 @@ export const SEED_ROOMS: Room[] = [
     roomType: "Garden View Double Bedroom", 
     status: "available", 
     imageUrl: "/images/rocks-suite-enhanced.jpg",
+    amenities: ["Private Pool", "Full Kitchen", "Unit AC", "High-Speed Wi-Fi"],
+    qrLabel: "BED 4",
     createdAt: "2026-02-01T00:00:00Z", 
     updatedAt: "2026-02-01T00:00:00Z" 
   },
@@ -90,7 +98,9 @@ export const SEED_ROOMS: Room[] = [
     roomNumber: "Bedroom 5 (Penthouse Suite)", 
     roomType: "Upper Floor Balcony Suite", 
     status: "available", 
-    notes: "Direct access to hot tub terrace", 
+    notes: "Direct access to upper balcony terrace", 
+    amenities: ["Private Pool", "Full Kitchen", "Unit AC", "High-Speed Wi-Fi"],
+    qrLabel: "BED 5",
     createdAt: "2026-02-01T00:00:00Z", 
     updatedAt: "2026-02-01T00:00:00Z" 
   },

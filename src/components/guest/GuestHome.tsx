@@ -167,12 +167,12 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
           eta: '~12-15 mins',
         },
         {
-          id: 'hot_tub',
-          label: 'Hot Tub Jets / Heat',
-          category: 'maintenance',
-          icon: Bath,
-          desc: 'Request temperature boost or jet nozzle check for your private hot tub',
-          eta: '~15-20 mins',
+          id: 'pool_deck',
+          label: 'Pool & Deck Care',
+          category: 'housekeeping',
+          icon: Sun,
+          desc: 'Pool surface skimming, sun lounger setup & fresh patio tidy',
+          eta: '~15 mins',
         },
         {
           id: 'ac_check',
@@ -199,23 +199,16 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
     dbService.getAllRequests
   );
 
-  const renderAmenityIcon = (iconName: string) => {
-    switch (iconName?.toLowerCase()) {
-      case 'pool':
-        return <Waves className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
-      case 'hot_tub':
-        return <Bath className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
-      case 'kitchen':
-        return <ChefHat className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
-      case 'ac_unit':
-        return <Wind className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
-      case 'deck':
-        return <Sun className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
-      case 'restaurant':
-        return <UtensilsCrossed className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
-      default:
-        return <Sparkles className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
-    }
+  const renderAmenityIcon = (labelOrIcon: string) => {
+    const lower = (labelOrIcon || '').toLowerCase();
+    if (lower.includes('pool')) return <Waves className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
+    if (lower.includes('kitchen') || lower.includes('stove') || lower.includes('cook')) return <ChefHat className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
+    if (lower.includes('ac') || lower.includes('air') || lower.includes('climate')) return <Wind className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
+    if (lower.includes('wifi') || lower.includes('wi-fi') || lower.includes('internet')) return <Wifi className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
+    if (lower.includes('deck') || lower.includes('garden') || lower.includes('sun') || lower.includes('braai')) return <Sun className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
+    if (lower.includes('security') || lower.includes('parking') || lower.includes('gate')) return <ShieldCheck className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
+    if (lower.includes('restaurant') || lower.includes('dining')) return <UtensilsCrossed className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
+    return <Sparkles className="w-3.5 h-3.5 text-brand-secondary shrink-0" />;
   };
 
   if (!property) {
@@ -444,8 +437,10 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
               {room ? (
                 <>
                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                  <span>{room.currentGuestName ? 'Welcome to Bobo' : `${unitLabel} ${room.roomNumber}`}</span>
-                  <span className="text-white/60 font-mono text-[10px]">&bull; {room.roomNumber}</span>
+                  <span>{unitLabel} {room.roomNumber}</span>
+                  {room.roomType && room.roomType.toLowerCase() !== room.roomNumber.toLowerCase() && (
+                    <span className="text-white/60 font-mono text-[10px]">&bull; {room.roomType}</span>
+                  )}
                 </>
               ) : (
                 <span className="text-white/70 text-[11px] font-mono">
@@ -483,9 +478,11 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
           <h1 className="text-2xl font-serif text-white font-medium tracking-tight leading-snug">
             {room ? (
               <>
-                Welcome to Bobo
+                Welcome to {room.roomNumber}
                 <span className="block italic font-serif text-amber-100/80 text-sm font-light mt-0.5">
-                  {room.roomNumber} &bull; Furnished Holiday House
+                  {room.roomType && room.roomType.toLowerCase() !== room.roomNumber.toLowerCase()
+                    ? `${room.roomType} • Furnished Holiday House`
+                    : 'Furnished Holiday House'}
                 </span>
               </>
             ) : (
@@ -626,17 +623,17 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
           </div>
         </section>
 
-        {/* c) Sleek Horizontal Pill Bar for Quick Amenities */}
-        {property.amenities && property.amenities.length > 0 && (
+        {/* c) Sleek Horizontal Pill Bar for House Amenities (set by GM on house.amenities) */}
+        {room?.amenities && room.amenities.length > 0 && (
           <div className="overflow-x-auto no-scrollbar -mx-5 px-5">
             <div className="flex items-center gap-2 w-max pb-1">
-              {property.amenities.map((amenity, idx) => (
+              {room.amenities.map((amenityLabel, idx) => (
                 <div
                   key={idx}
                   className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white border border-stone-200/80 text-stone-700 text-xs font-medium shadow-2xs"
                 >
-                  {renderAmenityIcon(amenity.icon)}
-                  <span className="whitespace-nowrap">{amenity.label}</span>
+                  {renderAmenityIcon(amenityLabel)}
+                  <span className="whitespace-nowrap">{amenityLabel}</span>
                 </div>
               ))}
             </div>
@@ -661,7 +658,7 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate, onOpenQRScanne
                 {isDiningEnabled ? 'In-Room Dining' : 'House Guide'}
               </span>
               <span className="text-[11px] text-stone-500 block mt-1 leading-snug">
-                {isDiningEnabled ? 'Culinary orders & room delivery' : 'Pool, hot tub & house guide'}
+                {isDiningEnabled ? 'Culinary orders & room delivery' : 'Pool, kitchen & house guide'}
               </span>
             </div>
           </button>

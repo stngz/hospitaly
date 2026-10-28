@@ -30,12 +30,12 @@ export const ServiceRequestFlow: React.FC<ServiceRequestFlowProps> = ({
       title: 'Housekeeping', 
       icon: Sparkles,
       items: isRocks ? [
-        'Private Hot Tub Prep & Bubbles',
         'Pool Towels & Sun Loungers',
         'Extra Fresh Towels',
-        'Room Refresh & Bed Making',
+        'House Refresh & Bed Making',
+        'Linen & Towel Change',
         'Kitchen Dishware Cleaning',
-        'Luxury Toiletries Kit',
+        'Braai / Outdoor Setup',
       ] : [
         'Extra Fresh Towels',
         'Extra Pillow Set',
@@ -51,9 +51,9 @@ export const ServiceRequestFlow: React.FC<ServiceRequestFlowProps> = ({
       icon: Wrench,
       items: isRocks ? [
         'Air Conditioning Remote & Cooling Check',
-        'Hot Tub Heater & Jets Check',
+        'Pool & Garden Care',
+        'Kitchen Gas Refill & Stove Check',
         'Smart TV & High-Speed WiFi',
-        'Kitchen Gas Stove & Microwave',
         'Water Pressure & Plumbing',
       ] : [
         'Air Conditioning Support',
@@ -258,7 +258,7 @@ export const ServiceRequestFlow: React.FC<ServiceRequestFlowProps> = ({
             rows={3}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder={isRocks ? "e.g. Please set hot tub to 38°C, or assist us with airport luggage..." : "e.g. Please leave extra towels outside door..."}
+            placeholder={isRocks ? "e.g. Please bring extra pool towels, or assist us with airport luggage..." : "e.g. Please leave extra towels outside door..."}
             className="w-full text-base sm:text-xs p-3 rounded-xl border border-stone-900/[0.1] bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-brand-primary/25 focus:border-brand-primary transition-shadow"
           />
         </div>

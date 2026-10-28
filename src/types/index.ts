@@ -73,6 +73,8 @@ export interface Room {
   guestCheckOutDate?: string;
   guestPhone?: string;
   notes?: string;
+  amenities?: string[];
+  qrLabel?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -127,6 +129,13 @@ export interface ServiceRequest {
   completedAt?: string;
 }
 
+export interface UserNotificationSettings {
+  enabled: boolean;
+  quietHoursStart?: string;
+  quietHoursEnd?: string;
+  onDutyNight?: boolean;
+}
+
 export interface UserProfile {
   id: string;
   propertyId: string;
@@ -137,6 +146,7 @@ export interface UserProfile {
   department: StaffDepartment;
   profileImageUrl?: string;
   active: boolean;
+  notificationSettings?: UserNotificationSettings;
   createdAt: string;
   updatedAt: string;
 }

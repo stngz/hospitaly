@@ -57,6 +57,8 @@ service cloud.firestore {
     //   - guestPhone: string (optional/null, 0..50 chars, PII)
     //   - notes: string (optional/null, 0..1000 chars)
     //   - activeStayId: string (optional, 0..100 chars)
+    //   - amenities: list (optional, <= 30 items)
+    //   - qrLabel: string (optional, 0..20 chars)
     //   - createdAt: string (required, ISO 8601 date, immutable)
     //   - updatedAt: string (required, ISO 8601 date)
     //
@@ -118,8 +120,19 @@ service cloud.firestore {
     //   - department: string (required, 'housekeeping' | 'maintenance' | 'concierge' | 'reception' | 'restaurant' | 'management' | 'other')
     //   - profileImageUrl: string (optional, 0..500 chars)
     //   - active: bool (required, immutable for non-founder)
+    //   - notificationSettings: map (optional/null, user notification preferences)
     //   - createdAt: string (required, ISO 8601 date, immutable for non-founder)
     //   - updatedAt: string (required, ISO 8601 date)
+    //
+    // Subcollection: users/{userId}/devices
+    // Document ID: {deviceToken}
+    // Fields:
+    //   - token: string (required, 10..500 chars, FCM registration token)
+    //   - platform: string (optional, device platform identifier)
+    //   - createdAt: string/timestamp (optional, registration timestamp)
+    //   - lastSeenAt: string/timestamp (optional, last active timestamp)
+    //   - uid: string (optional, owner userId)
+    //   - propertyId: string (optional, associated propertyId)
     //
     // ===============================================================
 
@@ -129,6 +142,10 @@ service cloud.firestore {
 
     function isAuthenticated() {
       return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
     }
 
     // Bootstrap and recovery founders explicitly verified by authenticated email
@@ -276,7 +293,7 @@ service cloud.firestore {
     }
 
     function isValidRoom(data) {
-      return data.keys().hasOnly(['id', 'propertyId', 'roomNumber', 'roomType', 'status', 'imageUrl', 'buildingId', 'floorId', 'currentGuestName', 'guestCheckOutDate', 'guestPhone', 'notes', 'activeStayId', 'createdAt', 'updatedAt']) &&
+      return data.keys().hasOnly(['id', 'propertyId', 'roomNumber', 'roomType', 'status', 'imageUrl', 'buildingId', 'floorId', 'currentGuestName', 'guestCheckOutDate', 'guestPhone', 'notes', 'activeStayId', 'amenities', 'qrLabel', 'createdAt', 'updatedAt']) &&
         data.keys().hasAll(['id', 'propertyId', 'roomNumber', 'roomType', 'status', 'createdAt', 'updatedAt']) &&
         data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
         data.propertyId is string && data.propertyId.size() >= 1 && data.propertyId.size() <= 64 &&
@@ -291,6 +308,8 @@ service cloud.firestore {
         isValidOptionalString(data, 'guestPhone', 0, 50) &&
         isValidOptionalString(data, 'notes', 0, 1000) &&
         isValidOptionalString(data, 'activeStayId', 0, 100) &&
+        isValidAmenities(data) &&
+        isValidOptionalString(data, 'qrLabel', 0, 20) &&
         isValidDateString(data.createdAt) &&
         isValidDateString(data.updatedAt);
     }
@@ -345,7 +364,7 @@ service cloud.firestore {
     }
 
     function isValidUser(data) {
-      return data.keys().hasOnly(['id', 'propertyId', 'name', 'email', 'phone', 'role', 'department', 'profileImageUrl', 'active', 'createdAt', 'updatedAt']) &&
+      return data.keys().hasOnly(['id', 'propertyId', 'name', 'email', 'phone', 'role', 'department', 'profileImageUrl', 'active', 'notificationSettings', 'createdAt', 'updatedAt']) &&
         data.keys().hasAll(['id', 'propertyId', 'name', 'email', 'role', 'department', 'active', 'createdAt', 'updatedAt']) &&
         data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
         data.propertyId is string && data.propertyId.size() <= 64 &&
@@ -356,6 +375,7 @@ service cloud.firestore {
         data.department in ['housekeeping', 'maintenance', 'concierge', 'reception', 'restaurant', 'management', 'other'] &&
         isValidOptionalString(data, 'profileImageUrl', 0, 500) &&
         data.active is bool &&
+        (!('notificationSettings' in data) || data.notificationSettings == null || data.notificationSettings is map) &&
         isValidDateString(data.createdAt) &&
         isValidDateString(data.updatedAt);
     }
@@ -512,6 +532,16 @@ service cloud.firestore {
                        );
 
       allow delete: if isAuthenticated() && isPlatformFounder();
+
+      // FCM Device Tokens: Owner or platform founder registers/updates; active staff/managers/owner/founder read/delete
+      match /devices/{deviceToken} {
+        allow read, delete: if isPlatformFounder() || isOwner(userId) || (isAuthenticated() && hasUserProfile() && getUserData().active == true && getUserData().role in ['manager', 'staff']);
+        allow create, update: if (isPlatformFounder() || isOwner(userId)) &&
+                                 request.resource.data.keys().hasOnly(['token', 'platform', 'createdAt', 'lastSeenAt', 'uid', 'propertyId']) &&
+                                 request.resource.data.token is string &&
+                                 request.resource.data.token.size() >= 10 &&
+                                 request.resource.data.token.size() <= 500;
+      }
     }
 
     // Default Deny for all undefined document paths

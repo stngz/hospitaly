@@ -107,3 +107,45 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+@page {
+  size: 85mm 120mm;
+  margin: 0;
+}
+
+@media print {
+  html,
+  body {
+    width: 85mm !important;
+    height: 120mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    overflow: hidden !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  #printable-plaque-card,
+  #printable-plaque-card * {
+    visibility: visible !important;
+  }
+
+  #printable-plaque-card {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 85mm !important;
+    height: 120mm !important;
+    max-width: 85mm !important;
+    max-height: 120mm !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+}

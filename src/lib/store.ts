@@ -17,6 +17,7 @@ import {
   QRCodeRecord, 
   ServiceRequest, 
   UserProfile, 
+  UserNotificationSettings,
   DiningItem,
   StaffDepartment
 } from '../types';
@@ -45,6 +46,26 @@ export function normalizeUserProfile(u: any): UserProfile {
     role: rawRole,
     active: u?.active !== undefined ? Boolean(u.active) : true,
   } as UserProfile;
+}
+
+export const DEFAULT_HOUSE_AMENITIES = [
+  'Private Pool',
+  'Full Kitchen',
+  'Unit AC',
+  'High-Speed Wi-Fi',
+];
+
+export function sanitizeRoom(r: Room): Room {
+  const cleanedAmenities = Array.isArray(r.amenities)
+    ? r.amenities.filter((a) => !/hot[\s_]+tub/i.test(a))
+    : DEFAULT_HOUSE_AMENITIES;
+  const cleanedNotes = r.notes ? r.notes.replace(/private\s+hot[\s_]+tub\s*(and\s*)?/gi, '') : r.notes;
+  return {
+    ...r,
+    amenities: cleanedAmenities.length > 0 ? cleanedAmenities : DEFAULT_HOUSE_AMENITIES,
+    qrLabel: (r.qrLabel || r.roomNumber || '').trim().toUpperCase().slice(0, 8),
+    ...(cleanedNotes !== undefined ? { notes: cleanedNotes } : {}),
+  };
 }
 
 // In-memory cache holding identical references until modified
@@ -113,16 +134,16 @@ function loadInitialCache(): StoreCache {
   });
 
   const rawRooms = read<Room[]>(STORAGE_KEYS.ROOMS, SEED_ROOMS).filter(r => !obsoletePropIds.has(r.propertyId));
-  const mergedRooms = [...rawRooms];
+  const mergedRooms = rawRooms.map(sanitizeRoom);
   SEED_ROOMS.forEach((sr) => {
     const idx = mergedRooms.findIndex((r) => r.id === sr.id);
     if (idx === -1) {
-      mergedRooms.push(sr);
+      mergedRooms.push(sanitizeRoom(sr));
     } else {
-      mergedRooms[idx] = {
+      mergedRooms[idx] = sanitizeRoom({
         ...mergedRooms[idx],
         ...sr,
-      };
+      });
     }
   });
 
@@ -293,7 +314,7 @@ export function syncAuthenticatedUserListeners(user: UserProfile | null) {
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as Room;
           if (data && !obsoletePropIds.has(data.propertyId)) {
-            firestoreRooms.push(data);
+            firestoreRooms.push(sanitizeRoom(data));
           }
         });
         cache = { ...cache, rooms: firestoreRooms };
@@ -570,7 +591,17 @@ export const dbService = {
   getRoomById: (roomId: string): Room | undefined => {
     return cache.rooms.find((r) => r.id === roomId);
   },
-  addRoom: (propertyId: string, roomNumber: string, roomType: string): { room: Room; qrCode: QRCodeRecord } => {
+  addRoom: (
+    propertyId: string,
+    roomNumber: string,
+    roomType: string,
+    options?: {
+      amenities?: string[];
+      qrLabel?: string;
+      imageUrl?: string;
+      notes?: string;
+    }
+  ): { room: Room; qrCode: QRCodeRecord } => {
     const prop = cache.properties.find((p) => p.id === propertyId);
     const slugPrefix = (prop?.slug || 'PROP')
       .replace(/[^a-zA-Z0-9]/g, '')
@@ -582,15 +613,20 @@ export const dbService = {
 
     const roomId = `room_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const now = new Date().toISOString();
-    const newRoom: Room = {
+    const rawQrLabel = options?.qrLabel !== undefined ? options.qrLabel : roomNumber;
+    const newRoom: Room = sanitizeRoom({
       id: roomId,
       propertyId,
       roomNumber,
       roomType,
       status: 'available',
+      amenities: options?.amenities && options.amenities.length > 0 ? options.amenities : DEFAULT_HOUSE_AMENITIES,
+      qrLabel: rawQrLabel.trim().toUpperCase().slice(0, 8),
+      ...(options?.imageUrl ? { imageUrl: options.imageUrl } : {}),
+      ...(options?.notes ? { notes: options.notes } : {}),
       createdAt: now,
       updatedAt: now,
-    };
+    });
 
     const newQrCode: QRCodeRecord = {
       id: `qr_${roomId}`,
@@ -626,8 +662,121 @@ export const dbService = {
 
     return { room: newRoom, qrCode: newQrCode };
   },
-  addRoomWithQR: (propertyId: string, roomNumber: string, roomType: string): { room: Room; qrCode: QRCodeRecord } => {
-    return dbService.addRoom(propertyId, roomNumber, roomType);
+  addRoomWithQR: (
+    propertyId: string,
+    roomNumber: string,
+    roomType: string,
+    options?: {
+      amenities?: string[];
+      qrLabel?: string;
+      imageUrl?: string;
+      notes?: string;
+    }
+  ): { room: Room; qrCode: QRCodeRecord } => {
+    return dbService.addRoom(propertyId, roomNumber, roomType, options);
+  },
+  updateRoomDetails: (
+    roomId: string,
+    updates: Partial<Pick<Room, 'roomNumber' | 'roomType' | 'amenities' | 'qrLabel' | 'imageUrl' | 'notes'>>
+  ): Room | undefined => {
+    let updatedRoom: Room | undefined;
+    const now = new Date().toISOString();
+    const cleanedUpdates: Partial<Room> = { ...updates };
+    if (cleanedUpdates.qrLabel !== undefined) {
+      cleanedUpdates.qrLabel = cleanedUpdates.qrLabel.trim().toUpperCase().slice(0, 8);
+    }
+
+    const updated = cache.rooms.map((r) => {
+      if (r.id === roomId) {
+        updatedRoom = sanitizeRoom({
+          ...r,
+          ...cleanedUpdates,
+          updatedAt: now,
+        });
+        return updatedRoom;
+      }
+      return r;
+    });
+
+    cache = {
+      ...cache,
+      rooms: updated,
+    };
+    persist(STORAGE_KEYS.ROOMS, cache.rooms);
+    notify();
+
+    if (updatedRoom) {
+      try {
+        const patch: any = {
+          roomNumber: updatedRoom.roomNumber,
+          roomType: updatedRoom.roomType,
+          amenities: updatedRoom.amenities || DEFAULT_HOUSE_AMENITIES,
+          qrLabel: updatedRoom.qrLabel || updatedRoom.roomNumber.trim().toUpperCase().slice(0, 8),
+          updatedAt: now,
+        };
+        if (updates.imageUrl !== undefined) patch.imageUrl = updates.imageUrl || null;
+        if (updates.notes !== undefined) patch.notes = updates.notes || null;
+
+        setDoc(doc(db, 'rooms', roomId), patch, { merge: true }).catch((err) => {
+          console.warn('Firestore setDoc updateRoomDetails notice:', err);
+        });
+      } catch (err) {
+        console.warn('Firestore setDoc updateRoomDetails failed:', err);
+      }
+    }
+
+    return updatedRoom;
+  },
+  regenerateRoomQRToken: (roomId: string): QRCodeRecord | undefined => {
+    const room = cache.rooms.find((r) => r.id === roomId);
+    if (!room) return undefined;
+
+    const prop = cache.properties.find((p) => p.id === room.propertyId);
+    const slugPrefix = (prop?.slug || 'PROP')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase()
+      .slice(0, 8);
+    const cleanRoomNum = room.roomNumber.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const newToken = `${slugPrefix}-${cleanRoomNum}-${randomSuffix}`;
+    const now = new Date().toISOString();
+
+    const oldQRs = cache.qrCodes.filter((q) => q.roomId === roomId);
+    const newQrRecord: QRCodeRecord = {
+      id: `qr_${roomId}_${Date.now()}`,
+      propertyId: room.propertyId,
+      roomId: room.id,
+      locationType: 'room',
+      token: newToken,
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    cache = {
+      ...cache,
+      qrCodes: [
+        ...cache.qrCodes.filter((q) => q.roomId !== roomId),
+        newQrRecord,
+      ],
+    };
+    persist(STORAGE_KEYS.QR_CODES, cache.qrCodes);
+    notify();
+
+    try {
+      oldQRs.forEach((oldQr) => {
+        deleteDoc(doc(db, 'qrCodes', oldQr.id)).catch((err) => {
+          console.warn('Firestore deleteDoc old qrCode notice:', err);
+        });
+      });
+      setDoc(doc(db, 'qrCodes', newQrRecord.id), newQrRecord).catch((err) => {
+        console.warn('Firestore setDoc regenerated qrCode notice:', err);
+      });
+    } catch (err) {
+      console.warn('Firestore regenerateRoomQRToken failed:', err);
+    }
+
+    return newQrRecord;
   },
   deleteRoom: (roomId: string): boolean => {
     const matchingQRs = cache.qrCodes.filter((q) => q.roomId === roomId);
@@ -1090,15 +1239,20 @@ export const dbService = {
   updateUserProfile: (userId: string, patch: Partial<UserProfile>): UserProfile | undefined => {
     let updatedUser: UserProfile | undefined;
     const now = new Date().toISOString();
+    const nextUsers = cache.users.map((u) => {
+      if (u.id === userId) {
+        updatedUser = normalizeUserProfile({ ...u, ...patch, updatedAt: now });
+        return updatedUser;
+      }
+      return u;
+    });
+    if (!updatedUser && cache.currentUser?.id === userId) {
+      updatedUser = normalizeUserProfile({ ...cache.currentUser, ...patch, updatedAt: now });
+    }
     cache = {
       ...cache,
-      users: cache.users.map((u) => {
-        if (u.id === userId) {
-          updatedUser = normalizeUserProfile({ ...u, ...patch, updatedAt: now });
-          return updatedUser;
-        }
-        return u;
-      }),
+      users: nextUsers,
+      ...(cache.currentUser?.id === userId && updatedUser ? { currentUser: updatedUser } : {}),
     };
     notify();
 
@@ -1112,6 +1266,60 @@ export const dbService = {
       }
     }
     return updatedUser;
+  },
+  updateUserNotificationSettings: (
+    userId: string,
+    notificationSettings: UserNotificationSettings
+  ): UserProfile | undefined => {
+    return dbService.updateUserProfile(userId, { notificationSettings });
+  },
+  saveStaffDeviceToken: async (
+    userId: string,
+    propertyId: string,
+    token: string
+  ): Promise<void> => {
+    if (!userId || !token) return;
+    const now = new Date().toISOString();
+    const platform =
+      typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 180) : 'web';
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('hospitally_fcm_token', token);
+      }
+      await setDoc(doc(db, 'users', userId, 'devices', token), {
+        token,
+        uid: userId,
+        propertyId: propertyId || '',
+        platform,
+        createdAt: now,
+        lastSeenAt: now,
+      });
+    } catch (err) {
+      console.warn('Firestore saveStaffDeviceToken notice:', err);
+    }
+  },
+  removeStaffDeviceToken: async (
+    userId?: string,
+    token?: string
+  ): Promise<void> => {
+    const targetUid = userId || cache.currentUser?.id;
+    let targetToken = token;
+    if (!targetToken && typeof window !== 'undefined') {
+      try {
+        targetToken = localStorage.getItem('hospitally_fcm_token') || undefined;
+      } catch {}
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('hospitally_fcm_token');
+      } catch {}
+    }
+    if (!targetUid || !targetToken) return;
+    try {
+      await deleteDoc(doc(db, 'users', targetUid, 'devices', targetToken));
+    } catch (err) {
+      console.warn('Firestore removeStaffDeviceToken notice:', err);
+    }
   },
   getCurrentUser: (): UserProfile | null => {
     return cache.currentUser;
@@ -1127,6 +1335,10 @@ export const dbService = {
     notify();
   },
   clearSensitiveSession: (): void => {
+    const previousUid = cache.currentUser?.id;
+    if (previousUid) {
+      dbService.removeStaffDeviceToken(previousUid).catch(() => {});
+    }
     cache = {
       ...cache,
       currentUser: null,

@@ -110,7 +110,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
   const isHq = portal === 'hq';
 
   return (
-    <div className="min-h-dvh bg-stone-950 flex flex-col justify-between p-6 text-stone-100 selection:bg-amber-400 selection:text-stone-950">
+    <div className="fixed inset-0 overflow-y-auto min-h-screen min-h-dvh bg-stone-950 flex flex-col justify-between p-6 text-stone-100 overscroll-none selection:bg-amber-400 selection:text-stone-950 z-50">
       {/* Top Status Bar */}
       <div className="flex items-center justify-between max-w-sm mx-auto w-full pt-2">
         <div className="flex items-center gap-2 text-xs font-mono text-stone-400">
