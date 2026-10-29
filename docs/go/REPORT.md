@@ -134,18 +134,18 @@
 - **CI Check 2: No `deleteDoc` in `src/`**: **PASS** (0 occurrences)
 - **CI Check 3: No automatic browser sanitizers in `src/`**: **PASS** (0 occurrences)
 
-### E. Security Probes Against Live Preview (`tests/security/probe.spec.ts`)
-> [!IMPORTANT]
-> Probes 1, 2, 3, 5, 6 depend on deploying the updated `firestore.rules` and running document field cleanup in Cloud Firestore. Until published in Firebase Console, unauthenticated calls to the live production database execute against the legacy Sept 25 rules.
+### E. Security Probes Against Live Production Preview (`tests/security/probe.spec.ts`)
+> [!NOTE]
+> Verified live against Firebase Cloud Firestore with the founder's deployed `firestore.rules`. 8 of 9 security probes pass immediately. The remaining probe (Probe 3) simply awaits removing the legacy `contactEmail` field from the root property doc.
 
-| Probe | Expected | Live Status | Note |
+| Probe | Expected | Live Status | Verified Behavior |
 |---|---|---|---|
-| **Probe 1**: `GET rooms/<any id>` | 403 Forbidden | Rule Pending | Returns 200 on old rules; returns 403 once `firestore.rules` is published. |
-| **Probe 2**: `GET stays/<any id>` | 403 Forbidden | Rule Pending | Returns 200 on old rules; returns 403 once `firestore.rules` is published. |
-| **Probe 3**: `GET properties/prop_rocks_lusaka` | 200 without `contactEmail`/`suspendedBy` | Cleanup Pending | `contactEmail` exists on live property doc. Founder must run cleanup or delete field. |
+| **Probe 1**: `GET rooms/<any id>` | 403 Forbidden | **PASS** | Verified live: Returns HTTP 403 `PERMISSION_DENIED` for unauthenticated requests. |
+| **Probe 2**: `GET stays/<any id>` | 403 Forbidden | **PASS** | Verified live: Returns HTTP 403 `PERMISSION_DENIED` for unauthenticated requests. |
+| **Probe 3**: `GET properties/prop_rocks_lusaka` | 200 without `contactEmail`/`suspendedBy` | Cleanup Pending | `contactEmail` exists on live property doc (`joe.zaza@rocksapartments.zm`). Delete from doc or run migration. |
 | **Probe 4**: `GET qrCodes/<old token>` | 403 / 404 | **PASS** | Revoked tokens reject access. |
-| **Probe 5**: Unauthenticated `POST requests` | 403 Forbidden | Rule Pending | Allowed on old rules; blocked on new rules. |
-| **Probe 6**: Anonymous user with no guest session `POST requests` | 403 Forbidden | Rule Pending | Enforced via Anonymous Auth + `guestSessions/{uid}` in new rules. |
+| **Probe 5**: Unauthenticated `POST requests` | 403 Forbidden | **PASS** | Verified live: Returns HTTP 403 `PERMISSION_DENIED`. |
+| **Probe 6**: Anonymous user with no guest session `POST requests` | 403 Forbidden | **PASS** | Verified live: Anonymous users cannot write requests without active session. |
 | **Probe 7**: Guest of Chisenga cannot access Bobo request | 403 Forbidden | **PASS** | Isolated by room and QR token session. |
 | **Probe 8**: Unauthenticated `POST activity` | 403 Forbidden | **PASS** | Audit activity blocked for unauthenticated users. |
 | **Probe 9**: New registered email with no users doc | 403 / 404 | **PASS** | Read rejected without active user document. |
