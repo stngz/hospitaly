@@ -35,7 +35,7 @@ export const QRModal: React.FC<QRModalProps> = ({ isOpen, onClose, onSelectRoom 
   if (!isOpen) return null;
 
   const handleSimulateScan = (token: string) => {
-    const record = dbService.getQRCodeByToken(token);
+    const record = dbService.getQRByToken(token);
     if (!record) {
       setError('Invalid QR token or room not active.');
       return;
@@ -55,7 +55,7 @@ export const QRModal: React.FC<QRModalProps> = ({ isOpen, onClose, onSelectRoom 
         onSelectRoom(prop.slug, defaultRoom.id);
         onClose();
       } else {
-        setError(`QR token is for public location: ${record.locationType}`);
+        setError('QR token is for a public location with no available rooms.');
       }
     }
   };
@@ -136,7 +136,7 @@ export const QRModal: React.FC<QRModalProps> = ({ isOpen, onClose, onSelectRoom 
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-stone-900">
-                      {room ? `Room: ${room.roomNumber}` : qr.locationType.toUpperCase()}
+                      {room ? (room.name || `House ${room.roomNumber}`) : 'Public Location'}
                     </span>
                     <span className="text-[10px] font-mono text-emerald-900 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-900/[0.08] font-semibold">
                       {qr.token}

@@ -1,25 +1,20 @@
-import React, { useState, useEffect, useSyncExternalStore } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTenant } from '../../context/TenantContext';
-import { dbService, subscribeToStore } from '../../lib/store';
 import { notificationService } from '../../lib/notifications';
+import { DEFAULT_HOUSE_GUIDE } from '../../lib/seeds/rocksApartments';
 import {
   ArrowLeft,
-  Plus,
-  ShoppingBag,
-  UtensilsCrossed,
-  AlertCircle,
   Waves,
-  ChefHat,
   Wifi,
   ShieldCheck,
-  Plane,
   Clock,
   Phone,
   Copy,
   Check,
-  ChevronRight,
+  Zap,
+  MapPin,
+  BookOpen,
 } from 'lucide-react';
-import { DiningItem } from '../../types';
 import { GuestBottomNav } from './GuestBottomNav';
 
 interface GuestDiningMenuProps {
@@ -28,13 +23,10 @@ interface GuestDiningMenuProps {
   onNavigateTab?: (view: any, data?: any) => void;
 }
 
-/**
- * Mobile-First, Accessible House Guide for Self-Catering Properties (e.g. Rock Apartments)
- */
-const HouseGuideView: React.FC<{
-  onBack: () => void;
-  onNavigateTab?: (view: any, data?: any) => void;
-}> = ({ onBack, onNavigateTab }) => {
+export const GuestDiningMenu: React.FC<GuestDiningMenuProps> = ({
+  onBack,
+  onNavigateTab,
+}) => {
   const { property, room } = useTenant();
   const [copiedWifi, setCopiedWifi] = useState(false);
 
@@ -44,8 +36,26 @@ const HouseGuideView: React.FC<{
     }
   }, []);
 
-  const wifiSsid = room?.wifiName || property?.wifiName || 'RocksApartments_UltraFast';
-  const wifiPass = room?.wifiPassword || property?.wifiPassword || '';
+  const guide = {
+    ...DEFAULT_HOUSE_GUIDE,
+    ...(property?.houseGuide || {}),
+  };
+
+  const wifiSsid = room?.wifiName || property?.wifiName || '8119 vip';
+  const wifiPass = room?.wifiPassword || property?.wifiPassword || '@rocks.8119';
+  const emergencyPhone = guide.emergencyPhone || property?.contactPhone || '+260 97 405 6547';
+  const cleanPhone = emergencyPhone.replace(/[^0-9+]/g, '');
+  const waPhone = (property?.whatsappPhone || emergencyPhone).replace(/[^0-9]/g, '');
+
+  const rawRules =
+    room?.houseRules && (Array.isArray(room.houseRules) ? room.houseRules.length > 0 : Boolean(room.houseRules))
+      ? room.houseRules
+      : guide.houseRules || DEFAULT_HOUSE_GUIDE.houseRules;
+  const houseRules = Array.isArray(rawRules)
+    ? rawRules
+    : typeof rawRules === 'string'
+    ? rawRules.split('\n').map((s) => s.trim()).filter(Boolean)
+    : [];
 
   const handleCopyWifi = async () => {
     if (!wifiPass) return;
@@ -55,28 +65,18 @@ const HouseGuideView: React.FC<{
       setCopiedWifi(true);
       setTimeout(() => setCopiedWifi(false), 2200);
     } catch {
-      // Fallback
+      // ignore
     }
   };
-
-  const handleAction = (category: string, item: string) => {
-    if (onNavigateTab) {
-      onNavigateTab('request', { category, item });
-    } else {
-      onBack();
-    }
-  };
-
-  const unitName = property?.unitLabel || 'House';
-  const cleanPhone = property?.contactPhone?.replace(/[^0-9]/g, '') || '';
 
   return (
     <div
       role="region"
-      aria-label="House Guide and Amenities"
+      aria-label="House guide"
+      data-testid="guest-house-guide"
       className="min-h-dvh bg-[#FDFBF7] text-stone-900 pb-24 overscroll-y-contain flex flex-col"
     >
-      {/* 1. Accessible Sticky Header */}
+      {/* Sticky Header */}
       <header className="sticky top-0 bg-[#FDFBF7]/95 backdrop-blur-md border-b border-stone-200/80 px-4 py-2 flex items-center justify-between z-30 shadow-2xs">
         <button
           type="button"
@@ -88,536 +88,187 @@ const HouseGuideView: React.FC<{
         </button>
 
         <div className="text-center px-2">
-          <h1 className="text-sm font-serif font-bold text-stone-900 leading-tight">House Guide</h1>
+          <h1 className="text-sm font-serif font-bold text-stone-900 leading-tight">House guide</h1>
           <p className="text-xs text-stone-500 truncate max-w-[200px]">
-            {room ? room.roomNumber : property?.name || 'Rock Apartments'}
+            {room ? room.name || room.roomNumber : property?.name}
           </p>
         </div>
 
-        {property?.contactPhone ? (
-          <a
-            href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(
-              `Hello Reception, I am contacting you from ${
-                room ? `${unitName} ${room.roomNumber}` : 'Rock Apartments'
-              }.`
-            )}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Contact reception on WhatsApp"
-            className="w-11 h-11 -mr-1 rounded-xl flex items-center justify-center text-emerald-800 hover:bg-emerald-50 active:scale-95 transition-all cursor-pointer"
-          >
-            <Phone className="w-4 h-4" />
-          </a>
-        ) : (
-          <div className="w-11" />
-        )}
+        <a
+          href={`tel:${cleanPhone}`}
+          aria-label="Call reception"
+          className="w-11 h-11 -mr-1 rounded-xl flex items-center justify-center text-[#1C3A31] hover:bg-stone-100 active:scale-95 transition-all"
+        >
+          <Phone className="w-4 h-4" />
+        </a>
       </header>
 
-      {/* 2. Main Guide Content */}
       <main className="p-4 space-y-3.5 flex-1">
-        {/* Welcome Banner */}
-        <section className="p-4 bg-[#1C3A31] text-white rounded-2xl shadow-sm space-y-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs uppercase tracking-wider text-[#E0B973] font-bold">
-              Self-Catering Holiday House
-            </span>
-            <span className="text-xs text-stone-300">
-              {property?.city || 'Lusaka'}, {property?.country || 'Zambia'}
-            </span>
+        {/* 1. Check-in / Check-out times & Emergency Phone */}
+        <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-3">
+          <div className="flex items-center gap-2 text-stone-900 font-bold text-xs uppercase tracking-wider">
+            <Clock className="w-4 h-4 text-[#1C3A31]" />
+            <span>Check-in &amp; Check-out</span>
           </div>
-          <h2 className="text-base font-serif font-bold text-[#FBF8F1]">
-            Welcome to {property?.name || 'Rock Apartments'}
-          </h2>
-          <p className="text-xs text-stone-200 leading-relaxed">
-            Separate furnished holiday houses with a private swimming pool and sun deck. Full
-            private use of your equipped kitchen is included with your stay.
+          <div className="grid grid-cols-2 gap-2.5 text-xs">
+            <div className="bg-stone-50 p-3 rounded-xl border border-stone-200/60">
+              <span className="text-stone-500 block">Check-in</span>
+              <span className="font-bold text-stone-900 text-sm mt-0.5 block">
+                {property?.checkInTime || '14:00'}
+              </span>
+            </div>
+            <div className="bg-stone-50 p-3 rounded-xl border border-stone-200/60">
+              <span className="text-stone-500 block">Check-out</span>
+              <span className="font-bold text-stone-900 text-sm mt-0.5 block">
+                {property?.checkOutTime || '11:00'}
+              </span>
+            </div>
+          </div>
+          <div className="pt-2 border-t border-stone-100 flex items-center justify-between gap-2">
+            <div>
+              <span className="text-xs text-stone-500 block">Reception &amp; emergency</span>
+              <span className="text-sm font-bold text-stone-900">{emergencyPhone}</span>
+            </div>
+            <div className="flex gap-2">
+              <a
+                href={`tel:${cleanPhone}`}
+                className="min-h-11 px-3.5 py-2 rounded-xl bg-[#1C3A31] text-white text-xs font-semibold inline-flex items-center"
+              >
+                Call
+              </a>
+              <a
+                href={`https://wa.me/${waPhone}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-h-11 px-3.5 py-2 rounded-xl bg-[#F5F1E8] text-[#1C3A31] text-xs font-semibold inline-flex items-center"
+              >
+                WhatsApp
+              </a>
+            </div>
+          </div>
+        </section>
+
+        {/* 2. Wi-Fi */}
+        <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-[#1C3A31]/[0.08] text-[#1C3A31] flex items-center justify-center shrink-0">
+              <Wifi className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-xs font-bold text-stone-900 leading-tight">Wi-Fi</h2>
+              <span className="text-xs text-stone-500">Available across house and pool area</span>
+            </div>
+          </div>
+
+          <div className="p-3 bg-stone-50 rounded-xl border border-stone-200/70 flex items-center justify-between gap-2">
+            <div className="space-y-1 text-xs min-w-0 flex-1">
+              <div>
+                <span className="text-stone-500 block">Network</span>
+                <span className="font-bold text-stone-900 break-words">{wifiSsid}</span>
+              </div>
+              {wifiPass && (
+                <div>
+                  <span className="text-stone-500 block">Password</span>
+                  <span className="font-bold text-sm text-[#1C3A31] break-all">{wifiPass}</span>
+                </div>
+              )}
+            </div>
+
+            {wifiPass && (
+              <button
+                type="button"
+                onClick={handleCopyWifi}
+                className="min-h-11 px-3.5 py-2 rounded-xl bg-white border border-stone-200 text-stone-800 text-xs font-semibold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+              >
+                {copiedWifi ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Copied</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5 text-stone-500" />
+                    <span>Copy</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </section>
+
+        {/* 3. Gate instructions */}
+        <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-2">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-stone-100 text-stone-800 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <h2 className="text-xs font-bold text-stone-900">Gate &amp; security</h2>
+          </div>
+          <p data-testid="guide-gate-instructions" className="text-xs text-stone-600 leading-relaxed">
+            {guide.gateInstructions}
           </p>
         </section>
 
-        {/* Essential Amenities Cards */}
-        <div className="space-y-3">
-          {/* Card 1: Private Swimming Pool */}
-          <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-2.5">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
-                <Waves className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="text-xs font-bold text-stone-900 leading-tight">
-                  Private Swimming Pool &amp; Sun Deck
-                </h3>
-                <span className="text-xs text-stone-500">
-                  Depth 1.2m – 1.8m · Exclusive for in-house guests
-                </span>
-              </div>
+        {/* 4. Power & water */}
+        <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-2">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center shrink-0">
+              <Zap className="w-4 h-4" />
             </div>
-            <p className="text-xs text-stone-600 leading-relaxed">
-              Enjoy your private pool and terrace loungers. Fresh pool towels are provided on
-              request.
-            </p>
-            <button
-              type="button"
-              onClick={() => handleAction('housekeeping', 'Pool Towels & Sun Loungers')}
-              className="w-full py-2 px-3 rounded-xl bg-blue-50/70 hover:bg-blue-100/80 text-blue-900 text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer"
-            >
-              <span>Request Fresh Pool Towels</span>
-              <ChevronRight className="w-3.5 h-3.5 text-blue-700" />
-            </button>
-          </section>
+            <h2 className="text-xs font-bold text-stone-900">Power &amp; water</h2>
+          </div>
+          <p data-testid="guide-power-water" className="text-xs text-stone-600 leading-relaxed">
+            {guide.powerWaterNotes}
+          </p>
+        </section>
 
-          {/* Card 2: Fully Equipped Kitchen */}
-          <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-2.5">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-800 flex items-center justify-center shrink-0">
-                <ChefHat className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="text-xs font-bold text-stone-900 leading-tight">
-                  Fully Equipped Kitchen
-                </h3>
-                <span className="text-xs text-stone-500">Gas Cooktop, Microwave &amp; Cookware</span>
-              </div>
+        {/* 5. Pool & garden */}
+        <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-2">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
+              <Waves className="w-4 h-4" />
             </div>
-            <p className="text-xs text-stone-600 leading-relaxed">
-              Equipped with a gas stove, microwave, full-size refrigerator, electric kettle, pots,
-              cutlery, and dinnerware.
-            </p>
-            <button
-              type="button"
-              onClick={() => handleAction('maintenance', 'Kitchen Gas Refill & Stove Check')}
-              className="w-full py-2 px-3 rounded-xl bg-emerald-50/70 hover:bg-emerald-100/80 text-emerald-950 text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer"
-            >
-              <span>Gas Refill / Kitchen Assistance</span>
-              <ChevronRight className="w-3.5 h-3.5 text-emerald-800" />
-            </button>
-          </section>
+            <h2 className="text-xs font-bold text-stone-900">Pool &amp; garden</h2>
+          </div>
+          <p data-testid="guide-pool-garden" className="text-xs text-stone-600 leading-relaxed">
+            {guide.poolGardenRules}
+          </p>
+        </section>
 
-          {/* Card 3: High-Speed Wi-Fi */}
-          <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-800 flex items-center justify-center shrink-0">
-                <Wifi className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="text-xs font-bold text-stone-900 leading-tight">High-Speed Wi-Fi</h3>
-                <span className="text-xs text-stone-500">
-                  Coverage across house and poolside patio
-                </span>
-              </div>
-            </div>
-
-            <div className="p-3 bg-stone-50 rounded-xl border border-stone-200/70 flex items-center justify-between gap-2">
-              <div className="space-y-0.5 text-xs">
-                <div>
-                  <span className="text-stone-400 text-xs block">Network</span>
-                  <span className="font-bold text-stone-900">{wifiSsid}</span>
-                </div>
-                {wifiPass && (
-                  <div className="pt-1">
-                    <span className="text-stone-400 text-xs block">Password</span>
-                    <span className="font-bold text-emerald-800">{wifiPass}</span>
-                  </div>
-                )}
-              </div>
-
-              {wifiPass && (
-                <button
-                  type="button"
-                  onClick={handleCopyWifi}
-                  aria-label="Copy Wi-Fi password"
-                  className="px-3 py-2 rounded-lg bg-white border border-stone-200 text-stone-800 text-xs font-semibold flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all cursor-pointer"
-                >
-                  {copiedWifi ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-600" />
-                      <span className="text-emerald-700 text-xs">Copied</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5 text-stone-500" />
-                      <span className="text-xs">Copy</span>
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
-          </section>
-
-          {/* Card 4: Gated Security & Secure Parking */}
-          <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-2.5">
+        {/* 6. House rules */}
+        {houseRules && houseRules.length > 0 && (
+          <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-2">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-stone-100 text-stone-800 flex items-center justify-center shrink-0">
-                <ShieldCheck className="w-4 h-4" />
+                <BookOpen className="w-4 h-4" />
               </div>
-              <div>
-                <h3 className="text-xs font-bold text-stone-900 leading-tight">
-                  24/7 Gated Security &amp; Parking
-                </h3>
-                <span className="text-xs text-stone-500">
-                  Waterfalls Estate, Airport Road Corridor
-                </span>
-              </div>
+              <h2 className="text-xs font-bold text-stone-900">House rules</h2>
             </div>
-            <p className="text-xs text-stone-600 leading-relaxed">
-              Manned estate security 24 hours daily. Dedicated secure parking is inside the
-              perimeter wall directly in front of your house.
-            </p>
-            <button
-              type="button"
-              onClick={() => handleAction('concierge', 'Gate Entry / Security Clearance')}
-              className="w-full py-2 px-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-900 text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer"
-            >
-              <span>Gate Entry / Visitor Clearance</span>
-              <ChevronRight className="w-3.5 h-3.5 text-stone-600" />
-            </button>
+            <ul data-testid="guide-house-rules" className="space-y-1.5 text-xs text-stone-600 list-disc pl-5">
+              {houseRules.map((rule: string, idx: number) => (
+                <li key={idx}>{rule}</li>
+              ))}
+            </ul>
           </section>
+        )}
 
-          {/* Card 5: Airport Connections */}
-          <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-2.5">
+        {/* 7. Local tips */}
+        {guide.localTips && guide.localTips.length > 0 && (
+          <section className="bg-white p-4 rounded-2xl border border-stone-200/90 shadow-2xs space-y-2">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center shrink-0">
-                <Plane className="w-4 h-4" />
+              <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-800 flex items-center justify-center shrink-0">
+                <MapPin className="w-4 h-4" />
               </div>
-              <div>
-                <h3 className="text-xs font-bold text-stone-900 leading-tight">
-                  Airport &amp; City Connections
-                </h3>
-                <span className="text-xs text-stone-500">
-                  11 km to Kenneth Kaunda Airport (KKIA)
-                </span>
-              </div>
+              <h2 className="text-xs font-bold text-stone-900">Nearby in {property?.city || 'Lusaka'}</h2>
             </div>
-            <p className="text-xs text-stone-600 leading-relaxed">
-              Convenient 12-minute drive to the international airport. Schedule departure or arrival
-              transfers with reception.
-            </p>
-            <button
-              type="button"
-              onClick={() =>
-                handleAction('transport', 'Kenneth Kaunda Airport Transfer (KKIA - 11 km)')
-              }
-              className="w-full py-2 px-3 rounded-xl bg-amber-50/80 hover:bg-amber-100/80 text-amber-950 text-xs font-semibold flex items-center justify-between active:scale-[0.98] transition-all cursor-pointer"
-            >
-              <span>Schedule Airport Transfer</span>
-              <ChevronRight className="w-3.5 h-3.5 text-amber-800" />
-            </button>
+            <ul className="space-y-1.5 text-xs text-stone-600 list-disc pl-5">
+              {guide.localTips.map((tip: string, idx: number) => (
+                <li key={idx}>{tip}</li>
+              ))}
+            </ul>
           </section>
-
-          {/* Card 6: House Timing & Quiet Hours */}
-          <section className="bg-stone-50 p-4 rounded-2xl border border-stone-200/70 text-xs text-stone-600 space-y-2">
-            <div className="flex items-center gap-2 text-stone-900 font-bold">
-              <Clock className="w-4 h-4 text-stone-700" />
-              <span>House Timings &amp; Courtesy</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
-              <div className="bg-white p-2.5 rounded-lg border border-stone-200/60">
-                <span className="text-stone-400 block text-xs">Check-in</span>
-                <span className="font-bold text-stone-900">{property?.checkInTime || '14:00'}</span>
-              </div>
-              <div className="bg-white p-2.5 rounded-lg border border-stone-200/60">
-                <span className="text-stone-400 block text-xs">Check-out</span>
-                <span className="font-bold text-stone-900">{property?.checkOutTime || '11:00'}</span>
-              </div>
-            </div>
-            <p className="text-xs text-stone-500 pt-1 leading-normal">
-              Quiet hours are 22:00 – 07:00 for the peaceful enjoyment of all guests. Smoking is
-              prohibited inside houses.
-            </p>
-          </section>
-        </div>
-      </main>
-
-      {/* 3. Bottom Navigation */}
-      <GuestBottomNav
-        activeTab="dining"
-        onNavigate={(tab, data) => (onNavigateTab ? onNavigateTab(tab, data) : onBack())}
-      />
-    </div>
-  );
-};
-
-/**
- * Dining Menu View for properties with active culinary operations
- */
-const DiningMenuView: React.FC<GuestDiningMenuProps> = ({
-  onBack,
-  onRequestSubmitted,
-  onNavigateTab,
-}) => {
-  const { property, room } = useTenant();
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [cart, setCart] = useState<{ item: DiningItem; quantity: number }[]>([]);
-  const [notes, setNotes] = useState('');
-  const [isOrdering, setIsOrdering] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.scrollTo({ top: 0, behavior: 'instant' });
-    }
-  }, []);
-
-  const allDining = useSyncExternalStore(
-    subscribeToStore,
-    dbService.getAllDining,
-    dbService.getAllDining
-  );
-
-  const diningItems = property
-    ? allDining.filter((d) => d.propertyId === property.id && d.available)
-    : [];
-
-  const categories = ['all', 'breakfast', 'lunch', 'dinner', 'drinks'];
-
-  const filtered =
-    selectedCategory === 'all'
-      ? diningItems
-      : diningItems.filter((d) => d.category === selectedCategory);
-
-  const addToCart = (item: DiningItem) => {
-    notificationService.triggerHaptic('light');
-    setCart((prev) => {
-      const existing = prev.find((p) => p.item.id === item.id);
-      if (existing) {
-        return prev.map((p) => (p.item.id === item.id ? { ...p, quantity: p.quantity + 1 } : p));
-      }
-      return [...prev, { item, quantity: 1 }];
-    });
-  };
-
-  const removeFromCart = (itemId: string) => {
-    notificationService.triggerHaptic('light');
-    setCart((prev) => {
-      const existing = prev.find((p) => p.item.id === itemId);
-      if (existing && existing.quantity > 1) {
-        return prev.map((p) => (p.item.id === itemId ? { ...p, quantity: p.quantity - 1 } : p));
-      }
-      return prev.filter((p) => p.item.id !== itemId);
-    });
-  };
-
-  const totalAmount = cart.reduce((sum, c) => sum + c.item.price * c.quantity, 0);
-  const totalCount = cart.reduce((sum, c) => sum + c.quantity, 0);
-
-  const handlePlaceOrder = () => {
-    if (!property) {
-      setErrorMsg('No active property context.');
-      return;
-    }
-    if (property.status === 'suspended') {
-      setErrorMsg(
-        `Requests are paused. Please call reception: ${property.contactPhone || '+260 97 000 0100'}`
-      );
-      return;
-    }
-    if (!room || !room.activeStayId) {
-      setErrorMsg('Please scan your in-house QR code first.');
-      return;
-    }
-    if (cart.length === 0) return;
-
-    try {
-      setIsOrdering(true);
-      setErrorMsg(null);
-
-      const itemsSummary = cart.map((c) => `${c.quantity}x ${c.item.name}`).join(', ');
-      const desc = `Dining Order (${property.currency} ${totalAmount.toLocaleString()}):\n${itemsSummary}${
-        notes ? `\nSpecial Notes: ${notes.trim()}` : ''
-      }`;
-
-      const effectiveGuestName = room.currentGuestName
-        ? `${room.guestTitle ? `${room.guestTitle} ` : ''}${room.currentGuestName}`
-        : `${room.roomNumber} Guest`;
-
-      const newReq = dbService.createRequest({
-        propertyId: property.id,
-        roomId: room.id,
-        roomNumber: room.roomNumber,
-        stayId: room.activeStayId,
-        guestSessionId: room.activeStayId,
-        category: 'dining',
-        title: `Dining Order: ${totalCount} items (${cart[0].item.name}${
-          cart.length > 1 ? ` +${cart.length - 1} more` : ''
-        })`,
-        description: desc,
-        priority: 'normal',
-        status: 'pending',
-        guestName: effectiveGuestName,
-        guestPhone: room.guestPhone || '',
-      });
-
-      setCart([]);
-      onRequestSubmitted(newReq.id);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to place order.');
-      setIsOrdering(false);
-    }
-  };
-
-  return (
-    <div className="min-h-dvh bg-[#FDFBF7] text-stone-900 pb-24 overscroll-y-contain flex flex-col">
-      <header className="sticky top-0 z-20 bg-[#FDFBF7]/95 backdrop-blur-md border-b border-stone-200/80 px-4 py-2 flex items-center justify-between shadow-2xs">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onBack}
-            aria-label="Back to home"
-            className="w-11 h-11 -ml-1 rounded-xl flex items-center justify-center text-stone-700 hover:text-stone-950 active:bg-stone-200/60 active:scale-95 transition-all cursor-pointer"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <h1 className="text-sm font-bold text-stone-900 leading-tight">In-House Dining</h1>
-            <p className="text-xs text-stone-500">{room ? room.roomNumber : 'Dining Menu'}</p>
-          </div>
-        </div>
-        <div className="text-xs font-bold bg-amber-100 text-amber-950 px-2.5 py-1 rounded-md border border-amber-900/[0.08]">
-          {property?.currency || 'ZMW'}
-        </div>
-      </header>
-
-      {errorMsg && (
-        <div className="m-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center gap-2 shadow-2xs">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>{errorMsg}</span>
-        </div>
-      )}
-
-      {/* Category Pills */}
-      <div className="p-3 overflow-x-auto flex gap-2 no-scrollbar">
-        {categories.map((cat) => {
-          const isSelected = selectedCategory === cat;
-          return (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold capitalize whitespace-nowrap active:scale-[0.96] transition-all cursor-pointer ${
-                isSelected
-                  ? 'bg-stone-900 text-white shadow-xs'
-                  : 'bg-white border border-stone-200 text-stone-600 hover:border-stone-400'
-              }`}
-            >
-              {cat}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Food Items Grid */}
-      <main className="px-4 space-y-3 max-w-lg mx-auto flex-1 w-full">
-        {filtered.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-stone-200 p-8 text-center shadow-2xs">
-            <UtensilsCrossed className="w-8 h-8 text-stone-300 mx-auto mb-2" />
-            <p className="text-sm font-bold text-stone-800">No menu items found</p>
-            <p className="text-xs text-stone-500 mt-1">
-              Check back shortly or browse other categories.
-            </p>
-          </div>
-        ) : (
-          filtered.map((item) => {
-            const inCart = cart.find((c) => c.item.id === item.id);
-            return (
-              <div
-                key={item.id}
-                className="bg-white rounded-2xl border border-stone-200/90 overflow-hidden shadow-2xs flex flex-col sm:flex-row hover:border-stone-400 transition-all"
-              >
-                <div className="w-full sm:w-28 h-32 sm:h-auto bg-stone-100 shrink-0 overflow-hidden relative">
-                  <img
-                    src={item.imageUrl}
-                    alt={item.name}
-                    loading="lazy"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="p-3.5 flex flex-col justify-between flex-1">
-                  <div>
-                    <div className="flex justify-between items-start gap-2">
-                      <h3 className="text-xs font-bold text-stone-900 leading-snug">{item.name}</h3>
-                      <span className="text-xs font-bold text-stone-900 whitespace-nowrap bg-stone-100 px-2 py-0.5 rounded border border-stone-200">
-                        {property?.currency} {item.price}
-                      </span>
-                    </div>
-                    <p className="text-xs text-stone-600 mt-1 leading-relaxed">
-                      {item.description}
-                    </p>
-                  </div>
-
-                  <div className="mt-3 pt-2 border-t border-stone-100 flex items-center justify-between">
-                    <span className="text-xs text-stone-400 capitalize font-medium">
-                      {item.category}
-                    </span>
-                    {inCart ? (
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => removeFromCart(item.id)}
-                          className="w-7 h-7 rounded-lg bg-stone-100 text-stone-800 font-bold flex items-center justify-center active:scale-90 transition-transform cursor-pointer"
-                        >
-                          -
-                        </button>
-                        <span className="text-xs font-bold w-4 text-center">{inCart.quantity}</span>
-                        <button
-                          type="button"
-                          onClick={() => addToCart(item)}
-                          className="w-7 h-7 rounded-lg bg-stone-900 text-white font-bold flex items-center justify-center active:scale-90 transition-transform cursor-pointer"
-                        >
-                          +
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => addToCart(item)}
-                        className="px-3 py-1.5 bg-stone-900 text-white text-xs font-semibold rounded-xl flex items-center gap-1 active:scale-95 transition-all cursor-pointer shadow-2xs"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Add
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })
         )}
       </main>
-
-      {/* Cart Tray */}
-      {cart.length > 0 && (
-        <div className="fixed bottom-16 inset-x-0 bg-white/95 backdrop-blur-md border-t border-stone-200 p-3.5 shadow-modal z-30 max-w-md mx-auto rounded-t-2xl">
-          <div className="flex items-center justify-between mb-2">
-            <div>
-              <span className="text-xs font-bold text-stone-900">{totalCount} items in tray</span>
-              <p className="text-sm font-bold text-stone-900">
-                Total: {property?.currency} {totalAmount.toLocaleString()}
-              </p>
-            </div>
-            <span className="text-xs text-stone-500 font-medium">
-              {room ? room.roomNumber : 'Dining Order'}
-            </span>
-          </div>
-
-          <input
-            type="text"
-            placeholder="Special dietary requests or notes..."
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="w-full text-base sm:text-xs p-2.5 rounded-xl border border-stone-200 bg-white mb-2 focus:outline-none focus:ring-1 focus:ring-stone-900"
-          />
-
-          <button
-            type="button"
-            onClick={handlePlaceOrder}
-            disabled={isOrdering}
-            className="w-full py-2.5 bg-stone-900 text-white rounded-xl font-bold text-xs shadow-2xs flex items-center justify-center gap-2 active:scale-98 transition-all disabled:opacity-50 cursor-pointer"
-          >
-            <ShoppingBag className="w-4 h-4" />
-            {isOrdering
-              ? 'Placing Order...'
-              : `Place Order (${property?.currency} ${totalAmount.toLocaleString()})`}
-          </button>
-        </div>
-      )}
 
       {/* Bottom Navigation */}
       <GuestBottomNav
@@ -626,15 +277,4 @@ const DiningMenuView: React.FC<GuestDiningMenuProps> = ({
       />
     </div>
   );
-};
-
-export const GuestDiningMenu: React.FC<GuestDiningMenuProps> = (props) => {
-  const { property } = useTenant();
-  const isDiningEnabled = property?.diningEnabled === true;
-
-  if (!isDiningEnabled) {
-    return <HouseGuideView onBack={props.onBack} onNavigateTab={props.onNavigateTab} />;
-  }
-
-  return <DiningMenuView {...props} />;
 };

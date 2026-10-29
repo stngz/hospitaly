@@ -23,7 +23,13 @@ import {
   EyeOff,
   Loader2,
   MoreHorizontal,
+  Settings,
+  Camera,
+  History,
+  FileText,
 } from 'lucide-react';
+import { compressImageFileToJpeg } from '../../lib/imageCompression';
+import { formatPropertyDate } from '../../lib/time';
 
 interface SuperAdminDashboardProps {
   onManageProperty: (property: Property) => void;
@@ -43,13 +49,30 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
     sendPasswordReset,
   } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'properties' | 'accounts'>('properties');
+  const [activeTab, setActiveTab] = useState<'properties' | 'accounts' | 'activity'>('properties');
   const [isOnboardModalOpen, setIsOnboardModalOpen] = useState(false);
   const [isProvisionModalOpen, setIsProvisionModalOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'suspended'>('all');
   const [suspendConfirmProperty, setSuspendConfirmProperty] = useState<Property | null>(null);
+  const [customSuspendMessage, setCustomSuspendMessage] = useState('');
+  const [resumeConfirmProperty, setResumeConfirmProperty] = useState<Property | null>(null);
+
+  // Property Settings Modal state
+  const [editingProperty, setEditingProperty] = useState<Property | null>(null);
+  const [editPropName, setEditPropName] = useState('');
+  const [editPropCity, setEditPropCity] = useState('');
+  const [editPropPhone, setEditPropPhone] = useState('');
+  const [editPropWhatsapp, setEditPropWhatsapp] = useState('');
+  const [editPropTimezone, setEditPropTimezone] = useState('Africa/Lusaka');
+  const [editPropCheckIn, setEditPropCheckIn] = useState('14:00');
+  const [editPropCheckOut, setEditPropCheckOut] = useState('11:00');
+  const [editPropWifiName, setEditPropWifiName] = useState('');
+  const [editPropWifiPassword, setEditPropWifiPassword] = useState('');
+  const [editPropCoverImg, setEditPropCoverImg] = useState<string | null>(null);
+  const [isUploadingPropCover, setIsUploadingPropCover] = useState(false);
+  const [propSettingsSaving, setPropSettingsSaving] = useState(false);
 
   // Account Administration filter & feedback state
   const [accountPropertyFilter, setAccountPropertyFilter] = useState<string>('all');
@@ -109,6 +132,12 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
     dbService.getAllUsers
   );
 
+  const activityLogs = useSyncExternalStore(
+    subscribeToStore,
+    () => dbService.getActivityLog(),
+    () => dbService.getActivityLog()
+  );
+
   if (!user || user.role !== 'founder') {
     return null;
   }
@@ -156,16 +185,120 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
 
   const handleToggleStatus = (prop: Property) => {
     if (prop.status === 'active') {
+      setCustomSuspendMessage('');
       setSuspendConfirmProperty(prop);
     } else {
-      dbService.togglePropertyStatus(prop.id, user.email);
+      setResumeConfirmProperty(prop);
     }
   };
 
   const confirmSuspendProperty = () => {
     if (!suspendConfirmProperty) return;
-    dbService.togglePropertyStatus(suspendConfirmProperty.id, user.email);
+    dbService.togglePropertyStatus(
+      suspendConfirmProperty.id,
+      user.email,
+      customSuspendMessage.trim() || undefined
+    );
+    setAccountActionMessage({
+      type: 'success',
+      text: `${suspendConfirmProperty.name} is now suspended. Guest QR pages are paused.`,
+    });
     setSuspendConfirmProperty(null);
+  };
+
+  const confirmResumeProperty = () => {
+    if (!resumeConfirmProperty) return;
+    dbService.togglePropertyStatus(resumeConfirmProperty.id, user.email);
+    setAccountActionMessage({
+      type: 'success',
+      text: `${resumeConfirmProperty.name} has been resumed. Guest QR access is active.`,
+    });
+    setResumeConfirmProperty(null);
+  };
+
+  const openEditPropertyModal = (prop: Property) => {
+    setEditingProperty(prop);
+    setEditPropName(prop.name);
+    setEditPropCity(prop.city);
+    setEditPropPhone(prop.contactPhone || '');
+    setEditPropWhatsapp(prop.whatsappPhone || '');
+    setEditPropTimezone(prop.timezone || 'Africa/Lusaka');
+    setEditPropCheckIn(prop.checkInTime || '14:00');
+    setEditPropCheckOut(prop.checkOutTime || '11:00');
+    setEditPropWifiName(prop.wifiName || '');
+    setEditPropWifiPassword(prop.wifiPassword || '');
+    setEditPropCoverImg(prop.coverImageUrl || null);
+  };
+
+  const handleSavePropertySettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingProperty) return;
+    setPropSettingsSaving(true);
+    try {
+      dbService.updatePropertySettings(
+        editingProperty.id,
+        {
+          name: editPropName.trim() || editingProperty.name,
+          city: editPropCity.trim() || editingProperty.city,
+          contactPhone: editPropPhone.trim() || undefined,
+          whatsappPhone: editPropWhatsapp.trim() || undefined,
+          timezone: editPropTimezone.trim() || 'Africa/Lusaka',
+          checkInTime: editPropCheckIn.trim() || '14:00',
+          checkOutTime: editPropCheckOut.trim() || '11:00',
+          wifiName: editPropWifiName.trim() || undefined,
+          wifiPassword: editPropWifiPassword.trim() || undefined,
+          coverImageUrl: editPropCoverImg || undefined,
+        },
+        { name: user.name || 'Founder', email: user.email }
+      );
+      setAccountActionMessage({
+        type: 'success',
+        text: `Updated settings for ${editingProperty.name}.`,
+      });
+      setEditingProperty(null);
+    } catch (err: any) {
+      setAccountActionMessage({
+        type: 'error',
+        text: err?.message || 'Failed to update property settings.',
+      });
+    } finally {
+      setPropSettingsSaving(false);
+    }
+  };
+
+  const handleCoverPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !editingProperty) return;
+    setIsUploadingPropCover(true);
+    try {
+      const compressed = await compressImageFileToJpeg(file);
+      const mediaItem = await dbService.saveMedia({
+        ownerType: 'property',
+        ownerId: editingProperty.id,
+        propertyId: editingProperty.id,
+        dataUrl: compressed.dataUrl,
+        width: compressed.width,
+        height: compressed.height,
+        uploadedBy: user.email,
+      });
+      setEditPropCoverImg(compressed.dataUrl);
+      dbService.updatePropertySettings(
+        editingProperty.id,
+        { coverImageId: mediaItem.id, coverImageUrl: compressed.dataUrl },
+        { name: user.name || 'Founder', email: user.email }
+      );
+      setAccountActionMessage({
+        type: 'success',
+        text: 'Cover photo compressed and uploaded successfully.',
+      });
+    } catch (err: any) {
+      setAccountActionMessage({
+        type: 'error',
+        text: err?.message || 'Failed to upload cover photo.',
+      });
+    } finally {
+      setIsUploadingPropCover(false);
+    }
   };
 
   const handleOnboardSubmit = (e: React.FormEvent) => {
@@ -496,6 +629,17 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             <ShieldCheck className="w-3.5 h-3.5" />
             Account Administration ({filteredUsers.length})
           </button>
+          <button
+            onClick={() => setActiveTab('activity')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+              activeTab === 'activity'
+                ? 'bg-amber-500 text-stone-950 font-semibold'
+                : 'bg-stone-900 text-stone-400 hover:text-white border border-stone-800'
+            }`}
+          >
+            <History className="w-3.5 h-3.5" />
+            Activity Log ({activityLogs.length})
+          </button>
         </div>
 
         {accountActionMessage && (
@@ -660,13 +804,22 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                       </div>
                     </div>
 
-                    <div className="p-4 pt-0 flex items-center gap-2">
+                    <div className="p-4 pt-0 flex flex-wrap items-center gap-2">
                       <button
                         onClick={() => onManageProperty(prop)}
-                        className="flex-1 flex items-center justify-center gap-1.5 bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2.5 px-3 rounded-xl transition-colors cursor-pointer"
+                        className="flex-1 min-w-[120px] flex items-center justify-center gap-1.5 bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2.5 px-3 rounded-xl transition-colors cursor-pointer"
                       >
                         Manage Property
                         <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openEditPropertyModal(prop)}
+                        className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-stone-700 text-stone-300 hover:text-white hover:border-stone-500 text-xs font-medium transition-colors cursor-pointer"
+                        title="Edit Property Settings"
+                      >
+                        <Settings className="w-3.5 h-3.5" />
+                        Settings
                       </button>
                       <button
                         onClick={() => handleToggleStatus(prop)}
@@ -694,7 +847,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               })}
             </div>
           </>
-        ) : (
+        ) : activeTab === 'accounts' ? (
           /* Account Administration Tab */
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-stone-900/60 border border-stone-800 rounded-xl p-4">
@@ -1050,6 +1203,56 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               </div>
             </div>
           </div>
+        ) : (
+          /* Activity Log Tab */
+          <div className="space-y-4">
+            <div className="bg-stone-900/60 border border-stone-800 rounded-xl p-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-white">Platform Activity Log</h3>
+                <p className="text-xs text-stone-400 mt-0.5">
+                  Last 50 recorded security and operational actions across all properties.
+                </p>
+              </div>
+              <span className="text-xs px-2.5 py-1 rounded-full bg-stone-800 text-stone-300 border border-stone-700">
+                {activityLogs.length} events
+              </span>
+            </div>
+
+            <div className="bg-stone-900 border border-stone-800 rounded-2xl overflow-hidden divide-y divide-stone-800/80">
+              {activityLogs.length === 0 ? (
+                <div className="p-8 text-center text-xs text-stone-500">
+                  No activity events recorded yet.
+                </div>
+              ) : (
+                activityLogs.map((act) => (
+                  <div key={act.id} className="p-3.5 sm:p-4 flex items-start gap-3 text-xs">
+                    <div className="w-7 h-7 rounded-lg bg-stone-800 border border-stone-700/60 flex items-center justify-center shrink-0 mt-0.5">
+                      <History className="w-3.5 h-3.5 text-amber-400" />
+                    </div>
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center justify-between gap-1.5">
+                        <span className="font-semibold text-stone-200 capitalize">
+                          {act.type.replace(/_/g, ' ')}
+                        </span>
+                        <span className="text-stone-400 font-mono text-[11px]">
+                          {formatPropertyDate(act.createdAt, 'Africa/Lusaka')}
+                        </span>
+                      </div>
+                      <div className="text-stone-400">
+                        By <span className="text-stone-300 font-medium">{act.actorName}</span>
+                        {act.actorEmail && <span className="text-stone-500"> ({act.actorEmail})</span>}
+                      </div>
+                      {act.summary && (
+                        <div className="text-stone-300 text-[11px] bg-stone-950/50 rounded-lg p-2 border border-stone-800/60 font-mono">
+                          {act.summary}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         )}
       </main>
 
@@ -1075,6 +1278,20 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            <div>
+              <label className="block text-xs font-medium text-stone-300 mb-1.5">
+                Notice shown to guests (optional custom message)
+              </label>
+              <textarea
+                rows={2}
+                value={customSuspendMessage}
+                onChange={(e) => setCustomSuspendMessage(e.target.value)}
+                placeholder="Our online guest service is temporarily paused. Please contact reception at +260 97 782 8119 for assistance."
+                className="w-full bg-stone-950 border border-stone-800 rounded-xl p-3 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-red-500"
+              />
+            </div>
+
             <div className="flex items-center justify-end gap-2.5 pt-2">
               <button
                 type="button"
@@ -1091,6 +1308,221 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                 Confirm Suspend
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Resume Property Confirmation Modal */}
+      {resumeConfirmProperty && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-stone-900 border border-stone-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="font-serif text-xl text-white">
+                  Resume {resumeConfirmProperty.name}?
+                </h2>
+                <p className="text-xs text-stone-400 mt-1 leading-relaxed">
+                  Online guest QR access will be restored immediately, allowing guests to send requests and front desk staff to operate normally.
+                </p>
+              </div>
+              <button
+                onClick={() => setResumeConfirmProperty(null)}
+                className="text-stone-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setResumeConfirmProperty(null)}
+                className="px-4 py-2.5 rounded-xl border border-stone-700 text-stone-300 hover:text-white text-xs font-medium cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmResumeProperty}
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer"
+              >
+                Confirm Resume
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Property Settings Modal */}
+      {editingProperty && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-stone-900 border border-stone-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl my-8 space-y-4">
+            <div className="flex items-center justify-between border-b border-stone-800 pb-3">
+              <div>
+                <h2 className="font-serif text-xl text-white">Property Settings</h2>
+                <p className="text-xs text-stone-400 mt-0.5">
+                  Update operational details, contact numbers, and guest banner for {editingProperty.name}.
+                </p>
+              </div>
+              <button
+                onClick={() => setEditingProperty(null)}
+                className="text-stone-400 hover:text-white p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSavePropertySettings} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-stone-300 mb-1">Property Name</label>
+                <input
+                  type="text"
+                  value={editPropName}
+                  onChange={(e) => setEditPropName(e.target.value)}
+                  className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-xs text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-stone-300 mb-1">City</label>
+                  <input
+                    type="text"
+                    value={editPropCity}
+                    onChange={(e) => setEditPropCity(e.target.value)}
+                    className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-300 mb-1">Timezone</label>
+                  <input
+                    type="text"
+                    value={editPropTimezone}
+                    onChange={(e) => setEditPropTimezone(e.target.value)}
+                    className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-xs text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-stone-300 mb-1">Reception Phone</label>
+                  <input
+                    type="text"
+                    value={editPropPhone}
+                    onChange={(e) => setEditPropPhone(e.target.value)}
+                    placeholder="+260 97 782 8119"
+                    className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-300 mb-1">WhatsApp Phone</label>
+                  <input
+                    type="text"
+                    value={editPropWhatsapp}
+                    onChange={(e) => setEditPropWhatsapp(e.target.value)}
+                    placeholder="+260 97 782 8119"
+                    className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-xs text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-stone-300 mb-1">Standard Check-In</label>
+                  <input
+                    type="text"
+                    value={editPropCheckIn}
+                    onChange={(e) => setEditPropCheckIn(e.target.value)}
+                    placeholder="14:00"
+                    className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-300 mb-1">Standard Check-Out</label>
+                  <input
+                    type="text"
+                    value={editPropCheckOut}
+                    onChange={(e) => setEditPropCheckOut(e.target.value)}
+                    placeholder="11:00"
+                    className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-xs text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-stone-300 mb-1">Default Wi-Fi Name</label>
+                  <input
+                    type="text"
+                    value={editPropWifiName}
+                    onChange={(e) => setEditPropWifiName(e.target.value)}
+                    placeholder="8119 vip"
+                    className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-300 mb-1">Default Wi-Fi Password</label>
+                  <input
+                    type="text"
+                    value={editPropWifiPassword}
+                    onChange={(e) => setEditPropWifiPassword(e.target.value)}
+                    placeholder="@rocks.8119"
+                    className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-xs text-white"
+                  />
+                </div>
+              </div>
+
+              {/* Cover Photo Upload */}
+              <div>
+                <label className="block text-xs font-medium text-stone-300 mb-1.5">
+                  Property Cover Banner
+                </label>
+                <div className="flex items-center gap-3">
+                  {editPropCoverImg ? (
+                    <img
+                      src={editPropCoverImg}
+                      alt="Cover Preview"
+                      className="w-20 h-14 object-cover rounded-lg border border-stone-700"
+                    />
+                  ) : (
+                    <div className="w-20 h-14 rounded-lg bg-stone-950 border border-stone-800 flex items-center justify-center text-stone-500 text-xs">
+                      No cover
+                    </div>
+                  )}
+                  <label className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 border border-stone-700 text-xs text-stone-200 cursor-pointer">
+                    <Camera className="w-4 h-4 text-amber-400" />
+                    <span>{isUploadingPropCover ? 'Compressing...' : 'Upload Cover Photo'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={isUploadingPropCover}
+                      onChange={handleCoverPhotoUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+                <p className="text-[11px] text-stone-400 mt-1">
+                  Automatically compressed client-side to ≤ 300 KB (JPEG max 1600px).
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-stone-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingProperty(null)}
+                  className="px-4 py-2.5 rounded-xl border border-stone-700 text-stone-300 hover:text-white text-xs font-medium cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={propSettingsSaving}
+                  className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-semibold cursor-pointer disabled:opacity-50"
+                >
+                  {propSettingsSaving ? 'Saving...' : 'Save Settings'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

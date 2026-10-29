@@ -27,7 +27,11 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [expiredBanner, setExpiredBanner] = useState<string | null>(() => consumeSessionExpiredBanner());
+  const [expiredBanner, setExpiredBanner] = useState<string | null>(() =>
+    consumeSessionExpiredBanner()
+      ? 'Your session expired due to inactivity. Please sign in again.'
+      : null
+  );
   const [resetSentMsg, setResetSentMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -36,8 +40,10 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
     setErrorMsg(null);
     setResetSentMsg(null);
     setPassword('');
-    const msg = consumeSessionExpiredBanner();
-    if (msg) setExpiredBanner(msg);
+    const expired = consumeSessionExpiredBanner();
+    if (expired) {
+      setExpiredBanner('Your session expired due to inactivity. Please sign in again.');
+    }
   }, [portal]);
 
   const handleEmailAuthSubmit = async (e: React.FormEvent) => {
@@ -115,7 +121,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
   const isHq = portal === 'hq';
 
   return (
-    <div className="fixed inset-0 overflow-y-auto min-h-screen min-h-dvh bg-stone-950 flex flex-col justify-between p-6 text-stone-100 overscroll-none selection:bg-amber-400 selection:text-stone-950 z-50">
+    <div className="fixed inset-0 overflow-y-auto w-full h-full min-h-[100dvh] bg-stone-950 flex flex-col justify-between px-6 pt-[calc(1.5rem+env(safe-area-inset-top))] pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-stone-100 overscroll-none selection:bg-amber-400 selection:text-stone-950 z-50">
       {/* Top Status Bar */}
       <div className="flex items-center justify-between max-w-sm mx-auto w-full pt-2">
         <div className="flex items-center gap-2 text-xs text-stone-400">
@@ -184,7 +190,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              placeholder={isHq ? 'nathanielmazaba@gmail.com' : 'manager.pilot@rocks.co.zm'}
+              placeholder={isHq ? 'founder@hospitaly.app' : 'manager@property.com'}
               className="w-full text-base bg-stone-900 border border-white/[0.12] rounded-xl px-3.5 py-2.5 text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-1 focus:ring-amber-400"
             />
           </div>

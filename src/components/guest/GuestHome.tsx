@@ -2,27 +2,26 @@ import React, { useState, useSyncExternalStore } from 'react';
 import { useTenant } from '../../context/TenantContext';
 import { dbService, subscribeToStore } from '../../lib/store';
 import { notificationService } from '../../lib/notifications';
-import { Room } from '../../types';
+import { DeliveryPreference, Room } from '../../types';
 import { GuestHeroBanner } from './GuestHeroBanner';
 import { WifiCard } from './WifiCard';
 import {
   Phone,
   Sparkles,
-  Check,
-  Clock,
   ChevronRight,
-  Plane,
-  UtensilsCrossed,
   Waves,
   Feather,
-  Wind,
-  Moon,
+  Wrench,
   Radio,
   ShieldAlert,
   Lock,
   QrCode,
   ChefHat,
-  MapPin,
+  X,
+  DoorClosed,
+  BellRing,
+  Moon,
+  BookOpen,
 } from 'lucide-react';
 import { GuestBottomNav } from './GuestBottomNav';
 
@@ -30,19 +29,76 @@ interface GuestHomeProps {
   onNavigate: (view: string, data?: any) => void;
 }
 
-const houseTypeLabel = (room: Room) => {
-  const map: Record<string, string> = {
-    studio: 'Studio',
-    '2bhk': '2 BHK',
-    '3bhk': '3 BHK',
-    '4bhk': '4 BHK',
-  };
-  return (room.houseType && map[room.houseType]) || room.roomType || undefined;
+const getHouseTypeDisplay = (room: Room) => {
+  return (room.houseType || room.roomType || '').trim() || undefined;
 };
+
+interface QuickRequestItem {
+  id: string;
+  label: string;
+  eta: string;
+  category: 'housekeeping' | 'maintenance' | 'pool_garden';
+  icon: React.ComponentType<{ className?: string }>;
+  desc: string;
+}
+
+const QUICK_REQUESTS: QuickRequestItem[] = [
+  {
+    id: 'towels',
+    label: 'Fresh towels',
+    eta: 'About 15 min',
+    category: 'housekeeping',
+    icon: Waves,
+    desc: 'Fresh bath towels for the house.',
+  },
+  {
+    id: 'pool_towels',
+    label: 'Pool towels',
+    eta: 'About 15 min',
+    category: 'pool_garden',
+    icon: Waves,
+    desc: 'Fresh swimming pool towels.',
+  },
+  {
+    id: 'pillows',
+    label: 'Extra pillows',
+    eta: 'About 15 min',
+    category: 'housekeeping',
+    icon: Feather,
+    desc: 'Extra pillows for the bedroom.',
+  },
+  {
+    id: 'cleaning',
+    label: 'Cleaning',
+    eta: 'About 15 min',
+    category: 'housekeeping',
+    icon: Sparkles,
+    desc: 'House refresh and cleaning.',
+  },
+  {
+    id: 'gas_kitchen',
+    label: 'Gas & kitchen help',
+    eta: 'About 15 min',
+    category: 'maintenance',
+    icon: ChefHat,
+    desc: 'Assistance with the kitchen gas stove or cookware.',
+  },
+  {
+    id: 'broken',
+    label: 'Something broken',
+    eta: 'About 15 min',
+    category: 'maintenance',
+    icon: Wrench,
+    desc: 'Maintenance check inside the house.',
+  },
+];
 
 export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
   const { property, room, stayState, clearGuestSession } = useTenant();
-  const [dispatchedId, setDispatchedId] = useState<string | null>(null);
+  const [confirmItem, setConfirmItem] = useState<QuickRequestItem | null>(null);
+  const [quickNote, setQuickNote] = useState('');
+  const [quickDelivery, setQuickDelivery] = useState<DeliveryPreference>('knock');
+  const [sendingQuick, setSendingQuick] = useState(false);
 
   const allRequests = useSyncExternalStore(
     subscribeToStore,
@@ -50,13 +106,16 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
     dbService.getAllRequests
   );
 
-  // Strict privacy isolation: only show requests belonging to the current room AND current activeStayId
+  // Subscribe to media so uploaded house/property photos render live
+  useSyncExternalStore(subscribeToStore, dbService.getAllMedia, dbService.getAllMedia);
+
   const activeRequests = room?.activeStayId
     ? allRequests.filter(
         (r) =>
+          !r.archived &&
           r.propertyId === property?.id &&
           r.roomId === room.id &&
-          (r.stayId === room.activeStayId || r.guestSessionId === room.activeStayId) &&
+          r.stayId === room.activeStayId &&
           (r.status === 'pending' || r.status === 'acknowledged' || r.status === 'in_progress')
       )
     : [];
@@ -74,508 +133,493 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
     );
   }
 
-  const unitName = property.unitLabel || 'House';
-  const isDiningEnabled = property.diningEnabled === true;
-  const cleanPhone = (property.contactPhone || '+260 97 000 0100').replace(/[^0-9+]/g, '');
-  const cleanWaPhone = (property.contactPhone || '+260 97 000 0100').replace(/[^0-9]/g, '');
+  const receptionPhone = property.contactPhone || '+260 97 405 6547';
+  const waPhone = (property.whatsappPhone || receptionPhone).replace(/[^0-9]/g, '');
+  const cleanPhone = receptionPhone.replace(/[^0-9+]/g, '');
 
-  // Property Suspended Guard: block requests and show direct reception phone call
+  const housePhotoUrl = room ? dbService.resolveRoomPhotoUrl(room, property) : property.coverImageUrl;
+
+  // ============================================================================
+  // 1. SUSPENDED PROPERTY VIEW (Spec §2 & §5)
+  // Calm screen: house photo + "Welcome to {house}" + soft card.
+  // Wi-Fi card and House Guide remain visible. No request buttons, no word "suspended".
+  // ============================================================================
   if (property.status === 'suspended') {
+    const houseLabel = room?.name || room?.roomNumber || stayState.houseName || property.name;
+    const suspendNotice =
+      property.suspendMessage ||
+      `We're not taking requests through the app right now. Please contact reception: ${receptionPhone}`;
+
     return (
-      <div className="min-h-dvh bg-[#FDFBF7] text-stone-900 flex flex-col justify-between p-6">
-        <div className="flex items-center justify-between pt-2">
-          <span className="text-xs font-semibold uppercase tracking-widest text-stone-500">
-            {property.name}
-          </span>
-          <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-semibold">
-            Service Paused
-          </span>
-        </div>
+      <div
+        data-testid="guest-suspended-view"
+        className="min-h-dvh bg-[#FDFBF7] text-stone-900 select-none overflow-x-hidden pb-24"
+      >
+        <GuestHeroBanner
+          propertyName={property.name}
+          city={property.city}
+          timezone={property.timezone}
+          houseName={houseLabel}
+          houseTypeLabel={room ? getHouseTypeDisplay(room) : undefined}
+          guestTitle={room?.guestTitle}
+          guestName={room?.currentGuestName}
+          photoUrl={housePhotoUrl}
+          fallbackPhotoUrl={property.coverImageUrl}
+        />
 
-        <div className="my-auto max-w-sm mx-auto w-full bg-white rounded-3xl p-6 border border-stone-200 shadow-sm text-center space-y-4">
-          <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto">
-            <Phone className="w-6 h-6 text-amber-800" />
-          </div>
-          <h1 className="text-xl font-serif font-bold text-stone-900">Requests are paused</h1>
-          <p className="text-sm text-stone-600 leading-relaxed">
-            Requests are paused. Please call reception:{' '}
-            <strong className="text-stone-900">{property.contactPhone || '+260 97 000 0100'}</strong>
-          </p>
-          <a
-            href={`tel:${cleanPhone}`}
-            className="w-full py-3 bg-[#1C3A31] text-[#F7F3EC] font-semibold text-sm rounded-xl flex items-center justify-center gap-2"
+        <main className="relative -mt-[18px] rounded-t-[22px] bg-[#FDFBF7] px-[18px] pt-[18px] pb-12 flex flex-col gap-4">
+          <WifiCard
+            ssid={room?.wifiName || property.wifiName || ''}
+            password={room?.wifiPassword || property.wifiPassword || ''}
+          />
+
+          <div
+            data-testid="guest-paused-card"
+            className="rounded-2xl bg-white border border-stone-200 p-5 shadow-2xs space-y-3"
           >
-            <Phone className="w-4 h-4" />
-            <span>Call Reception ({property.contactPhone || '+260 97 000 0100'})</span>
-          </a>
-        </div>
+            <p className="text-sm font-medium text-stone-800 leading-relaxed">{suspendNotice}</p>
+            <div className="flex flex-wrap gap-2.5 pt-1">
+              <a
+                href={`tel:${cleanPhone}`}
+                className="flex-1 min-h-11 px-4 py-2.5 rounded-xl bg-[#1C3A31] text-white text-xs font-semibold inline-flex items-center justify-center gap-2"
+              >
+                <Phone className="w-4 h-4" />
+                <span>Call {receptionPhone}</span>
+              </a>
+              <a
+                href={`https://wa.me/${waPhone}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 min-h-11 px-4 py-2.5 rounded-xl bg-[#F5F1E8] text-[#1C3A31] border border-stone-900/[0.08] text-xs font-semibold inline-flex items-center justify-center gap-2"
+              >
+                <span>WhatsApp reception</span>
+              </a>
+            </div>
+          </div>
 
-        <div className="text-center text-xs text-stone-400 pb-2">
-          {property.city}, {property.country}
-        </div>
+          <button
+            type="button"
+            onClick={() => onNavigate('dining')}
+            className="w-full min-h-11 p-4 rounded-2xl bg-white border border-stone-900/[0.08] flex items-center justify-between text-left active:scale-[0.98] transition-transform cursor-pointer"
+          >
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-[#1C3A31]/[0.08] text-[#1C3A31] flex items-center justify-center shrink-0">
+                <BookOpen className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-stone-900">House guide</h2>
+                <p className="text-xs text-stone-500 mt-0.5">
+                  Pool, power &amp; water, gate instructions, and local tips
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-stone-400 shrink-0" />
+          </button>
+        </main>
       </div>
     );
   }
 
   // ============================================================================
-  // QR & STAY LIFECYCLE ACCESS GATE
-  // Guests only gain private house access when they scan an active QR code for
-  // an OCCUPIED house with a valid activeStayId.
+  // 2. UNOCCUPIED HOUSE / REVOKED QR / CHECKED-OUT STAY (Spec §2 Access)
   // ============================================================================
   if (stayState.status !== 'active' || !room || !room.activeStayId) {
     const isInvalid = stayState.status === 'invalid_token';
     const isUnoccupied = stayState.status === 'unoccupied';
     const isCheckedOut = stayState.status === 'checked_out';
+    const houseLabel = room?.name || room?.roomNumber || stayState.houseName || property.name;
+
+    if (isUnoccupied && room) {
+      return (
+        <div
+          data-testid="guest-unoccupied-view"
+          className="min-h-dvh bg-[#FDFBF7] text-stone-900 select-none overflow-x-hidden"
+        >
+          <GuestHeroBanner
+            propertyName={property.name}
+            city={property.city}
+            timezone={property.timezone}
+            houseName={houseLabel}
+            houseTypeLabel={getHouseTypeDisplay(room)}
+            photoUrl={housePhotoUrl}
+            fallbackPhotoUrl={property.coverImageUrl}
+          />
+          <main className="relative -mt-[18px] rounded-t-[22px] bg-[#FDFBF7] px-[18px] pt-[18px] pb-12 space-y-4">
+            <div className="rounded-2xl bg-white border border-stone-200 p-5 shadow-2xs space-y-3">
+              <p className="text-sm font-medium text-stone-800 leading-relaxed">
+                This house isn&apos;t checked in yet. Please contact reception: {receptionPhone}
+              </p>
+              <div className="flex flex-wrap gap-2.5 pt-1">
+                <a
+                  href={`tel:${cleanPhone}`}
+                  className="flex-1 min-h-11 px-4 py-2.5 rounded-xl bg-[#1C3A31] text-white text-xs font-semibold inline-flex items-center justify-center gap-2"
+                >
+                  <Phone className="w-4 h-4" />
+                  <span>Call reception</span>
+                </a>
+                <a
+                  href={`https://wa.me/${waPhone}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 min-h-11 px-4 py-2.5 rounded-xl bg-[#F5F1E8] text-[#1C3A31] border border-stone-900/[0.08] text-xs font-semibold inline-flex items-center justify-center gap-2"
+                >
+                  <span>WhatsApp reception</span>
+                </a>
+              </div>
+            </div>
+          </main>
+        </div>
+      );
+    }
 
     return (
-      <div className="min-h-dvh bg-stone-950 text-stone-100 flex flex-col justify-between p-6 selection:bg-amber-300 selection:text-stone-950">
-        {/* Top Property Header */}
+      <div
+        data-testid={`guest-gate-${stayState.status}`}
+        className="min-h-dvh bg-[#FDFBF7] text-stone-900 flex flex-col justify-between p-6"
+      >
         <div className="flex items-center justify-between pt-2">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-amber-400 text-stone-950 flex items-center justify-center font-serif font-bold text-sm">
-              RA
-            </div>
-            <div>
-              <span className="text-xs uppercase tracking-widest text-amber-300 font-semibold block">
-                {property.name}
-              </span>
-              <span className="text-xs text-stone-400">
-                {property.city}, {property.country}
-              </span>
-            </div>
-          </div>
-
-          <span className="px-2.5 py-1 rounded-full bg-stone-900 border border-white/10 text-xs uppercase tracking-wider text-stone-400">
-            In-House QR Access
+          <span className="text-xs uppercase tracking-widest text-stone-600 font-semibold">
+            {property.name} &middot; {property.city}
           </span>
         </div>
 
-        {/* Center Lifecycle Status Card */}
-        <div className="my-auto max-w-sm mx-auto w-full space-y-5 text-center">
-          <div className="p-6 rounded-3xl bg-stone-900/90 border border-white/10 shadow-modal space-y-4">
-            <div className="w-14 h-14 rounded-2xl bg-stone-800 border border-amber-400/30 flex items-center justify-center mx-auto">
+        <div className="my-auto max-w-sm mx-auto w-full">
+          <div className="p-6 rounded-3xl bg-white border border-stone-200 shadow-sm text-center space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-[#F5F1E8] text-[#1C3A31] flex items-center justify-center mx-auto">
               {isInvalid ? (
-                <ShieldAlert className="w-7 h-7 text-rose-400" />
-              ) : isUnoccupied || isCheckedOut ? (
-                <Lock className="w-7 h-7 text-amber-400" />
+                <ShieldAlert className="w-6 h-6 text-rose-700" />
+              ) : isCheckedOut ? (
+                <Lock className="w-6 h-6 text-[#1C3A31]" />
               ) : (
-                <QrCode className="w-7 h-7 text-amber-400" />
+                <QrCode className="w-6 h-6 text-[#1C3A31]" />
               )}
             </div>
 
             <div className="space-y-1.5">
-              <span className="text-xs font-semibold uppercase tracking-widest text-amber-400 block">
+              <h1 className="text-2xl font-serif font-bold text-stone-900 leading-tight">
                 {isInvalid
-                  ? 'Unrecognised QR Token'
-                  : isUnoccupied
-                  ? `${unitName} Currently Unoccupied`
+                  ? 'This QR code is no longer active. Please contact reception.'
                   : isCheckedOut
-                  ? 'Stay Concluded'
-                  : `Private ${unitName} Portal`}
-              </span>
-              <h1 className="text-2xl font-serif font-bold text-white leading-tight">
-                {isInvalid
-                  ? 'Invalid or Revoked QR Code'
-                  : isUnoccupied
-                  ? `${stayState.houseName || unitName} Awaiting Check-In`
-                  : isCheckedOut
-                  ? 'Thank You for Staying With Us'
-                  : `Scan Your In-${unitName} QR Code`}
+                  ? 'Thanks for staying with us'
+                  : 'Scan your house QR code'}
               </h1>
-              <p className="text-xs text-stone-300 leading-relaxed pt-1">
-                {stayState.errorMessage ||
-                  `To protect guest privacy and ensure requests reach your exact ${unitName.toLowerCase()}, please scan the physical QR plaque inside your ${unitName.toLowerCase()} after check-in.`}
+              <p className="text-xs text-stone-600 leading-relaxed pt-1">
+                {isInvalid
+                  ? `Please contact reception at ${receptionPhone} for assistance.`
+                  : isCheckedOut
+                  ? `Your stay in ${houseLabel} has ended. We hope you enjoyed your time at ${property.name}.`
+                  : `Scan the QR card inside your house to view Wi-Fi, the house guide, and send requests.`}
               </p>
             </div>
 
-            {/* Public Property Information Summary */}
-            <div className="p-3.5 rounded-2xl bg-stone-950/80 border border-white/[0.06] text-left space-y-2 text-xs">
-              <div className="flex items-center justify-between text-stone-300">
-                <span className="text-stone-400">Location</span>
-                <span className="font-medium text-white">Waterfalls Estate, Lusaka</span>
-              </div>
-              <div className="flex items-center justify-between text-stone-300">
-                <span className="text-stone-400">Check-In / Out</span>
-                <span className="text-amber-300 font-medium">
-                  {property.checkInTime} / {property.checkOutTime}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-stone-300">
-                <span className="text-stone-400">Reception Desk</span>
-                <span className="text-emerald-400 font-medium">{property.contactPhone}</span>
-              </div>
-            </div>
-
-            {/* Direct Reception Contact Button */}
-            <div className="pt-1 space-y-2">
-              {property.contactPhone && (
-                <a
-                  href={`https://wa.me/${cleanWaPhone}?text=${encodeURIComponent(
-                    `Hello ${property.name} Reception, I need assistance with my ${unitName.toLowerCase()} check-in.`
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-3 bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors"
-                >
-                  <Phone className="w-4 h-4" />
-                  <span>Contact Reception via WhatsApp</span>
-                </a>
-              )}
+            <div className="pt-2 space-y-2">
+              <a
+                href={`tel:${cleanPhone}`}
+                className="w-full min-h-11 py-3 bg-[#1C3A31] text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-2"
+              >
+                <Phone className="w-4 h-4" />
+                <span>Call reception ({receptionPhone})</span>
+              </a>
 
               {(isInvalid || isCheckedOut) && (
                 <button
+                  type="button"
                   onClick={clearGuestSession}
-                  className="w-full py-2.5 bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                  className="w-full min-h-11 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
                 >
-                  Reset Session
+                  Close
                 </button>
               )}
             </div>
           </div>
         </div>
 
-        {/* Footer */}
         <div className="text-center text-xs text-stone-500">
-          <span>{property.name} &bull; Verified Guest Access</span>
+          {property.name} &middot; {property.city}
         </div>
       </div>
     );
   }
 
-  // Quick 1-Tap Requests (plain wording, no "Bedside Receptors" or "Hot Tub")
-  const quickRequests = [
-    {
-      id: 'towels',
-      label: 'Fresh Bath Towels',
-      eta: '~10-15 mins',
-      category: 'housekeeping' as const,
-      icon: Waves,
-      desc: 'Please deliver 2 fresh bath towels.',
-    },
-    {
-      id: 'pool_towels',
-      label: 'Pool Towels',
-      eta: '~10-12 mins',
-      category: 'housekeeping' as const,
-      icon: Waves,
-      desc: 'Deliver fresh swimming pool towels.',
-    },
-    {
-      id: 'pillows',
-      label: 'Extra Pillows',
-      eta: '~12-15 mins',
-      category: 'housekeeping' as const,
-      icon: Feather,
-      desc: 'Deliver 2 extra pillows.',
-    },
-    {
-      id: 'gas_kitchen',
-      label: 'Gas & Kitchen Help',
-      eta: '~10-15 mins',
-      category: 'maintenance' as const,
-      icon: ChefHat,
-      desc: 'Please assist with the kitchen gas stove or cookware.',
-    },
-    {
-      id: 'ac_check',
-      label: 'AC & Climate Check',
-      eta: '~15 mins',
-      category: 'maintenance' as const,
-      icon: Wind,
-      desc: 'Maintenance check on the air conditioning unit.',
-    },
-    {
-      id: 'dnd',
-      label: 'Privacy / Quiet Mode',
-      eta: 'Instant',
-      category: 'concierge' as const,
-      icon: Moon,
-      desc: 'Guest requested privacy — please hold routine housekeeping until further notice.',
-    },
-  ];
+  // ============================================================================
+  // 3. ACTIVE OCCUPIED STAY — GUEST HOME (Spec §2)
+  // Order: Banner -> Wi-Fi -> Your request (if open) -> Quick requests (2x3)
+  //        -> "Something else?" button -> House info (reception phone + WhatsApp)
+  // ============================================================================
+  const openQuickSheet = (item: QuickRequestItem) => {
+    notificationService.triggerHaptic('light');
+    setConfirmItem(item);
+    setQuickNote('');
+    setQuickDelivery('knock');
+  };
 
-  const handleQuickRequest = (item: (typeof quickRequests)[0]) => {
-    if (!room || !room.activeStayId) return;
-
+  const handleConfirmQuickSend = () => {
+    if (!confirmItem || !room || !room.activeStayId) return;
+    setSendingQuick(true);
     notificationService.triggerHaptic('medium');
-    setDispatchedId(item.id);
 
     const effectiveName = room.currentGuestName
       ? `${room.guestTitle ? `${room.guestTitle} ` : ''}${room.currentGuestName}`
-      : `${unitName} ${room.roomNumber} Guest`;
+      : `Guest in ${room.name || room.roomNumber}`;
 
     const created = dbService.createRequest({
       propertyId: property.id,
       roomId: room.id,
-      roomNumber: room.roomNumber,
+      roomNumber: room.name || room.roomNumber,
       stayId: room.activeStayId,
       guestSessionId: room.activeStayId,
-      category: item.category,
-      title: item.label,
-      description: `${item.desc} (Estimated time: ${item.eta})`,
+      category: confirmItem.category,
+      title: confirmItem.label,
+      description: quickNote.trim() || confirmItem.desc,
       priority: 'normal',
-      status: 'pending',
+      deliveryPreference: quickDelivery,
       guestName: effectiveName,
       guestPhone: room.guestPhone || '',
     });
 
-    setTimeout(() => {
-      setDispatchedId(null);
-      onNavigate('status', { requestId: created.id });
-    }, 350);
+    setSendingQuick(false);
+    setConfirmItem(null);
+    onNavigate('status', { requestId: created.id });
+  };
+
+  const getOpenRequestStatusCopy = (status: string) => {
+    switch (status) {
+      case 'in_progress':
+        return 'On the way';
+      case 'acknowledged':
+        return 'Confirmed by reception';
+      default:
+        return "Request received — we've told reception";
+    }
   };
 
   return (
-    <div className="min-h-dvh bg-[#FDFBF7] text-stone-900 select-none overflow-x-hidden">
-      {/* ★ NEW HERO BANNER */}
+    <div
+      data-testid="guest-home-active"
+      className="min-h-dvh bg-[#FDFBF7] text-stone-900 select-none overflow-x-hidden"
+    >
+      {/* 1. Banner (430px) */}
       <GuestHeroBanner
         propertyName={property.name}
         city={property.city}
-        country={property.country}
-        houseName={room.roomNumber}
-        houseTypeLabel={houseTypeLabel(room)}
+        timezone={property.timezone}
+        houseName={room.name || room.roomNumber}
+        houseTypeLabel={getHouseTypeDisplay(room)}
         guestTitle={room.guestTitle}
         guestName={room.currentGuestName}
-        checkOutDate={room.guestCheckOutDate}
-        checkOutTime={property.checkOutTime}
-        photoUrl={room.imageUrl}
+        photoUrl={housePhotoUrl}
+        fallbackPhotoUrl={property.coverImageUrl}
       />
 
-      {/* ★ MAIN SHEET */}
+      {/* Main Sheet */}
       <main className="relative -mt-[18px] rounded-t-[22px] bg-[#FDFBF7] px-[18px] pt-[18px] pb-[calc(96px+env(safe-area-inset-bottom))] flex flex-col gap-3.5">
-        {/* 1. Wi-Fi Card directly under hero banner */}
+        {/* 2. Wi-Fi Card */}
         <WifiCard
-          ssid={room.wifiName || property.wifiName || 'RockApartments_Guest'}
-          password={room.wifiPassword || property.wifiPassword || ''}
+          ssid={room.wifiName || property.wifiName || '8119 vip'}
+          password={room.wifiPassword || property.wifiPassword || '@rocks.8119'}
         />
 
-        {/* 2. Active Request Pill (strictly scoped to current activeStayId) */}
+        {/* 3. "Your request" card (only if a request is open) */}
         {activeRequests.length > 0 && (
           <button
             type="button"
+            data-testid="guest-open-request-card"
             onClick={() => onNavigate('status', { requestId: activeRequests[0].id })}
             className="w-full p-4 rounded-2xl bg-[#1C3A31] text-white shadow-sm border border-white/10 flex items-center justify-between text-left active:scale-[0.98] transition-transform cursor-pointer"
           >
-            <div className="flex items-center gap-3.5 min-w-0">
+            <div className="flex items-center gap-3.5 min-w-0 flex-1">
               <div className="w-10 h-10 rounded-xl bg-[#E0B973] text-stone-950 flex items-center justify-center shrink-0">
-                <Radio className="w-5 h-5 animate-pulse" />
+                <Radio className="w-5 h-5" />
               </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-[#E0B973]">
-                    Active Request
-                  </span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                </div>
-                <p className="text-sm font-bold text-white truncate mt-0.5">
+              <div className="min-w-0 flex-1">
+                <span className="text-xs font-semibold uppercase tracking-wider text-[#E0B973] block">
+                  Your request
+                </span>
+                <p className="text-sm font-bold text-white line-clamp-2 mt-0.5 leading-snug">
                   {activeRequests[0].title}
                 </p>
                 <p className="text-xs text-stone-200 mt-0.5">
-                  {activeRequests[0].status === 'in_progress'
-                    ? 'On the way to your house'
-                    : activeRequests[0].status === 'acknowledged'
-                    ? 'Staff assigned · Tap to view'
-                    : 'Sent to reception · Tap to view'}
+                  {getOpenRequestStatusCopy(activeRequests[0].status)}
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-1 text-[#E0B973] text-xs font-bold shrink-0 pl-2">
-              <span>View</span>
-              <ChevronRight className="w-4 h-4" />
-            </div>
+            <ChevronRight className="w-5 h-5 text-[#E0B973] shrink-0 ml-2" />
           </button>
         )}
 
-        {/* 3. Quick 1-Tap Requests */}
+        {/* 4. Quick requests: 2 columns, max 6 tiles */}
         <section className="pt-1 space-y-2.5">
-          <div className="flex items-center justify-between px-0.5">
-            <div>
-              <h2 className="text-sm font-bold text-stone-900">Quick requests</h2>
-              <p className="text-xs text-stone-500 mt-0.5">
-                Tap an item to send directly to our team
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onNavigate('request', {})}
-              className="text-xs font-semibold text-[#1C3A31] hover:underline flex items-center gap-0.5 cursor-pointer"
-            >
-              <span>Custom request</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
+          <div className="px-0.5">
+            <h2 className="text-sm font-bold text-stone-900">Quick requests</h2>
+            <p className="text-xs text-stone-500 mt-0.5">
+              Tap an item to send to our team
+            </p>
           </div>
 
-          <div className="grid grid-cols-3 gap-2.5">
-            {quickRequests.map((item) => {
+          <div data-testid="quick-requests-grid" className="grid grid-cols-2 gap-2.5">
+            {QUICK_REQUESTS.map((item) => {
               const Icon = item.icon;
-              const isJustSent = dispatchedId === item.id;
-
               return (
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => handleQuickRequest(item)}
-                  className={`flex flex-col items-center justify-between p-3.5 rounded-2xl border text-center active:scale-[0.96] transition-all cursor-pointer ${
-                    isJustSent
-                      ? 'bg-[#1C3A31] text-white border-[#1C3A31]'
-                      : 'bg-white hover:bg-stone-50/90 text-stone-900 border-stone-900/[0.08]'
-                  }`}
+                  data-testid={`quick-request-${item.id}`}
+                  onClick={() => openQuickSheet(item)}
+                  className="min-h-[88px] flex flex-col items-start justify-between p-3.5 rounded-2xl border bg-white hover:bg-stone-50/90 text-stone-900 border-stone-900/[0.08] text-left active:scale-[0.98] transition-all cursor-pointer"
                 >
-                  <div
-                    className={`w-10 h-10 rounded-xl flex items-center justify-center mb-2 transition-colors ${
-                      isJustSent ? 'bg-[#E0B973] text-stone-950' : 'bg-stone-100 text-stone-800'
-                    }`}
-                  >
-                    {isJustSent ? <Check className="w-5 h-5" /> : <Icon className="w-5 h-5" />}
+                  <div className="w-9 h-9 rounded-xl bg-[#F5F1E8] text-[#1C3A31] flex items-center justify-center mb-2">
+                    <Icon className="w-4 h-4" />
                   </div>
-
-                  <span className="text-xs font-bold leading-snug line-clamp-2">
-                    {isJustSent ? 'Request Sent' : item.label}
+                  <span className="text-[15px] font-semibold leading-snug text-stone-900">
+                    {item.label}
                   </span>
-
-                  <span
-                    className={`text-xs mt-1 ${
-                      isJustSent ? 'text-[#E0B973]' : 'text-stone-500'
-                    }`}
-                  >
-                    {item.eta}
-                  </span>
+                  <span className="text-[13px] text-stone-500 mt-0.5">{item.eta}</span>
                 </button>
               );
             })}
           </div>
         </section>
 
-        {/* 4. House Guide & Airport Transfer Action Cards */}
-        <section className="pt-1 space-y-2.5">
-          {isDiningEnabled ? (
-            <button
-              type="button"
-              onClick={() => onNavigate('dining')}
-              className="w-full p-4 rounded-2xl bg-white border border-stone-900/[0.08] flex items-center justify-between text-left active:scale-[0.98] transition-transform cursor-pointer"
-            >
-              <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center shrink-0">
-                  <UtensilsCrossed className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-stone-900">In-Room Dining Menu</h3>
-                  <p className="text-xs text-stone-500 mt-0.5">
-                    Order freshly prepared dishes &amp; drinks
-                  </p>
-                </div>
-              </div>
-              <ChevronRight className="w-4 h-4 text-stone-400 shrink-0" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => onNavigate('dining')}
-              className="w-full p-4 rounded-2xl bg-white border border-stone-900/[0.08] flex items-center justify-between text-left active:scale-[0.98] transition-transform cursor-pointer"
-            >
-              <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-xl bg-[#1C3A31]/[0.08] text-[#1C3A31] flex items-center justify-center shrink-0">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-stone-900">House Guide &amp; Amenities</h3>
-                  <p className="text-xs text-stone-500 mt-0.5">
-                    Private pool, full kitchen, gated parking &amp; house timings
-                  </p>
-                </div>
-              </div>
-              <ChevronRight className="w-4 h-4 text-stone-400 shrink-0" />
-            </button>
-          )}
-
-          {property.airportTransfersEnabled !== false && (
-            <button
-              type="button"
-              onClick={() =>
-                onNavigate('request', {
-                  category: 'concierge',
-                  item: 'Kenneth Kaunda Airport Transfer (KKIA - 11 km)',
-                })
-              }
-              className="w-full p-4 rounded-2xl bg-white border border-stone-900/[0.08] flex items-center justify-between text-left active:scale-[0.98] transition-transform cursor-pointer"
-            >
-              <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center shrink-0">
-                  <Plane className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-stone-900">Airport &amp; City Transfers</h3>
-                  <p className="text-xs text-stone-500 mt-0.5">
-                    11 km to Kenneth Kaunda Airport (KKIA) · Book pickup or drop-off
-                  </p>
-                </div>
-              </div>
-              <ChevronRight className="w-4 h-4 text-stone-400 shrink-0" />
-            </button>
-          )}
-        </section>
-
-        {/* 5. Good to Know (No duplicate Wi-Fi row, distances in km) */}
-        <section className="bg-white rounded-2xl p-4 border border-stone-900/[0.07] space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-stone-500">
-              House Essentials
+        {/* 5. "Something else?" button -> opens full request form */}
+        <button
+          type="button"
+          data-testid="something-else-btn"
+          onClick={() => onNavigate('request', {})}
+          className="w-full min-h-11 p-4 rounded-2xl bg-white border border-stone-900/[0.08] flex items-center justify-between text-left active:scale-[0.98] transition-transform cursor-pointer"
+        >
+          <div>
+            <span className="text-sm font-bold text-stone-900 block">Something else?</span>
+            <span className="text-xs text-stone-500">
+              Send a custom request or note to reception
             </span>
-            {property.contactPhone && (
+          </div>
+          <ChevronRight className="w-4 h-4 text-stone-400 shrink-0" />
+        </button>
+
+        {/* 6. House info (compact): reception phone + WhatsApp button */}
+        <section
+          data-testid="guest-house-info"
+          className="bg-white rounded-2xl p-4 border border-stone-900/[0.07] space-y-3"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider text-stone-500 block">
+                Reception
+              </span>
+              <p className="text-sm font-semibold text-stone-900 mt-0.5">{receptionPhone}</p>
+            </div>
+            <div className="flex items-center gap-2">
               <a
-                href={`https://wa.me/${cleanWaPhone}?text=${encodeURIComponent(
-                  `Hello Reception, I am in ${unitName} ${room.roomNumber} at ${property.name} and need assistance.`
+                href={`tel:${cleanPhone}`}
+                className="min-h-11 px-3.5 py-2 rounded-xl bg-stone-100 text-stone-900 text-xs font-semibold inline-flex items-center gap-1.5"
+              >
+                <Phone className="w-3.5 h-3.5" />
+                <span>Call</span>
+              </a>
+              <a
+                href={`https://wa.me/${waPhone}?text=${encodeURIComponent(
+                  `Hello ${property.name} reception, I am staying in ${room.name || room.roomNumber}.`
                 )}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F5F1E8] text-[#1C3A31] text-xs font-semibold active:scale-95 transition-transform"
+                className="min-h-11 px-3.5 py-2 rounded-xl bg-[#F5F1E8] text-[#1C3A31] text-xs font-semibold inline-flex items-center gap-1.5"
               >
-                <Phone className="w-3.5 h-3.5" />
-                <span>WhatsApp Desk</span>
+                <span>WhatsApp</span>
               </a>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5 text-xs">
-            <div className="p-3 rounded-xl bg-stone-50 border border-stone-200/60">
-              <div className="flex items-center gap-1.5 text-stone-500">
-                <Clock className="w-3.5 h-3.5 text-amber-700" />
-                <span>Check-in / Check-out</span>
-              </div>
-              <p className="font-bold text-stone-900 mt-1">
-                {property.checkInTime} / {property.checkOutTime}
-              </p>
-            </div>
-
-            <div className="p-3 rounded-xl bg-stone-50 border border-stone-200/60">
-              <div className="flex items-center gap-1.5 text-stone-500">
-                <MapPin className="w-3.5 h-3.5 text-emerald-800" />
-                <span>Airport (KKIA)</span>
-              </div>
-              <p className="font-bold text-stone-900 mt-1">11 km · ~12 mins</p>
             </div>
           </div>
-
-          {property.nearbyAttractions && property.nearbyAttractions.length > 0 && (
-            <div className="pt-2 border-t border-stone-100 space-y-1.5">
-              <span className="text-xs font-semibold text-stone-500 block">
-                Nearby in Lusaka
-              </span>
-              <div className="grid grid-cols-2 gap-1.5 text-xs">
-                {property.nearbyAttractions.map((place, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between bg-stone-50 px-2.5 py-1.5 rounded-lg border border-stone-200/50"
-                  >
-                    <span className="text-stone-700 truncate pr-1.5">{place.name}</span>
-                    <span className="font-semibold text-stone-900 shrink-0">{place.distance}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </section>
       </main>
+
+      {/* Quick Request Confirm Sheet */}
+      {confirmItem && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Confirm ${confirmItem.label}`}
+          data-testid="quick-request-confirm-sheet"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+        >
+          <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl border border-stone-200 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-xs font-semibold uppercase tracking-wider text-stone-500 block">
+                  Quick request &middot; {room.name || room.roomNumber}
+                </span>
+                <h3 className="text-lg font-serif font-bold text-stone-900 mt-0.5">
+                  {confirmItem.label}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmItem(null)}
+                aria-label="Close"
+                className="w-11 h-11 rounded-full flex items-center justify-center text-stone-500 hover:bg-stone-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-stone-600 block mb-1.5">
+                Any note? (optional)
+              </label>
+              <input
+                type="text"
+                data-testid="quick-request-note-input"
+                value={quickNote}
+                onChange={(e) => setQuickNote(e.target.value)}
+                placeholder="e.g. 2 bath towels please"
+                className="w-full min-h-11 px-3.5 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#1C3A31]"
+              />
+            </div>
+
+            <div>
+              <span className="text-xs font-semibold text-stone-600 block mb-1.5">
+                Delivery preference
+              </span>
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    { id: 'knock', label: 'Knock', icon: DoorClosed },
+                    { id: 'bell', label: 'Ring', icon: BellRing },
+                    { id: 'leave_at_door', label: 'Leave at door', icon: Moon },
+                  ] as const
+                ).map((opt) => {
+                  const OptIcon = opt.icon;
+                  const active = quickDelivery === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      data-testid={`quick-delivery-${opt.id}`}
+                      onClick={() => setQuickDelivery(opt.id)}
+                      className={`min-h-11 p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center justify-center gap-1 cursor-pointer ${
+                        active
+                          ? 'bg-[#1C3A31] text-white border-[#1C3A31]'
+                          : 'bg-stone-50 text-stone-700 border-stone-200'
+                      }`}
+                    >
+                      <OptIcon className="w-4 h-4" />
+                      <span>{opt.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              data-testid="quick-request-send-btn"
+              disabled={sendingQuick}
+              onClick={handleConfirmQuickSend}
+              className="w-full min-h-11 py-3.5 rounded-xl bg-[#1C3A31] text-[#E0B973] font-bold text-sm shadow-sm active:scale-[0.99] cursor-pointer"
+            >
+              {sendingQuick ? 'Sending...' : 'Send'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Bottom Navigation */}
       <GuestBottomNav activeTab="home" onNavigate={onNavigate} />

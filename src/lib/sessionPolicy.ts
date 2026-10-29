@@ -1,121 +1,159 @@
 import { UserRole } from '../types';
 
-export interface RoleSessionLimits {
+export interface RoleSessionPolicy {
   idleTimeoutMs: number;
   maxSessionMs: number;
+  warningLeadMs: number;
 }
 
-export const SESSION_POLICY: Record<Exclude<UserRole, 'guest'>, RoleSessionLimits> = {
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+
+export const SESSION_POLICIES: Record<Exclude<UserRole, 'guest'>, RoleSessionPolicy> = {
   founder: {
-    idleTimeoutMs: 30 * 60 * 1000, // 30 minutes
-    maxSessionMs: 8 * 60 * 60 * 1000, // 8 hours
+    idleTimeoutMs: 30 * MINUTE,
+    maxSessionMs: 8 * HOUR,
+    warningLeadMs: 2 * MINUTE,
   },
   manager: {
-    idleTimeoutMs: 60 * 60 * 1000, // 60 minutes
-    maxSessionMs: 12 * 60 * 60 * 1000, // 12 hours
+    idleTimeoutMs: 40 * MINUTE,
+    maxSessionMs: 12 * HOUR,
+    warningLeadMs: 2 * MINUTE,
   },
   staff: {
-    idleTimeoutMs: 60 * 60 * 1000, // 60 minutes
-    maxSessionMs: 12 * 60 * 60 * 1000, // 12 hours
+    idleTimeoutMs: 40 * MINUTE,
+    maxSessionMs: 12 * HOUR,
+    warningLeadMs: 2 * MINUTE,
   },
 };
 
-const STORAGE_KEYS = {
-  LAST_ACTIVITY_AT: 'hospitally_last_activity_at',
-  SESSION_STARTED_AT: 'hospitally_session_started_at',
-  EXPIRED_BANNER: 'hospitally_session_expired_banner',
-};
+export const SESSION_STORAGE_KEYS = {
+  lastActivityAt: 'hospitally_last_activity_at',
+  sessionStartedAt: 'hospitally_session_started_at',
+  expiredReason: 'hospitally_session_expired_reason',
+} as const;
 
-export function recordSessionStart(): void {
-  if (typeof window === 'undefined') return;
-  const now = Date.now().toString();
+export function recordSessionStart(now: number = Date.now()): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.SESSION_STARTED_AT, now);
-    localStorage.setItem(STORAGE_KEYS.LAST_ACTIVITY_AT, now);
-    localStorage.removeItem(STORAGE_KEYS.EXPIRED_BANNER);
+    localStorage.setItem(SESSION_STORAGE_KEYS.sessionStartedAt, String(now));
+    localStorage.setItem(SESSION_STORAGE_KEYS.lastActivityAt, String(now));
+    localStorage.removeItem(SESSION_STORAGE_KEYS.expiredReason);
   } catch {
-    // ignore storage errors
+    // Ignore storage errors
   }
 }
 
-export function ensureSessionTimestampsInitialized(): void {
-  if (typeof window === 'undefined') return;
-  const now = Date.now().toString();
-  try {
-    if (!localStorage.getItem(STORAGE_KEYS.SESSION_STARTED_AT)) {
-      localStorage.setItem(STORAGE_KEYS.SESSION_STARTED_AT, now);
-    }
-    if (!localStorage.getItem(STORAGE_KEYS.LAST_ACTIVITY_AT)) {
-      localStorage.setItem(STORAGE_KEYS.LAST_ACTIVITY_AT, now);
-    }
-  } catch {
-    // ignore
-  }
-}
+let lastThrottledWrite = 0;
 
-export function touchSessionActivity(): void {
-  if (typeof window === 'undefined') return;
+export function touchSessionActivity(force: boolean = false, now: number = Date.now()): void {
+  if (!force && now - lastThrottledWrite < 10_000) {
+    return;
+  }
+  lastThrottledWrite = now;
   try {
-    localStorage.setItem(STORAGE_KEYS.LAST_ACTIVITY_AT, Date.now().toString());
+    localStorage.setItem(SESSION_STORAGE_KEYS.lastActivityAt, String(now));
   } catch {
-    // ignore
+    // Ignore storage errors
   }
 }
 
 export function clearSessionTimestamps(): void {
-  if (typeof window === 'undefined') return;
   try {
-    localStorage.removeItem(STORAGE_KEYS.LAST_ACTIVITY_AT);
-    localStorage.removeItem(STORAGE_KEYS.SESSION_STARTED_AT);
+    localStorage.removeItem(SESSION_STORAGE_KEYS.lastActivityAt);
+    localStorage.removeItem(SESSION_STORAGE_KEYS.sessionStartedAt);
   } catch {
-    // ignore
+    // Ignore
   }
 }
 
-export function markSessionExpiredBanner(message = 'Signed out due to inactivity'): void {
-  if (typeof window === 'undefined') return;
+export function markSessionExpiredBanner(): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.EXPIRED_BANNER, message);
+    localStorage.setItem(SESSION_STORAGE_KEYS.expiredReason, 'inactivity');
   } catch {
-    // ignore
+    // Ignore
   }
 }
 
-export function consumeSessionExpiredBanner(): string | null {
-  if (typeof window === 'undefined') return null;
+export function consumeSessionExpiredBanner(): boolean {
   try {
-    const msg = localStorage.getItem(STORAGE_KEYS.EXPIRED_BANNER);
-    if (msg) {
-      localStorage.removeItem(STORAGE_KEYS.EXPIRED_BANNER);
-      return msg;
-    }
-  } catch {
-    // ignore
-  }
-  return null;
-}
-
-export function isSessionExpired(role: UserRole): boolean {
-  if (typeof window === 'undefined' || role === 'guest') return false;
-  const policy = SESSION_POLICY[role] || SESSION_POLICY.staff;
-  const now = Date.now();
-
-  try {
-    const rawLast = localStorage.getItem(STORAGE_KEYS.LAST_ACTIVITY_AT);
-    const rawStart = localStorage.getItem(STORAGE_KEYS.SESSION_STARTED_AT);
-
-    const lastActivityAt = rawLast ? parseInt(rawLast, 10) : now;
-    const sessionStartedAt = rawStart ? parseInt(rawStart, 10) : now;
-
-    if (Number.isFinite(lastActivityAt) && now - lastActivityAt > policy.idleTimeoutMs) {
-      return true;
-    }
-    if (Number.isFinite(sessionStartedAt) && now - sessionStartedAt > policy.maxSessionMs) {
+    const val = localStorage.getItem(SESSION_STORAGE_KEYS.expiredReason);
+    if (val === 'inactivity') {
+      localStorage.removeItem(SESSION_STORAGE_KEYS.expiredReason);
       return true;
     }
   } catch {
-    return false;
+    // Ignore
   }
-
   return false;
+}
+
+export interface SessionCheckResult {
+  expired: boolean;
+  reason?: 'idle' | 'max_age';
+  warningActive: boolean;
+  remainingMs: number;
+}
+
+export function evaluateSessionState(role: UserRole, now: number = Date.now()): SessionCheckResult {
+  if (role === 'guest') {
+    return { expired: false, warningActive: false, remainingMs: Infinity };
+  }
+  const policy = SESSION_POLICIES[role];
+  if (!policy) {
+    return { expired: false, warningActive: false, remainingMs: Infinity };
+  }
+
+  try {
+    const rawLast = localStorage.getItem(SESSION_STORAGE_KEYS.lastActivityAt);
+    const rawStart = localStorage.getItem(SESSION_STORAGE_KEYS.sessionStartedAt);
+
+    const lastActivityAt = rawLast ? Number(rawLast) : now;
+    const sessionStartedAt = rawStart ? Number(rawStart) : now;
+
+    if (!Number.isFinite(lastActivityAt) || !Number.isFinite(sessionStartedAt)) {
+      recordSessionStart(now);
+      return { expired: false, warningActive: false, remainingMs: policy.idleTimeoutMs };
+    }
+
+    const idleElapsed = now - lastActivityAt;
+    const maxElapsed = now - sessionStartedAt;
+
+    if (idleElapsed >= policy.idleTimeoutMs) {
+      return { expired: true, reason: 'idle', warningActive: false, remainingMs: 0 };
+    }
+    if (maxElapsed >= policy.maxSessionMs) {
+      return { expired: true, reason: 'max_age', warningActive: false, remainingMs: 0 };
+    }
+
+    const remainingIdleMs = Math.max(0, policy.idleTimeoutMs - idleElapsed);
+    const warningActive = remainingIdleMs <= policy.warningLeadMs;
+
+    return {
+      expired: false,
+      warningActive,
+      remainingMs: remainingIdleMs,
+    };
+  } catch {
+    return { expired: false, warningActive: false, remainingMs: policy.idleTimeoutMs };
+  }
+}
+
+export function isSessionExpired(
+  role: UserRole,
+  now: number = Date.now()
+): { expired: boolean; reason?: 'idle' | 'max_age' } {
+  const res = evaluateSessionState(role, now);
+  return { expired: res.expired, reason: res.reason };
+}
+
+export function ensureSessionTimestampsInitialized(now: number = Date.now()): void {
+  try {
+    const rawLast = localStorage.getItem(SESSION_STORAGE_KEYS.lastActivityAt);
+    const rawStart = localStorage.getItem(SESSION_STORAGE_KEYS.sessionStartedAt);
+    if (!rawLast || !rawStart) {
+      recordSessionStart(now);
+    }
+  } catch {
+    // Ignore
+  }
 }

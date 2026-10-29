@@ -1,12 +1,19 @@
 export type UserRole = 'founder' | 'manager' | 'staff' | 'guest';
 
 export type StaffDepartment =
+  | 'reception'
   | 'housekeeping'
   | 'maintenance'
   | 'concierge'
-  | 'reception'
-  | 'restaurant'
-  | 'management'
+  | 'pool_garden'
+  | 'management';
+
+export type RequestCategory =
+  | 'housekeeping'
+  | 'maintenance'
+  | 'pool_garden'
+  | 'concierge'
+  | 'transport'
   | 'other';
 
 export type RequestStatus =
@@ -18,98 +25,131 @@ export type RequestStatus =
 
 export type RequestPriority = 'low' | 'normal' | 'high' | 'urgent';
 
-export type LocationType =
-  | 'room'
-  | 'restaurant'
-  | 'pool'
-  | 'reception'
-  | 'spa'
-  | 'gym'
-  | 'other';
+export type DeliveryPreference =
+  | 'knock'
+  | 'bell'
+  | 'ring_bell'
+  | 'leave_at_door'
+  | 'call_on_arrival';
+
+export interface NearbyPlace {
+  name: string;
+  category: string;
+  distanceKm: string;
+  note?: string;
+}
+
+export interface HouseGuideConfig {
+  checkInTime: string;
+  checkOutTime: string;
+  poolHours: string;
+  poolRules: string;
+  poolGardenRules?: string;
+  quietHours: string;
+  gateSecurity: string;
+  gateInstructions?: string;
+  powerCuts: string;
+  powerWaterNotes?: string;
+  gasInfo: string;
+  emergencyNumbers: string;
+  emergencyPhone?: string;
+  houseRules?: string[];
+  localTips?: string[];
+  nearbyPlaces: NearbyPlace[];
+}
 
 export interface Property {
   id: string;
   name: string;
   slug: string;
-  description: string;
-  logoUrl: string;
-  coverImageUrl: string;
+  city: string;
+  country?: string;
+  timezone: string;
+  currency: string;
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
-  contactPhone: string;
-  contactEmail: string;
-  address: string;
-  city: string;
-  country: string;
-  timezone: string;
-  currency: string;
-  wifiName: string;
+  logoUrl?: string;
+  coverImageUrl?: string;
+  coverImageId?: string;
+  wifiName?: string;
   wifiPassword?: string;
-  checkInTime: string;
-  checkOutTime: string;
+  description?: string;
+  contactPhone?: string;
+  whatsappPhone?: string;
+  checkInTime?: string;
+  checkOutTime?: string;
+  diningEnabled?: boolean;
+  unitLabel?: string;
   status: 'active' | 'suspended';
   suspendedAt?: string;
   suspendedBy?: string;
-  unitLabel?: 'House' | 'Room' | 'Villa' | 'Suite' | 'Chalet';
-  diningEnabled?: boolean;
-  errandsEnabled?: boolean;
-  airportTransfersEnabled?: boolean;
-  amenities?: { icon: string; label: string }[];
-  nearbyAttractions?: { name: string; distance: string }[];
+  suspendMessage?: string;
+  houseGuide?: HouseGuideConfig;
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string;
 }
 
 export interface Room {
   id: string;
   propertyId: string;
-  buildingId?: string;
-  floorId?: string;
+  name?: string;
   roomNumber: string;
   roomType: string;
-  houseType?: 'studio' | '2bhk' | '3bhk' | '4bhk' | string;
+  houseType?: string;
+  floor?: string;
+  status: 'available' | 'occupied' | 'maintenance';
+  qrCodeId?: string;
+  qrToken?: string;
+  qrLabel?: string;
+  amenities?: string[];
+  houseRules?: string | string[];
+  imageId?: string;
   imageUrl?: string;
-  status: 'available' | 'occupied' | 'maintenance' | 'unavailable';
-  activeStayId?: string;
-  guestTitle?: 'Mr' | 'Mrs' | 'Ms' | 'Dr';
-  currentGuestName?: string;
-  guestCheckOutDate?: string;
-  guestPhone?: string;
   wifiName?: string;
   wifiPassword?: string;
+  guestTitle?: 'Mr' | 'Mrs' | 'Ms' | 'Dr' | '';
+  currentGuestName?: string;
+  guestCheckInDate?: string;
+  guestCheckOutDate?: string;
+  guestPhone?: string;
   notes?: string;
-  amenities?: string[];
-  qrLabel?: string;
-  createdAt: string;
-  updatedAt: string;
+  activeStayId?: string;
+  archived?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Stay {
+  id: string;
+  propertyId: string;
+  roomId: string;
+  guestTitle?: 'Mr' | 'Mrs' | 'Ms' | 'Dr' | '';
+  guestName: string;
+  guestPhone?: string;
+  checkInAt: string;
+  checkOutAt: string;
+  status: 'active' | 'checked_out';
+  checkedOutAt?: string;
+  createdBy?: string;
 }
 
 export interface QRCodeRecord {
   id: string;
   propertyId: string;
-  roomId?: string;
-  locationType: LocationType;
+  roomId: string;
   token: string;
-  status: 'active' | 'revoked' | 'disabled';
-  createdAt: string;
-  updatedAt: string;
+  status: 'active' | 'revoked';
+  createdAt?: string;
+  updatedAt?: string;
 }
 
-export interface ServiceItem {
-  id: string;
-  propertyId: string;
-  name: string;
-  description: string;
-  category: 'housekeeping' | 'maintenance' | 'dining' | 'concierge' | 'transport' | 'other';
-  icon: string;
-  imageUrl?: string;
-  active: boolean;
-  requiresRoom: boolean;
-  sortOrder: number;
-  options?: string[];
-  createdAt: string;
-  updatedAt: string;
+export interface RequestHistoryEntry {
+  status: RequestStatus;
+  timestamp: string;
+  actorId?: string;
+  actorName?: string;
+  note?: string;
 }
 
 export interface ServiceRequest {
@@ -117,23 +157,58 @@ export interface ServiceRequest {
   propertyId: string;
   roomId: string;
   roomNumber: string;
-  stayId?: string;
+  stayId: string;
   guestSessionId?: string;
-  serviceId?: string;
-  category: 'housekeeping' | 'maintenance' | 'dining' | 'concierge' | 'transport' | 'other';
+  guestName?: string;
+  guestPhone?: string;
+  category: RequestCategory;
   title: string;
-  description: string;
-  priority: RequestPriority;
+  description?: string;
   status: RequestStatus;
+  priority: RequestPriority;
+  deliveryPreference?: DeliveryPreference;
+  cancelReason?: string;
+  refCode?: string;
+  createdAt: string;
+  updatedAt: string;
   assignedTo?: {
     uid: string;
     name: string;
+    department?: StaffDepartment;
   };
-  guestName?: string;
-  guestPhone?: string;
+  archived?: boolean;
+  archivedAt?: string;
+  archivedBy?: string;
+  history: RequestHistoryEntry[];
+}
+
+export interface MediaItem {
+  id: string;
+  propertyId?: string;
+  ownerType: 'house' | 'property' | 'user';
+  ownerId: string;
+  dataUrl: string;
+  width: number;
+  height: number;
+  uploadedBy: string;
   createdAt: string;
-  updatedAt: string;
-  completedAt?: string;
+}
+
+export interface ActivityLogEntry {
+  id: string;
+  propertyId?: string;
+  type:
+    | 'check_in'
+    | 'check_out'
+    | 'suspend'
+    | 'resume'
+    | 'account_change'
+    | 'house_update'
+    | 'request_archived';
+  actorName: string;
+  actorEmail?: string;
+  summary: string;
+  createdAt: string;
 }
 
 export interface UserNotificationSettings {
@@ -151,9 +226,21 @@ export interface UserProfile {
   phone?: string;
   role: UserRole;
   department: StaffDepartment;
-  profileImageUrl?: string;
   active: boolean;
+  photoId?: string;
   notificationSettings?: UserNotificationSettings;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface StaffDeviceRecord {
+  id: string;
+  userId: string;
+  propertyId: string;
+  fcmToken: string;
+  userAgent?: string;
+  platform?: string;
+  enabled: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -165,7 +252,8 @@ export interface DiningItem {
   category: 'breakfast' | 'lunch' | 'dinner' | 'drinks' | 'dessert';
   description: string;
   price: number;
-  dietary?: string[];
-  imageUrl: string;
+  imageUrl?: string;
   available: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }

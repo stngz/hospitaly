@@ -22,24 +22,38 @@ export const WifiCard: React.FC<WifiCardProps> = ({ ssid, password }) => {
   };
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl bg-white border border-stone-900/[0.07] px-4 py-3.5 shadow-[0_1px_2px_rgba(24,24,22,0.04)]">
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="w-[38px] h-[38px] rounded-[11px] bg-[#1C3A31]/[0.08] text-[#1C3A31] flex items-center justify-center shrink-0">
+    <div
+      data-testid="wifi-card"
+      className="flex items-center justify-between gap-3 rounded-2xl bg-white border border-stone-900/[0.08] px-4 py-3.5 shadow-[0_1px_2px_rgba(24,24,22,0.04)]"
+    >
+      <div className="flex items-start gap-3 min-w-0 flex-1">
+        <div className="w-[40px] h-[40px] rounded-[11px] bg-[#1C3A31]/[0.08] text-[#1C3A31] flex items-center justify-center shrink-0 mt-0.5">
           <Wifi className="w-[18px] h-[18px]" />
         </div>
-        <div className="min-w-0">
-          <p className="text-xs text-stone-500">Wi-Fi · {ssid}</p>
-          <p className="text-sm font-semibold text-stone-900 truncate mt-0.5">{password}</p>
+        <div className="min-w-0 flex-1">
+          <p
+            data-testid="wifi-ssid"
+            className="text-xs font-medium text-stone-600 break-words leading-snug"
+          >
+            Wi-Fi &middot; {ssid}
+          </p>
+          <p
+            data-testid="wifi-password"
+            className="text-[18px] font-semibold text-stone-900 break-all leading-tight mt-0.5"
+          >
+            {password}
+          </p>
         </div>
       </div>
 
       <button
         type="button"
+        data-testid="wifi-copy-btn"
         onClick={copy}
-        className="shrink-0 rounded-[10px] bg-[#F5F1E8] border border-stone-900/[0.08] px-3 py-2 text-xs font-semibold text-[#1C3A31] active:scale-[0.98] inline-flex items-center gap-1.5"
+        className="shrink-0 min-h-11 rounded-[10px] bg-[#F5F1E8] border border-stone-900/[0.08] px-3.5 py-2 text-xs font-semibold text-[#1C3A31] active:scale-[0.98] inline-flex items-center gap-1.5 cursor-pointer"
       >
         {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-        {copied ? 'Copied' : 'Copy password'}
+        <span>{copied ? 'Copied' : 'Copy'}</span>
       </button>
     </div>
   );

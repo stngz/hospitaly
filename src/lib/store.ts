@@ -1,562 +1,649 @@
-import { 
-  collection, 
-  doc, 
-  setDoc, 
-  getDocs, 
-  getDoc, 
-  onSnapshot, 
-  query, 
-  where, 
-  updateDoc,
-  deleteDoc
-} from 'firebase/firestore';
-import { db } from './firebase';
-import { 
-  Property, 
-  Room, 
-  QRCodeRecord, 
-  ServiceRequest, 
-  UserProfile, 
-  UserNotificationSettings,
+import {
+  Property,
+  Room,
+  Stay,
+  QRCodeRecord,
+  ServiceRequest,
+  RequestStatus,
+  DeliveryPreference,
+  UserProfile,
   DiningItem,
-  StaffDepartment
+  StaffDeviceRecord,
+  UserNotificationSettings,
+  MediaItem,
+  ActivityLogEntry,
+  HouseGuideConfig,
+  StaffDepartment,
 } from '../types';
-import { 
-  SEED_PROPERTIES, 
-  SEED_ROOMS, 
-  SEED_QR_CODES, 
-  INITIAL_REQUESTS, 
-  SEED_DINING_ITEMS 
+import {
+  ROCKS_APARTMENTS_PROPERTY,
+  DEFAULT_HOUSE_GUIDE,
 } from './seeds/rocksApartments';
+import { DEFAULT_SUSPEND_MESSAGE, PUSH_ENABLED } from './config';
 import { notificationService } from './notifications';
+import { db } from './firebase';
+import {
+  collection,
+  doc,
+  onSnapshot,
+  setDoc,
+  getDocs,
+  query,
+  where,
+  limit,
+} from 'firebase/firestore';
 
-const STORAGE_KEYS = {
-  PROPERTIES: 'hospitally_properties_v4',
-  ROOMS: 'hospitally_rooms_v4',
-  QR_CODES: 'hospitally_qrcodes_v4',
-  REQUESTS: 'hospitally_requests_v4',
-  DINING: 'hospitally_dining_v4',
-};
-
-export function normalizeUserProfile(u: any): UserProfile {
-  const rawRole = (u?.role as string) === 'admin' ? 'founder' : (u?.role || 'staff');
-  const { pinCode: _removedPin, ...rest } = u || {};
-  return {
-    ...rest,
-    role: rawRole,
-    active: u?.active !== undefined ? Boolean(u.active) : true,
-  } as UserProfile;
-}
-
-export const DEFAULT_HOUSE_AMENITIES = [
+export const DEFAULT_HOUSE_AMENITIES: string[] = [
   'Private Pool',
   'Full Kitchen',
   'Unit AC',
   'High-Speed Wi-Fi',
 ];
 
-export function sanitizeRoom(r: Room): Room {
-  const cleanedAmenities = Array.isArray(r.amenities)
-    ? r.amenities.filter((a) => !/hot[\s_]+tub/i.test(a))
-    : DEFAULT_HOUSE_AMENITIES;
-  const cleanedNotes = r.notes ? r.notes.replace(/private\s+hot[\s_]+tub\s*(and\s*)?/gi, '') : r.notes;
-  const isStockImage =
-    !r.imageUrl ||
-    r.imageUrl === '/images/rocks-suite-enhanced.jpg' ||
-    r.imageUrl.includes('images.unsplash.com');
-  const nextRoom: Room = {
-    ...r,
-    amenities: cleanedAmenities.length > 0 ? cleanedAmenities : DEFAULT_HOUSE_AMENITIES,
-    qrLabel: (r.qrLabel || r.roomNumber || '').trim().toUpperCase().slice(0, 8),
-    ...(cleanedNotes !== undefined ? { notes: cleanedNotes } : {}),
-  };
-  if (isStockImage) {
-    delete nextRoom.imageUrl;
+function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefined(item)) as unknown as T;
   }
-  if (nextRoom.status === 'occupied' && !nextRoom.activeStayId) {
-    nextRoom.activeStayId = `stay_${nextRoom.id}`;
-  } else if (nextRoom.status !== 'occupied') {
-    delete nextRoom.activeStayId;
+  if (value !== null && typeof value === 'object') {
+    const cleaned: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      if (val !== undefined) {
+        cleaned[key] = stripUndefined(val);
+      }
+    }
+    return cleaned as T;
   }
-  return nextRoom;
+  return value;
 }
 
-export function sanitizeProperty(p: Property): Property {
-  const isRocks =
-    p.id === 'prop_rocks_lusaka' ||
-    p.slug === 'rocks-apartments' ||
-    /rocks?\s+apartments/i.test(p.name || '');
+export function generateStayId(): string {
+  const timePart = Date.now().toString(36).toUpperCase();
+  const randPart = Math.random().toString(36).substring(2, 10).toUpperCase();
+  return `stay_${timePart}_${randPart}`;
+}
 
-  const isStockCover =
-    !p.coverImageUrl ||
-    p.coverImageUrl === '/images/rocks-suite-enhanced.jpg' ||
-    p.coverImageUrl.includes('images.unsplash.com');
+export function generateUniqueQRToken(propertyName: string, roomNumber: string): string {
+  const cleanProp = propertyName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 8) || 'PROP';
+  const cleanRoom = roomNumber.replace(/[^a-zA-Z0-9]/g, '').toUpperCase() || 'UNIT';
+  const suffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `${cleanProp}-${cleanRoom}-${suffix}`;
+}
 
-  const cleanDesc =
-    isRocks && (!p.description || /5-bedroom|6\.8\s*mi|Rocks Apartments Lusaka/i.test(p.description))
-      ? SEED_PROPERTIES[0].description
-      : p.description;
+export function normalizeUserProfile(raw: Partial<UserProfile>, docId: string): UserProfile {
+  const role =
+    raw.role === 'founder' || raw.role === 'manager' || raw.role === 'staff'
+      ? raw.role
+      : 'staff';
 
-  const cleanAttractions = Array.isArray(p.nearbyAttractions)
-    ? p.nearbyAttractions.map((a) => ({
-        ...a,
-        distance: a.distance
-          .replace('6.8 mi', '11 km')
-          .replace('11 mi', '18 km')
-          .replace('12 mi', '19 km')
-          .replace('15 mi', '24 km'),
-      }))
-    : SEED_PROPERTIES[0].nearbyAttractions;
+  const department: StaffDepartment =
+    raw.department === 'reception' ||
+    raw.department === 'housekeeping' ||
+    raw.department === 'maintenance' ||
+    raw.department === 'concierge' ||
+    raw.department === 'pool_garden' ||
+    raw.department === 'management'
+      ? raw.department
+      : role === 'founder' || role === 'manager'
+      ? 'management'
+      : 'housekeeping';
 
   return {
-    ...p,
-    name: isRocks ? 'Rock Apartments' : p.name,
-    coverImageUrl: isStockCover ? '' : p.coverImageUrl,
-    description: cleanDesc,
-    nearbyAttractions: cleanAttractions,
-    unitLabel: p.unitLabel || (isRocks ? 'House' : 'Room'),
-    diningEnabled: p.diningEnabled !== undefined ? p.diningEnabled : (isRocks ? false : true),
-    errandsEnabled: p.errandsEnabled !== undefined ? p.errandsEnabled : false,
-    airportTransfersEnabled: p.airportTransfersEnabled !== undefined ? p.airportTransfersEnabled : true,
+    id: raw.id || docId,
+    propertyId: raw.propertyId ?? (role === 'founder' ? '' : 'prop_rocks_lusaka'),
+    name: raw.name || (raw.email ? raw.email.split('@')[0] : 'Staff Member'),
+    email: (raw.email || '').trim(),
+    phone: raw.phone || '',
+    role,
+    department,
+    active: typeof raw.active === 'boolean' ? raw.active : true,
+    photoId: raw.photoId,
+    notificationSettings: raw.notificationSettings,
+    createdAt: raw.createdAt || new Date().toISOString(),
+    updatedAt: raw.updatedAt,
   };
 }
 
-export function isObsoleteOrTestRequest(r: ServiceRequest): boolean {
-  if (!r) return true;
-  if (r.id.startsWith('req_rocks_')) return true;
-  const title = r.title || '';
-  const desc = r.description || '';
-  if (/\bTEST\b|BBQ Platter|Bedside Express|Lodge Dining|Hot Tub/i.test(title)) return true;
-  if (/\bTEST\b/i.test(desc)) return true;
-  // Requests created before Round 3 stayId/guestSessionId isolation on Chisenga/Bobo
-  if (!r.stayId && !r.guestSessionId) return true;
-  return false;
-}
-
-// In-memory cache holding identical references until modified
-interface StoreCache {
+interface AppDatabase {
   properties: Property[];
   rooms: Room[];
+  stays: Stay[];
   qrCodes: QRCodeRecord[];
-  users: UserProfile[];
   requests: ServiceRequest[];
-  dining: DiningItem[];
-  currentUser: UserProfile | null;
+  users: UserProfile[];
+  media: MediaItem[];
+  activity: ActivityLogEntry[];
+  diningItems: DiningItem[];
 }
 
-function loadInitialCache(): StoreCache {
-  if (typeof window === 'undefined') {
-    return {
-      properties: SEED_PROPERTIES,
-      rooms: SEED_ROOMS,
-      qrCodes: SEED_QR_CODES,
-      users: [],
-      requests: INITIAL_REQUESTS,
-      dining: SEED_DINING_ITEMS,
-      currentUser: null,
-    };
-  }
-
-  // Purge legacy v3 unauthenticated user/admin cache keys from browser storage
-  try {
-    localStorage.removeItem('hospitally_current_user_v3');
-    localStorage.removeItem('hospitally_users_v3');
-  } catch {
-    // ignore storage errors
-  }
-
-  function read<T>(key: string, fallback: T): T {
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) {
-        localStorage.setItem(key, JSON.stringify(fallback));
-        return fallback;
-      }
-      return JSON.parse(raw);
-    } catch {
-      return fallback;
-    }
-  }
-
-  const obsoletePropIds = new Set(['prop_zambezi_01', 'prop_luangwa_02']);
-
-  const rawProps = read<Property[]>(STORAGE_KEYS.PROPERTIES, SEED_PROPERTIES).filter(p => !obsoletePropIds.has(p.id));
-  const mergedProps = rawProps.map(sanitizeProperty);
-  SEED_PROPERTIES.forEach((sp) => {
-    const idx = mergedProps.findIndex((p) => p.id === sp.id);
-    if (idx === -1) {
-      mergedProps.push(sanitizeProperty(sp));
-    } else {
-      mergedProps[idx] = sanitizeProperty({
-        ...mergedProps[idx],
-        ...sp,
-        status: mergedProps[idx].status || sp.status,
-        suspendedAt: mergedProps[idx].suspendedAt,
-        suspendedBy: mergedProps[idx].suspendedBy,
-      });
-    }
-  });
-
-  const rawRooms = read<Room[]>(STORAGE_KEYS.ROOMS, SEED_ROOMS).filter(r => !obsoletePropIds.has(r.propertyId));
-  const mergedRooms = rawRooms.map(sanitizeRoom);
-  SEED_ROOMS.forEach((sr) => {
-    const idx = mergedRooms.findIndex((r) => r.id === sr.id);
-    if (idx === -1) {
-      mergedRooms.push(sanitizeRoom(sr));
-    } else {
-      mergedRooms[idx] = sanitizeRoom({
-        ...mergedRooms[idx],
-        ...sr,
-      });
-    }
-  });
-
-  const rawQRs = read<QRCodeRecord[]>(STORAGE_KEYS.QR_CODES, SEED_QR_CODES).filter(q => !obsoletePropIds.has(q.propertyId));
-  const mergedQRs = [...rawQRs];
-  SEED_QR_CODES.forEach((sq) => {
-    if (!mergedQRs.some((q) => q.id === sq.id)) {
-      mergedQRs.push(sq);
-    }
-  });
-
-  const rawDining = read<DiningItem[]>(STORAGE_KEYS.DINING, SEED_DINING_ITEMS).filter(d => !obsoletePropIds.has(d.propertyId));
-  const mergedDining = [...rawDining];
-  SEED_DINING_ITEMS.forEach((sd) => {
-    if (!mergedDining.some((d) => d.id === sd.id)) {
-      mergedDining.push(sd);
-    }
-  });
-
-  const rawRequests = read<ServiceRequest[]>(STORAGE_KEYS.REQUESTS, INITIAL_REQUESTS).filter(
-    (r) => !obsoletePropIds.has(r.propertyId) && !isObsoleteOrTestRequest(r)
-  );
-  const mergedRequests = [...rawRequests];
-
-  persist(STORAGE_KEYS.PROPERTIES, mergedProps);
-  persist(STORAGE_KEYS.ROOMS, mergedRooms);
-  persist(STORAGE_KEYS.QR_CODES, mergedQRs);
-  persist(STORAGE_KEYS.DINING, mergedDining);
-  persist(STORAGE_KEYS.REQUESTS, mergedRequests);
-
-  return {
-    properties: mergedProps,
-    rooms: mergedRooms,
-    qrCodes: mergedQRs,
-    users: [],
-    requests: mergedRequests,
-    dining: mergedDining,
-    currentUser: null,
-  };
-}
-
-let cache: StoreCache = loadInitialCache();
+const DEFAULT_DB: AppDatabase = {
+  properties: [ROCKS_APARTMENTS_PROPERTY],
+  rooms: [],
+  stays: [],
+  qrCodes: [],
+  requests: [],
+  users: [],
+  media: [],
+  activity: [],
+  diningItems: [],
+};
 
 type Listener = () => void;
-const listeners: Set<Listener> = new Set();
+const listeners = new Set<Listener>();
 
-function notify() {
-  listeners.forEach((l) => {
-    try {
-      l();
-    } catch (e) {
-      console.error(e);
+let cachedDb: AppDatabase = DEFAULT_DB;
+let cachedActiveRooms: Room[] = DEFAULT_DB.rooms.filter((r) => !r.archived);
+let cachedSortedRequests: ServiceRequest[] = [];
+let cachedActivityLog: ActivityLogEntry[] = [];
+
+function refreshDerivedCaches() {
+  cachedActiveRooms = cachedDb.rooms.filter((r) => !r.archived);
+  cachedSortedRequests = [...cachedDb.requests].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+  cachedActivityLog = cachedDb.activity.slice(0, 50);
+}
+
+if (typeof window !== 'undefined') {
+  try {
+    const raw =
+      (window as any).__HOSPITALLY_INITIAL_DATA__ ||
+      localStorage.getItem('hospitally_seed_data');
+    if (raw) {
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (parsed.properties) cachedDb.properties = parsed.properties;
+      else if (parsed.property) cachedDb.properties = [parsed.property];
+      if (parsed.rooms) cachedDb.rooms = parsed.rooms;
+      if (parsed.stays) cachedDb.stays = parsed.stays;
+      if (parsed.qrCodes) cachedDb.qrCodes = parsed.qrCodes;
+      if (parsed.users) cachedDb.users = parsed.users;
+      if (parsed.requests) cachedDb.requests = parsed.requests;
+      refreshDerivedCaches();
     }
-  });
+  } catch {}
+}
+
+let firestoreInitialized = false;
+let firestoreReady = false;
+let publicListenersActive = false;
+let staffListenersActive = false;
+let activeGuestStayListenerId: string | null = null;
+let guestRequestsUnsub: (() => void) | null = null;
+let activeGuestRoomId: string | null = null;
+let guestRoomUnsub: (() => void) | null = null;
+let guestStayDocUnsub: (() => void) | null = null;
+const activeUnsubscribers: Array<() => void> = [];
+
+function notifyListeners() {
+  refreshDerivedCaches();
+  listeners.forEach((listener) => listener());
+}
+
+export function isFirestoreReady(): boolean {
+  return firestoreReady;
+}
+
+async function persistDoc<T extends { id?: string }>(
+  collectionName: string,
+  docId: string,
+  data: T
+): Promise<void> {
+  try {
+    const cleanData = stripUndefined({ ...data, id: docId });
+    await setDoc(doc(db, collectionName, docId), cleanData, { merge: true });
+  } catch (err) {
+    console.warn(`Firestore write failed for ${collectionName}/${docId}:`, err);
+  }
+}
+
+function recordActivityInternal(
+  entry: Omit<ActivityLogEntry, 'id' | 'createdAt'>
+): ActivityLogEntry {
+  const newEntry: ActivityLogEntry = {
+    ...entry,
+    id: `act_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    createdAt: new Date().toISOString(),
+  };
+  cachedDb = {
+    ...cachedDb,
+    activity: [newEntry, ...cachedDb.activity].slice(0, 100),
+  };
+  notifyListeners();
+  void persistDoc('activity', newEntry.id, newEntry);
+  return newEntry;
+}
+
+/**
+ * Subscribe to requests for a single guest stay (`where('stayId', '==', stayId)`).
+ * Works for anonymous guests because Firestore rules allow reading requests matching their stayId.
+ */
+export function subscribeGuestStayRequests(stayId: string | null | undefined): void {
+  const cleanStayId = (stayId || '').trim();
+  if (!cleanStayId) {
+    if (guestRequestsUnsub) {
+      guestRequestsUnsub();
+      guestRequestsUnsub = null;
+    }
+    activeGuestStayListenerId = null;
+    return;
+  }
+  if (activeGuestStayListenerId === cleanStayId && guestRequestsUnsub) {
+    return;
+  }
+  if (guestRequestsUnsub) {
+    guestRequestsUnsub();
+    guestRequestsUnsub = null;
+  }
+  activeGuestStayListenerId = cleanStayId;
+  const q = query(collection(db, 'requests'), where('stayId', '==', cleanStayId), limit(50));
+  guestRequestsUnsub = onSnapshot(
+    q,
+    (snapshot) => {
+      const stayReqs = snapshot.docs
+        .map((d) => ({ ...(d.data() as ServiceRequest), id: d.id }))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      // If stay requests haven't changed, do not notify listeners
+      const existingStayReqs = cachedDb.requests.filter((r) => r.stayId === cleanStayId);
+      if (
+        existingStayReqs.length === stayReqs.length &&
+        existingStayReqs.every((r, i) => r.id === stayReqs[i].id && r.status === stayReqs[i].status && r.updatedAt === stayReqs[i].updatedAt)
+      ) {
+        return;
+      }
+
+      // Merge with any other requests in cachedDb
+      const otherReqs = cachedDb.requests.filter((r) => r.stayId !== cleanStayId);
+      cachedDb = {
+        ...cachedDb,
+        requests: [...stayReqs, ...otherReqs],
+      };
+      notifyListeners();
+    },
+    (err) => {
+      console.warn('Guest stay requests listener error:', err);
+    }
+  );
+}
+
+/**
+ * Subscribe to a specific house and its active stay document for guest view.
+ * Allows guest view to function seamlessly without requiring unrestricted collection enumeration.
+ */
+export function subscribeGuestRoom(roomId: string | null | undefined): void {
+  const cleanRoomId = (roomId || '').trim();
+  if (!cleanRoomId) {
+    if (guestRoomUnsub) {
+      guestRoomUnsub();
+      guestRoomUnsub = null;
+    }
+    if (guestStayDocUnsub) {
+      guestStayDocUnsub();
+      guestStayDocUnsub = null;
+    }
+    activeGuestRoomId = null;
+    return;
+  }
+  if (activeGuestRoomId === cleanRoomId && guestRoomUnsub) {
+    return;
+  }
+  if (guestRoomUnsub) {
+    guestRoomUnsub();
+    guestRoomUnsub = null;
+  }
+  if (guestStayDocUnsub) {
+    guestStayDocUnsub();
+    guestStayDocUnsub = null;
+  }
+  activeGuestRoomId = cleanRoomId;
+
+  guestRoomUnsub = onSnapshot(
+    doc(db, 'rooms', cleanRoomId),
+    (snap) => {
+      if (snap.exists()) {
+        const data = snap.data() as Room;
+        const room: Room = {
+          ...data,
+          id: snap.id,
+          roomNumber: data.name || data.roomNumber || snap.id,
+          name: data.name || data.roomNumber || snap.id,
+          roomType: data.houseType || data.roomType || 'Apartment',
+          houseType: data.houseType || data.roomType || 'Apartment',
+        };
+        const existingRoom = cachedDb.rooms.find((r) => r.id === cleanRoomId);
+        const roomChanged =
+          !existingRoom ||
+          existingRoom.status !== room.status ||
+          existingRoom.activeStayId !== room.activeStayId ||
+          existingRoom.updatedAt !== room.updatedAt ||
+          existingRoom.name !== room.name;
+
+        if (roomChanged) {
+          const otherRooms = cachedDb.rooms.filter((r) => r.id !== cleanRoomId);
+          cachedDb = { ...cachedDb, rooms: [room, ...otherRooms] };
+          firestoreReady = true;
+          notifyListeners();
+        }
+
+        if (room.activeStayId) {
+          if (guestStayDocUnsub) guestStayDocUnsub();
+          guestStayDocUnsub = onSnapshot(
+            doc(db, 'stays', room.activeStayId),
+            (staySnap) => {
+              if (staySnap.exists()) {
+                const stay = { ...(staySnap.data() as Stay), id: staySnap.id };
+                const existingStay = cachedDb.stays.find((s) => s.id === stay.id);
+                if (!existingStay || existingStay.status !== stay.status || existingStay.checkOutAt !== stay.checkOutAt) {
+                  const otherStays = cachedDb.stays.filter((s) => s.id !== stay.id);
+                  cachedDb = { ...cachedDb, stays: [stay, ...otherStays] };
+                  notifyListeners();
+                }
+              }
+            },
+            (err) => console.warn('Guest stay listener error:', err)
+          );
+        }
+      }
+    },
+    (err) => console.warn('Guest room listener error:', err)
+  );
+}
+
+/**
+ * Public listeners needed on first load (`properties`, `rooms`, `qrCodes`, `stays`, `media`).
+ * No auto-delete or rewrite functions run on load.
+ */
+export function initFirestoreListeners(): void {
+  if (publicListenersActive) return;
+  publicListenersActive = true;
+  firestoreInitialized = true;
+
+  const unsubProps = onSnapshot(
+    collection(db, 'properties'),
+    (snapshot) => {
+      if (!snapshot.empty) {
+        const properties = snapshot.docs.map((d) => ({
+          ...ROCKS_APARTMENTS_PROPERTY,
+          ...(d.data() as Property),
+          id: d.id,
+          houseGuide: {
+            ...DEFAULT_HOUSE_GUIDE,
+            ...((d.data() as Property).houseGuide || {}),
+          },
+        }));
+        cachedDb = { ...cachedDb, properties };
+      }
+      firestoreReady = true;
+      notifyListeners();
+    },
+    (err) => {
+      console.warn('Firestore properties listener error:', err);
+      firestoreReady = true;
+      notifyListeners();
+    }
+  );
+
+  const unsubRooms = onSnapshot(
+    query(collection(db, 'rooms'), limit(50)),
+    (snapshot) => {
+      const rooms = snapshot.docs.map((d) => {
+        const data = d.data() as Room;
+        return {
+          ...data,
+          id: d.id,
+          roomNumber: data.name || data.roomNumber || d.id,
+          name: data.name || data.roomNumber || d.id,
+          roomType: data.houseType || data.roomType || 'Apartment',
+          houseType: data.houseType || data.roomType || 'Apartment',
+        };
+      });
+      cachedDb = { ...cachedDb, rooms };
+      firestoreReady = true;
+      notifyListeners();
+    },
+    (err) => console.warn('Firestore rooms listener error:', err)
+  );
+
+  const unsubStays = onSnapshot(
+    query(collection(db, 'stays'), limit(50)),
+    (snapshot) => {
+      const stays = snapshot.docs.map((d) => ({
+        ...(d.data() as Stay),
+        id: d.id,
+      }));
+      cachedDb = { ...cachedDb, stays };
+      notifyListeners();
+    },
+    (err) => console.warn('Firestore stays listener error:', err)
+  );
+
+  const unsubQRs = onSnapshot(
+    collection(db, 'qrCodes'),
+    (snapshot) => {
+      const qrCodes = snapshot.docs.map((d) => {
+        const data = d.data() as QRCodeRecord;
+        return {
+          ...data,
+          id: d.id,
+          token: data.token || d.id,
+        };
+      });
+      cachedDb = { ...cachedDb, qrCodes };
+      firestoreReady = true;
+      notifyListeners();
+    },
+    (err) => console.warn('Firestore qrCodes listener error:', err)
+  );
+
+  const unsubMedia = onSnapshot(
+    collection(db, 'media'),
+    (snapshot) => {
+      const media = snapshot.docs.map((d) => ({
+        ...(d.data() as MediaItem),
+        id: d.id,
+      }));
+      cachedDb = { ...cachedDb, media };
+      notifyListeners();
+    },
+    (err) => console.warn('Firestore media listener error:', err)
+  );
+
+  activeUnsubscribers.push(unsubProps, unsubRooms, unsubStays, unsubQRs, unsubMedia);
+}
+
+/**
+ * Staff / Manager / Founder listeners (`requests`, `users`, `activity`, `dining`).
+ */
+export function startAuthenticatedListeners(): void {
+  if (staffListenersActive) return;
+  staffListenersActive = true;
+
+  const unsubReqs = onSnapshot(
+    collection(db, 'requests'),
+    (snapshot) => {
+      const requests = snapshot.docs
+        .map((d) => ({ ...(d.data() as ServiceRequest), id: d.id }))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      cachedDb = { ...cachedDb, requests };
+      notifyListeners();
+    },
+    (err) => console.warn('Firestore requests listener error:', err)
+  );
+
+  const unsubUsers = onSnapshot(
+    collection(db, 'users'),
+    (snapshot) => {
+      const users = snapshot.docs.map((d) =>
+        normalizeUserProfile(d.data() as Partial<UserProfile>, d.id)
+      );
+      cachedDb = { ...cachedDb, users };
+      notifyListeners();
+    },
+    (err) => console.warn('Firestore users listener error:', err)
+  );
+
+  const unsubActivity = onSnapshot(
+    collection(db, 'activity'),
+    (snapshot) => {
+      const activity = snapshot.docs
+        .map((d) => ({ ...(d.data() as ActivityLogEntry), id: d.id }))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 50);
+      cachedDb = { ...cachedDb, activity };
+      notifyListeners();
+    },
+    (err) => console.warn('Firestore activity listener error:', err)
+  );
+
+  const unsubDining = onSnapshot(
+    collection(db, 'dining'),
+    (snapshot) => {
+      const diningItems = snapshot.docs.map((d) => ({
+        ...(d.data() as DiningItem),
+        id: d.id,
+      }));
+      cachedDb = { ...cachedDb, diningItems };
+      notifyListeners();
+    },
+    (err) => console.warn('Firestore dining listener error:', err)
+  );
+
+  activeUnsubscribers.push(unsubReqs, unsubUsers, unsubActivity, unsubDining);
 }
 
 export function subscribeToStore(listener: Listener): () => void {
+  if (!firestoreInitialized && typeof window !== 'undefined') {
+    initFirestoreListeners();
+  }
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
   };
 }
 
-function persist<T>(key: string, val: T) {
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(key, JSON.stringify(val));
-    } catch (e) {
-      console.error(e);
-    }
-  }
-}
-
-// Attach live Firestore real-time listeners
-let isFirestoreListening = false;
-let authUnsubscribers: (() => void)[] = [];
-
-export function syncAuthenticatedUserListeners(user: UserProfile | null) {
-  if (typeof window === 'undefined') return;
-
-  // Clean up any existing authenticated listeners
-  authUnsubscribers.forEach((unsub) => {
-    try {
-      unsub();
-    } catch {}
-  });
-  authUnsubscribers = [];
-
-  if (!user || user.role === 'guest') {
-    cache = { ...cache, users: [] };
-    notify();
-    return;
-  }
-
-  const obsoletePropIds = new Set(['prop_zambezi_01', 'prop_luangwa_02']);
-
-  try {
-    // 1. Authenticated Users listener (Founder gets all; Manager/Staff strictly scoped to propertyId)
-    const usersQuery =
-      user.role === 'founder'
-        ? collection(db, 'users')
-        : query(collection(db, 'users'), where('propertyId', '==', user.propertyId));
-
-    const unsubUsers = onSnapshot(
-      usersQuery,
-      (snapshot) => {
-        const rawList: UserProfile[] = [];
-        snapshot.forEach((docSnap) => {
-          const raw = docSnap.data();
-          if (raw) {
-            const normalized = normalizeUserProfile({ ...raw, id: raw.id || docSnap.id });
-            const emailLower = (normalized.email || '').toLowerCase().trim();
-            // Purge disabled test founder account
-            if (emailLower === 'founder.test@example.com') {
-              if (user.role === 'founder') {
-                deleteDoc(doc(db, 'users', docSnap.id)).catch(() => {});
-              }
-              return;
-            }
-            if (!obsoletePropIds.has(normalized.propertyId) || normalized.role === 'founder') {
-              rawList.push(normalized);
-            }
-          }
-        });
-
-        // Deduplicate accounts by email or duplicate deactivated "Joe Zaza" records
-        const seenEmails = new Map<string, UserProfile>();
-        const seenNames = new Map<string, UserProfile>();
-        for (const acct of rawList) {
-          const emailKey = (acct.email || '').toLowerCase().trim();
-          const nameKey = (acct.name || '').toLowerCase().trim();
-
-          // Purge deactivated "Joe Zaza" test duplicates
-          if (nameKey === 'joe zaza' && !acct.active) {
-            if (user.role === 'founder') {
-              deleteDoc(doc(db, 'users', acct.id)).catch(() => {});
-            }
-            continue;
-          }
-
-          const existingByEmail = seenEmails.get(emailKey);
-          if (existingByEmail) {
-            // Prefer active over inactive, or newer over older
-            if (acct.active && !existingByEmail.active) {
-              if (user.role === 'founder') {
-                deleteDoc(doc(db, 'users', existingByEmail.id)).catch(() => {});
-              }
-              seenEmails.set(emailKey, acct);
-            } else if (user.role === 'founder') {
-              deleteDoc(doc(db, 'users', acct.id)).catch(() => {});
-            }
-            continue;
-          }
-
-          if (nameKey === 'joe zaza' && seenNames.has(nameKey)) {
-            if (user.role === 'founder') {
-              deleteDoc(doc(db, 'users', acct.id)).catch(() => {});
-            }
-            continue;
-          }
-
-          seenEmails.set(emailKey, acct);
-          seenNames.set(nameKey, acct);
-        }
-
-        cache = { ...cache, users: Array.from(seenEmails.values()) };
-        notify();
-      },
-      (err) => {
-        console.warn('Firestore live users listener note:', err);
-      }
-    );
-    authUnsubscribers.push(unsubUsers);
-
-    // 2. Authenticated Requests listener (Founder gets all; Manager/Staff strictly scoped to propertyId)
-    const requestsQuery =
-      user.role === 'founder'
-        ? collection(db, 'requests')
-        : query(collection(db, 'requests'), where('propertyId', '==', user.propertyId));
-
-    const unsubRequests = onSnapshot(
-      requestsQuery,
-      (snapshot) => {
-        const firestoreList: ServiceRequest[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data() as ServiceRequest;
-          if (!data || obsoletePropIds.has(data.propertyId)) return;
-          if (isObsoleteOrTestRequest(data)) {
-            if (user.role === 'founder' || user.role === 'manager') {
-              deleteDoc(doc(db, 'requests', docSnap.id)).catch(() => {});
-            }
-            return;
-          }
-          firestoreList.push(data);
-        });
-        firestoreList.sort(
-          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-        cache = { ...cache, requests: firestoreList };
-        persist(STORAGE_KEYS.REQUESTS, cache.requests);
-        notify();
-      },
-      (err) => {
-        console.warn('Firestore live requests listener warning:', err);
-      }
-    );
-    authUnsubscribers.push(unsubRequests);
-
-    // 3. Authenticated Rooms listener (Founder gets all; Manager/Staff strictly scoped to propertyId)
-    const roomsQuery =
-      user.role === 'founder'
-        ? collection(db, 'rooms')
-        : query(collection(db, 'rooms'), where('propertyId', '==', user.propertyId));
-
-    const unsubRooms = onSnapshot(
-      roomsQuery,
-      (snapshot) => {
-        const firestoreRooms: Room[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data() as Room;
-          if (data && !obsoletePropIds.has(data.propertyId)) {
-            firestoreRooms.push(sanitizeRoom(data));
-          }
-        });
-        cache = { ...cache, rooms: firestoreRooms };
-        persist(STORAGE_KEYS.ROOMS, cache.rooms);
-        notify();
-      },
-      (err) => {
-        console.warn('Firestore live rooms listener warning:', err);
-      }
-    );
-    authUnsubscribers.push(unsubRooms);
-  } catch (err) {
-    console.warn('Could not attach authenticated listeners:', err);
-  }
-}
-
-export function initFirestoreListeners() {
-  if (isFirestoreListening || typeof window === 'undefined') return;
-  isFirestoreListening = true;
-
-  const obsoletePropIds = new Set(['prop_zambezi_01', 'prop_luangwa_02']);
-
-  try {
-    // 1. Properties: Discoverable by public guests & staff
-    const propsCol = collection(db, 'properties');
-    onSnapshot(
-      propsCol,
-      (snapshot) => {
-        if (!snapshot.empty) {
-          const list: Property[] = [];
-          snapshot.forEach((docSnap) => {
-            const data = docSnap.data() as Property;
-            if (data && !obsoletePropIds.has(data.id)) {
-              const sanitized = sanitizeProperty(data);
-              list.push(sanitized);
-              // Auto-normalize "Rocks Apartments Lusaka" in Firestore if founder is active
-              if (
-                cache.currentUser?.role === 'founder' &&
-                (data.name !== sanitized.name || data.coverImageUrl !== sanitized.coverImageUrl)
-              ) {
-                setDoc(
-                  doc(db, 'properties', sanitized.id),
-                  {
-                    name: sanitized.name,
-                    coverImageUrl: sanitized.coverImageUrl,
-                    description: sanitized.description,
-                    nearbyAttractions: sanitized.nearbyAttractions,
-                    updatedAt: new Date().toISOString(),
-                  },
-                  { merge: true }
-                ).catch(() => {});
-              }
-            }
-          });
-          cache = { ...cache, properties: list };
-          persist(STORAGE_KEYS.PROPERTIES, cache.properties);
-          notify();
-        }
-      },
-      (err) => {
-        console.warn('Firestore live properties listener note:', err);
-      }
-    );
-
-    // 2. Dining: Public in-room dining menus
-    const diningCol = collection(db, 'dining');
-    onSnapshot(
-      diningCol,
-      (snapshot) => {
-        if (!snapshot.empty) {
-          const list: DiningItem[] = [];
-          snapshot.forEach((docSnap) => {
-            const data = docSnap.data() as DiningItem;
-            if (data && !obsoletePropIds.has(data.propertyId)) {
-              list.push(data);
-            }
-          });
-          cache = { ...cache, dining: list };
-          persist(STORAGE_KEYS.DINING, cache.dining);
-          notify();
-        }
-      },
-      (err) => {
-        console.warn('Firestore live dining listener note:', err);
-      }
-    );
-
-    // 3. QR Codes: Publicly active QR tokens for scanner lookup
-    const qrQuery = query(collection(db, 'qrCodes'), where('status', '==', 'active'));
-    onSnapshot(
-      qrQuery,
-      (snapshot) => {
-        if (!snapshot.empty) {
-          const firestoreQRs: QRCodeRecord[] = [];
-          snapshot.forEach((docSnap) => {
-            const data = docSnap.data() as QRCodeRecord;
-            if (data && !obsoletePropIds.has(data.propertyId)) {
-              firestoreQRs.push(data);
-            }
-          });
-          cache = { ...cache, qrCodes: firestoreQRs };
-          persist(STORAGE_KEYS.QR_CODES, cache.qrCodes);
-          notify();
-        }
-      },
-      (err) => {
-        console.warn('Firestore live qrCodes listener warning:', err);
-      }
-    );
-  } catch (err) {
-    console.warn('Could not initialize public Firestore listeners:', err);
-  }
-}
-
 export const dbService = {
-  // Properties - stable snapshot
-  getProperties: (): Property[] => {
-    return cache.properties;
-  },
+  // --- PROPERTIES ---
+  getProperties: (): Property[] => cachedDb.properties,
+
   getPropertyBySlug: (slug: string): Property | undefined => {
-    return cache.properties.find((p) => p.slug === slug);
+    return cachedDb.properties.find((p) => p.slug === slug);
   },
+
   getPropertyById: (id: string): Property | undefined => {
-    return cache.properties.find((p) => p.id === id);
+    return cachedDb.properties.find((p) => p.id === id);
   },
+
+  updatePropertySettings: (
+    propertyId: string,
+    updates: Partial<
+      Pick<
+        Property,
+        | 'name'
+        | 'city'
+        | 'timezone'
+        | 'contactPhone'
+        | 'whatsappPhone'
+        | 'checkInTime'
+        | 'checkOutTime'
+        | 'coverImageId'
+        | 'coverImageUrl'
+        | 'wifiName'
+        | 'wifiPassword'
+        | 'houseGuide'
+      >
+    >,
+    actor?: { name: string; email?: string }
+  ): void => {
+    const nowIso = new Date().toISOString();
+    const updatedProps = cachedDb.properties.map((p) => {
+      if (p.id !== propertyId) return p;
+      const updated: Property = {
+        ...p,
+        ...updates,
+        updatedAt: nowIso,
+      };
+      void persistDoc('properties', p.id, updated);
+      return updated;
+    });
+    cachedDb = { ...cachedDb, properties: updatedProps };
+    notifyListeners();
+    if (actor) {
+      recordActivityInternal({
+        propertyId,
+        type: 'house_update',
+        actorName: actor.name,
+        actorEmail: actor.email,
+        summary: `Updated property settings for ${updates.name || propertyId}`,
+      });
+    }
+  },
+
+  setPropertyStatus: (
+    propertyId: string,
+    nextStatus: 'active' | 'suspended',
+    options?: {
+      actorEmail?: string;
+      actorName?: string;
+      suspendMessage?: string;
+    }
+  ): void => {
+    const nowIso = new Date().toISOString();
+    const updatedProperties = cachedDb.properties.map((p) => {
+      if (p.id !== propertyId) return p;
+      const defaultMsg = p.contactPhone
+        ? `We're not taking requests through the app right now. Please contact reception: ${p.contactPhone}`
+        : DEFAULT_SUSPEND_MESSAGE;
+      const updated: Property = {
+        ...p,
+        status: nextStatus,
+        suspendedAt: nextStatus === 'suspended' ? nowIso : undefined,
+        suspendedBy:
+          nextStatus === 'suspended'
+            ? options?.actorEmail || options?.actorName || 'Founder'
+            : undefined,
+        suspendMessage:
+          nextStatus === 'suspended'
+            ? (options?.suspendMessage || '').trim() || defaultMsg
+            : undefined,
+        updatedAt: nowIso,
+      };
+      void persistDoc('properties', p.id, updated);
+      return updated;
+    });
+
+    cachedDb = { ...cachedDb, properties: updatedProperties };
+    notifyListeners();
+
+    const propName =
+      cachedDb.properties.find((p) => p.id === propertyId)?.name || propertyId;
+    recordActivityInternal({
+      propertyId,
+      type: nextStatus === 'suspended' ? 'suspend' : 'resume',
+      actorName: options?.actorName || options?.actorEmail || 'Founder',
+      actorEmail: options?.actorEmail,
+      summary:
+        nextStatus === 'suspended'
+          ? `Paused ${propName}`
+          : `Resumed ${propName}`,
+    });
+  },
+
+  togglePropertyStatus: (
+    propertyId: string,
+    actorEmail?: string,
+    suspendMessage?: string
+  ): void => {
+    const prop = cachedDb.properties.find((p) => p.id === propertyId);
+    const nextStatus: 'active' | 'suspended' =
+      prop?.status === 'active' ? 'suspended' : 'active';
+    dbService.setPropertyStatus(propertyId, nextStatus, {
+      actorEmail,
+      actorName: actorEmail || 'Founder',
+      suspendMessage,
+    });
+  },
+
   createPropertyWithManager: (
-    propertyData: {
+    propInput: {
       name: string;
       city: string;
       propertyType?: string;
@@ -569,968 +656,972 @@ export const dbService = {
       description?: string;
       contactPhone?: string;
     },
-    managerData: {
+    managerInput: {
       name: string;
       email: string;
       phone?: string;
     }
   ): { property: Property; manager: UserProfile } => {
-    const slug = propertyData.name
+    const slug = propInput.name
       .toLowerCase()
-      .trim()
       .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || `prop-${Date.now()}`;
-    const propId = `prop_${slug}_${Math.random().toString(36).substring(2, 6)}`;
-    const now = new Date().toISOString();
+      .replace(/(^-|-$)/g, '');
+    const propId = `prop_${slug.replace(/-/g, '_')}_${Date.now().toString().slice(-4)}`;
 
     const newProperty: Property = {
       id: propId,
-      name: propertyData.name,
+      name: propInput.name,
       slug,
-      description: propertyData.description || `Welcome to ${propertyData.name}, offering premier hospitality in ${propertyData.city}.`,
-      logoUrl: '',
-      coverImageUrl: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1200&q=80',
-      primaryColor: propertyData.primaryColor || '#1B3B2B',
-      secondaryColor: propertyData.secondaryColor || '#C29B38',
-      accentColor: propertyData.accentColor || '#E07A5F',
-      contactPhone: propertyData.contactPhone || '+260 97 000 0000',
-      contactEmail: managerData.email,
-      address: `${propertyData.city}, Zambia`,
-      city: propertyData.city,
+      city: propInput.city,
       country: 'Zambia',
       timezone: 'Africa/Lusaka',
-      currency: propertyData.currency || 'ZMW',
-      wifiName: propertyData.wifiName || `${propertyData.name.replace(/\s+/g, '')}_Guest`,
-      wifiPassword: propertyData.wifiPassword || 'Welcome2026',
+      currency: propInput.currency || 'ZMW',
+      primaryColor: propInput.primaryColor || '#1D2426',
+      secondaryColor: propInput.secondaryColor || '#F3EBE3',
+      accentColor: propInput.accentColor || '#2F7F86',
+      coverImageUrl: '/images/rocks-suite-enhanced.jpg',
+      wifiName: propInput.wifiName || `${propInput.name.split(' ')[0]}_Guest`,
+      wifiPassword: propInput.wifiPassword || 'Welcome2026!',
+      description: propInput.description || `Luxury hospitality at ${propInput.name}.`,
+      contactPhone: propInput.contactPhone || '+260 97 000 0100',
+      whatsappPhone: propInput.contactPhone || '+260 97 000 0100',
       checkInTime: '14:00',
-      checkOutTime: '10:30',
+      checkOutTime: '11:00',
+      unitLabel: 'House',
       status: 'active',
-      createdAt: now,
-      updatedAt: now,
+      houseGuide: DEFAULT_HOUSE_GUIDE,
+      createdAt: new Date().toISOString(),
     };
 
-    const managerId = `user_mgr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const newManager: UserProfile = {
-      id: managerId,
-      propertyId: newProperty.id,
-      name: managerData.name,
-      email: managerData.email.toLowerCase().trim(),
-      phone: managerData.phone || '+260 97 000 0000',
+      id: `mgr_${Date.now()}`,
+      propertyId: propId,
+      name: managerInput.name,
+      email: managerInput.email.trim(),
+      phone: managerInput.phone || '',
       role: 'manager',
       department: 'management',
       active: true,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: new Date().toISOString(),
     };
 
-    cache = {
-      ...cache,
-      properties: [...cache.properties, newProperty],
-      users: [...cache.users, newManager],
+    cachedDb = {
+      ...cachedDb,
+      properties: [...cachedDb.properties, newProperty],
+      users: [...cachedDb.users, newManager],
     };
-    persist(STORAGE_KEYS.PROPERTIES, cache.properties);
-    notify();
+    notifyListeners();
 
-    // Auto-create initial starter room for the property
-    dbService.addRoom(newProperty.id, '101', 'Executive Suite');
+    void persistDoc('properties', newProperty.id, newProperty);
+    void persistDoc('users', newManager.id, newManager);
 
-    // Auto-create starter dining item
-    const starterDining: DiningItem = {
-      id: `dine_${Date.now()}_1`,
-      propertyId: newProperty.id,
-      name: 'Welcome Continental Breakfast',
-      category: 'breakfast',
-      description: 'Fresh seasonal fruits, warm baked croissants, Zambian honey, and artisanal coffee.',
-      price: 160,
-      imageUrl: 'https://images.unsplash.com/photo-1533089860892-a7c6f0a88666?auto=format&fit=crop&w=400&q=80',
-      available: true,
-    };
-    cache = {
-      ...cache,
-      dining: [...cache.dining, starterDining],
-    };
-    persist(STORAGE_KEYS.DINING, cache.dining);
-    notify();
-
-    // Async write-through to live Firebase Firestore
-    try {
-      setDoc(doc(db, 'properties', newProperty.id), newProperty).catch((err) =>
-        console.warn('Firestore setDoc property notice:', err)
-      );
-      setDoc(doc(db, 'users', newManager.id), newManager).catch((err) =>
-        console.warn('Firestore setDoc manager notice:', err)
-      );
-      setDoc(doc(db, 'dining', starterDining.id), starterDining).catch((err) =>
-        console.warn('Firestore setDoc dining notice:', err)
-      );
-    } catch (err) {
-      console.warn('Firestore write failed:', err);
-    }
+    recordActivityInternal({
+      propertyId: propId,
+      type: 'account_change',
+      actorName: 'Founder',
+      summary: `Onboarded property ${newProperty.name} with GM ${newManager.name}`,
+    });
 
     return { property: newProperty, manager: newManager };
   },
-  togglePropertyStatus: (propertyId: string, actor?: string): Property | undefined => {
-    let updated: Property | undefined;
-    const now = new Date().toISOString();
-    const actorName = actor || cache.currentUser?.email || cache.currentUser?.name || 'Founder';
-    const list = cache.properties.map((p) => {
-      if (p.id === propertyId) {
-        const nextStatus = p.status === 'active' ? 'suspended' : 'active';
-        const copy: Property = {
-          ...p,
-          status: nextStatus,
-          updatedAt: now,
-        };
-        if (nextStatus === 'suspended') {
-          copy.suspendedAt = now;
-          copy.suspendedBy = actorName;
-        } else {
-          delete copy.suspendedAt;
-          delete copy.suspendedBy;
-        }
-        updated = copy;
-        return copy;
-      }
-      return p;
-    });
 
-    cache = {
-      ...cache,
-      properties: list,
-    };
-    persist(STORAGE_KEYS.PROPERTIES, cache.properties);
-    notify();
-
-    if (updated) {
-      try {
-        setDoc(
-          doc(db, 'properties', propertyId),
-          {
-            status: updated.status,
-            suspendedAt: updated.status === 'suspended' ? now : null,
-            suspendedBy: updated.status === 'suspended' ? actorName : null,
-            updatedAt: now,
-          },
-          { merge: true }
-        ).catch((err) => console.warn('Firestore togglePropertyStatus notice:', err));
-      } catch (err) {
-        console.warn('Firestore setDoc failed:', err);
-      }
-    }
-
-    return updated;
+  // --- ROOMS (HOUSES) & STAYS ---
+  getRoomsByProperty: (propertyId: string, includeArchived: boolean = false): Room[] => {
+    return cachedDb.rooms.filter(
+      (r) => r.propertyId === propertyId && (includeArchived || !r.archived)
+    );
   },
 
-  // Rooms - stable snapshot
   getAllRooms: (): Room[] => {
-    return cache.rooms;
+    return cachedActiveRooms;
   },
-  getRoomsByProperty: (propertyId: string): Room[] => {
-    return cache.rooms.filter((r) => r.propertyId === propertyId);
+
+  getAllRoomsIncludingArchived: (): Room[] => {
+    return cachedDb.rooms;
   },
+
   getRoomById: (roomId: string): Room | undefined => {
-    return cache.rooms.find((r) => r.id === roomId);
+    return cachedDb.rooms.find((r) => r.id === roomId);
   },
-  addRoom: (
+
+  getStaysByProperty: (propertyId: string): Stay[] => {
+    return cachedDb.stays.filter((s) => s.propertyId === propertyId);
+  },
+
+  getAllStays: (): Stay[] => cachedDb.stays,
+
+  getStayById: (stayId?: string | null): Stay | undefined => {
+    if (!stayId) return undefined;
+    return cachedDb.stays.find((s) => s.id === stayId);
+  },
+
+  getAllQRCodes: (): QRCodeRecord[] => cachedDb.qrCodes,
+
+  getQRByToken: (token: string): QRCodeRecord | undefined => {
+    const clean = token.trim().toLowerCase();
+    return cachedDb.qrCodes.find(
+      (q) =>
+        (q.token.toLowerCase() === clean || q.id.toLowerCase() === clean) &&
+        q.status === 'active'
+    );
+  },
+
+  getAnyQRByToken: (token: string): QRCodeRecord | undefined => {
+    const clean = token.trim().toLowerCase();
+    return cachedDb.qrCodes.find(
+      (q) => q.token.toLowerCase() === clean || q.id.toLowerCase() === clean
+    );
+  },
+
+  addRoomWithQR: (
     propertyId: string,
     roomNumber: string,
-    roomType: string,
+    houseType: string,
     options?: {
-      houseType?: string;
+      floor?: string;
+      notes?: string;
       amenities?: string[];
+      houseRules?: string;
       qrLabel?: string;
       wifiName?: string;
       wifiPassword?: string;
-      imageUrl?: string;
-      notes?: string;
+      imageId?: string;
     }
-  ): { room: Room; qrCode: QRCodeRecord } => {
-    const prop = cache.properties.find((p) => p.id === propertyId);
-    const slugPrefix = (prop?.slug || 'PROP')
-      .replace(/[^a-zA-Z0-9]/g, '')
-      .toUpperCase()
-      .slice(0, 8);
-    const cleanRoomNum = roomNumber.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-    const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
-    const token = `${slugPrefix}-${cleanRoomNum}-${randomSuffix}`;
-
+  ): { room: Room; qr: QRCodeRecord } => {
+    const prop = cachedDb.properties.find((p) => p.id === propertyId);
     const roomId = `room_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const now = new Date().toISOString();
-    const rawQrLabel = options?.qrLabel !== undefined ? options.qrLabel : roomNumber;
-    const newRoom: Room = sanitizeRoom({
+    const token = generateUniqueQRToken(prop?.name || 'HOTEL', roomNumber);
+    const cleanName = roomNumber.trim();
+    const cleanLabel = (options?.qrLabel || cleanName).trim().toUpperCase().slice(0, 8);
+    const cleanAmenities =
+      options?.amenities && options.amenities.length > 0
+        ? options.amenities
+        : DEFAULT_HOUSE_AMENITIES;
+
+    const newRoom: Room = {
       id: roomId,
       propertyId,
-      roomNumber,
-      roomType,
-      ...(options?.houseType ? { houseType: options.houseType } : {}),
+      name: cleanName,
+      roomNumber: cleanName,
+      roomType: houseType.trim(),
+      houseType: houseType.trim(),
+      floor: options?.floor,
       status: 'available',
-      amenities: options?.amenities && options.amenities.length > 0 ? options.amenities : DEFAULT_HOUSE_AMENITIES,
-      qrLabel: rawQrLabel.trim().toUpperCase().slice(0, 8),
-      ...(options?.wifiName ? { wifiName: options.wifiName } : {}),
-      ...(options?.wifiPassword ? { wifiPassword: options.wifiPassword } : {}),
-      ...(options?.imageUrl ? { imageUrl: options.imageUrl } : {}),
-      ...(options?.notes ? { notes: options.notes } : {}),
-      createdAt: now,
-      updatedAt: now,
+      qrCodeId: token,
+      qrToken: token,
+      qrLabel: cleanLabel,
+      amenities: cleanAmenities,
+      houseRules: options?.houseRules,
+      imageId: options?.imageId,
+      wifiName: options?.wifiName?.trim() || undefined,
+      wifiPassword: options?.wifiPassword?.trim() || undefined,
+      notes: options?.notes,
+      archived: false,
+      createdAt: new Date().toISOString(),
+    };
+
+    const newQR: QRCodeRecord = {
+      id: token,
+      propertyId,
+      roomId,
+      token,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+    };
+
+    cachedDb = {
+      ...cachedDb,
+      rooms: [...cachedDb.rooms, newRoom],
+      qrCodes: [...cachedDb.qrCodes, newQR],
+    };
+    notifyListeners();
+
+    void persistDoc('rooms', newRoom.id, newRoom);
+    void persistDoc('qrCodes', token, newQR);
+
+    return { room: newRoom, qr: newQR };
+  },
+
+  updateRoomDetails: (
+    roomId: string,
+    updates: Partial<
+      Pick<
+        Room,
+        | 'name'
+        | 'roomNumber'
+        | 'roomType'
+        | 'houseType'
+        | 'amenities'
+        | 'houseRules'
+        | 'qrLabel'
+        | 'notes'
+        | 'wifiName'
+        | 'wifiPassword'
+        | 'imageId'
+        | 'imageUrl'
+        | 'archived'
+      >
+    >,
+    actor?: { name: string; email?: string }
+  ): void => {
+    let targetPropId = 'prop_rocks_lusaka';
+    const updatedRooms = cachedDb.rooms.map((r) => {
+      if (r.id !== roomId) return r;
+      targetPropId = r.propertyId;
+      const cleanName = updates.name ?? updates.roomNumber ?? r.name ?? r.roomNumber;
+      const cleanType = updates.houseType ?? updates.roomType ?? r.houseType ?? r.roomType;
+      const cleanLabel =
+        updates.qrLabel !== undefined
+          ? updates.qrLabel.trim().toUpperCase().slice(0, 8)
+          : r.qrLabel;
+      const updated: Room = {
+        ...r,
+        ...updates,
+        name: cleanName,
+        roomNumber: cleanName,
+        roomType: cleanType,
+        houseType: cleanType,
+        qrLabel: cleanLabel,
+        updatedAt: new Date().toISOString(),
+      };
+      void persistDoc('rooms', r.id, updated);
+      return updated;
     });
 
-    const newQrCode: QRCodeRecord = {
-      id: `qr_${roomId}`,
-      propertyId,
-      roomId: newRoom.id,
-      locationType: 'room',
+    cachedDb = { ...cachedDb, rooms: updatedRooms };
+    notifyListeners();
+
+    if (actor) {
+      recordActivityInternal({
+        propertyId: targetPropId,
+        type: 'house_update',
+        actorName: actor.name,
+        actorEmail: actor.email,
+        summary: `Updated house details for ${updates.name || updates.roomNumber || roomId}`,
+      });
+    }
+  },
+
+  regenerateRoomQRToken: (roomId: string): QRCodeRecord | null => {
+    const room = cachedDb.rooms.find((r) => r.id === roomId);
+    if (!room) return null;
+    const prop = cachedDb.properties.find((p) => p.id === room.propertyId);
+    const token = generateUniqueQRToken(prop?.name || 'ROCKS', room.roomNumber);
+    const now = new Date().toISOString();
+
+    const updatedQRs = cachedDb.qrCodes.map((q) => {
+      if (q.roomId === roomId && q.status === 'active') {
+        const deactivated: QRCodeRecord = { ...q, status: 'revoked', updatedAt: now };
+        void persistDoc('qrCodes', q.id, deactivated);
+        return deactivated;
+      }
+      return q;
+    });
+
+    const newQR: QRCodeRecord = {
+      id: token,
+      propertyId: room.propertyId,
+      roomId: room.id,
       token,
       status: 'active',
       createdAt: now,
       updatedAt: now,
     };
 
-    cache = {
-      ...cache,
-      rooms: [...cache.rooms, newRoom],
-      qrCodes: [...cache.qrCodes, newQrCode],
-    };
-    persist(STORAGE_KEYS.ROOMS, cache.rooms);
-    persist(STORAGE_KEYS.QR_CODES, cache.qrCodes);
-    notify();
-
-    // Async write-through to live Firebase Firestore
-    try {
-      setDoc(doc(db, 'rooms', newRoom.id), newRoom).catch((err) => {
-        console.warn('Firestore setDoc room notice:', err);
-      });
-      setDoc(doc(db, 'qrCodes', newQrCode.id), newQrCode).catch((err) => {
-        console.warn('Firestore setDoc qrCode notice:', err);
-      });
-    } catch (err) {
-      console.warn('Firestore setDoc room/qr failed:', err);
-    }
-
-    return { room: newRoom, qrCode: newQrCode };
-  },
-  addRoomWithQR: (
-    propertyId: string,
-    roomNumber: string,
-    roomType: string,
-    options?: {
-      houseType?: string;
-      amenities?: string[];
-      qrLabel?: string;
-      wifiName?: string;
-      wifiPassword?: string;
-      imageUrl?: string;
-      notes?: string;
-    }
-  ): { room: Room; qrCode: QRCodeRecord } => {
-    return dbService.addRoom(propertyId, roomNumber, roomType, options);
-  },
-  updateRoomDetails: (
-    roomId: string,
-    updates: Partial<
-      Pick<
-        Room,
-        | 'roomNumber'
-        | 'roomType'
-        | 'houseType'
-        | 'amenities'
-        | 'qrLabel'
-        | 'wifiName'
-        | 'wifiPassword'
-        | 'imageUrl'
-        | 'notes'
-      >
-    >
-  ): Room | undefined => {
-    let updatedRoom: Room | undefined;
-    const now = new Date().toISOString();
-    const cleanedUpdates: Partial<Room> = { ...updates };
-    if (cleanedUpdates.qrLabel !== undefined) {
-      cleanedUpdates.qrLabel = cleanedUpdates.qrLabel.trim().toUpperCase().slice(0, 8);
-    }
-
-    const updated = cache.rooms.map((r) => {
+    const updatedRooms = cachedDb.rooms.map((r) => {
       if (r.id === roomId) {
-        updatedRoom = sanitizeRoom({
+        const updatedRoom: Room = {
           ...r,
-          ...cleanedUpdates,
+          qrCodeId: token,
+          qrToken: token,
           updatedAt: now,
-        });
+        };
+        void persistDoc('rooms', r.id, updatedRoom);
         return updatedRoom;
       }
       return r;
     });
 
-    cache = {
-      ...cache,
-      rooms: updated,
+    cachedDb = {
+      ...cachedDb,
+      rooms: updatedRooms,
+      qrCodes: [...updatedQRs, newQR],
     };
-    persist(STORAGE_KEYS.ROOMS, cache.rooms);
-    notify();
+    notifyListeners();
 
-    if (updatedRoom) {
-      try {
-        const patch: any = {
-          roomNumber: updatedRoom.roomNumber,
-          roomType: updatedRoom.roomType,
-          amenities: updatedRoom.amenities || DEFAULT_HOUSE_AMENITIES,
-          qrLabel: updatedRoom.qrLabel || updatedRoom.roomNumber.trim().toUpperCase().slice(0, 8),
-          updatedAt: now,
-        };
-        if (updates.houseType !== undefined) patch.houseType = updates.houseType || null;
-        if (updates.wifiName !== undefined) patch.wifiName = updates.wifiName || null;
-        if (updates.wifiPassword !== undefined) patch.wifiPassword = updates.wifiPassword || null;
-        if (updates.imageUrl !== undefined) patch.imageUrl = updates.imageUrl || null;
-        if (updates.notes !== undefined) patch.notes = updates.notes || null;
-
-        setDoc(doc(db, 'rooms', roomId), patch, { merge: true }).catch((err) => {
-          console.warn('Firestore setDoc updateRoomDetails notice:', err);
-        });
-      } catch (err) {
-        console.warn('Firestore setDoc updateRoomDetails failed:', err);
-      }
-    }
-
-    return updatedRoom;
+    void persistDoc('qrCodes', newQR.id, newQR);
+    return newQR;
   },
-  regenerateRoomQRToken: (roomId: string): QRCodeRecord | undefined => {
-    const room = cache.rooms.find((r) => r.id === roomId);
-    if (!room) return undefined;
 
-    const prop = cache.properties.find((p) => p.id === room.propertyId);
-    const slugPrefix = (prop?.slug || 'PROP')
-      .replace(/[^a-zA-Z0-9]/g, '')
-      .toUpperCase()
-      .slice(0, 8);
-    const cleanRoomNum = room.roomNumber.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-    const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
-    const newToken = `${slugPrefix}-${cleanRoomNum}-${randomSuffix}`;
-    const now = new Date().toISOString();
-
-    const oldQRs = cache.qrCodes.filter((q) => q.roomId === roomId);
-    const newQrRecord: QRCodeRecord = {
-      id: `qr_${roomId}_${Date.now()}`,
-      propertyId: room.propertyId,
-      roomId: room.id,
-      locationType: 'room',
-      token: newToken,
-      status: 'active',
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    cache = {
-      ...cache,
-      qrCodes: [
-        ...cache.qrCodes.filter((q) => q.roomId !== roomId),
-        newQrRecord,
-      ],
-    };
-    persist(STORAGE_KEYS.QR_CODES, cache.qrCodes);
-    notify();
-
-    try {
-      oldQRs.forEach((oldQr) => {
-        deleteDoc(doc(db, 'qrCodes', oldQr.id)).catch((err) => {
-          console.warn('Firestore deleteDoc old qrCode notice:', err);
-        });
-      });
-      setDoc(doc(db, 'qrCodes', newQrRecord.id), newQrRecord).catch((err) => {
-        console.warn('Firestore setDoc regenerated qrCode notice:', err);
-      });
-    } catch (err) {
-      console.warn('Firestore regenerateRoomQRToken failed:', err);
-    }
-
-    return newQrRecord;
-  },
-  deleteRoom: (roomId: string): boolean => {
-    const matchingQRs = cache.qrCodes.filter((q) => q.roomId === roomId);
-    cache = {
-      ...cache,
-      rooms: cache.rooms.filter((r) => r.id !== roomId),
-      qrCodes: cache.qrCodes.filter((q) => q.roomId !== roomId),
-    };
-    persist(STORAGE_KEYS.ROOMS, cache.rooms);
-    persist(STORAGE_KEYS.QR_CODES, cache.qrCodes);
-    notify();
-
-    // Async delete from Firebase Firestore
-    try {
-      deleteDoc(doc(db, 'rooms', roomId)).catch((err) => {
-        console.warn('Firestore deleteDoc room notice:', err);
-      });
-      matchingQRs.forEach((q) => {
-        deleteDoc(doc(db, 'qrCodes', q.id)).catch((err) => {
-          console.warn('Firestore deleteDoc qrCode notice:', err);
-        });
-      });
-    } catch (err) {
-      console.warn('Firestore deleteDoc room/qr failed:', err);
-    }
-
-    return true;
-  },
+  /**
+   * Check-in creates a fresh random Stay document (`stay_${random}`) every time.
+   * Never reuses a previous stayId.
+   */
   assignGuestToRoom: (
     roomId: string,
     guestName: string,
     checkOutDate?: string,
     guestPhone?: string,
-    guestTitle?: 'Mr' | 'Mrs' | 'Ms' | 'Dr'
-  ): Room | undefined => {
-    let updatedRoom: Room | undefined;
-    const now = new Date().toISOString();
-    const stayId = `stay_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-    const updated = cache.rooms.map((r) => {
-      if (r.id === roomId) {
-        const copy: Room = {
-          ...r,
-          status: 'occupied' as const,
-          activeStayId: stayId,
-          currentGuestName: guestName,
-          guestCheckOutDate: checkOutDate || undefined,
-          guestPhone: guestPhone || undefined,
-          updatedAt: now,
-        };
-        if (guestTitle) {
-          copy.guestTitle = guestTitle;
-        } else {
-          delete copy.guestTitle;
-        }
-        updatedRoom = copy;
-        return copy;
-      }
-      return r;
+    guestTitle?: 'Mr' | 'Mrs' | 'Ms' | 'Dr' | '',
+    actor?: { id?: string; name?: string; email?: string }
+  ): Stay | null => {
+    const targetRoom = cachedDb.rooms.find((r) => r.id === roomId);
+    if (!targetRoom) return null;
+
+    const nowIso = new Date().toISOString();
+    const isAlreadyOccupiedEditingGuest =
+      targetRoom.status === 'occupied' && Boolean(targetRoom.activeStayId);
+
+    // If checking in to an available house, always generate a brand-new stayId.
+    const stayId = isAlreadyOccupiedEditingGuest
+      ? targetRoom.activeStayId!
+      : generateStayId();
+
+    const checkOutIso =
+      checkOutDate && /^\d{4}-\d{2}-\d{2}$/.test(checkOutDate.trim())
+        ? `${checkOutDate.trim()}T11:00:00+02:00`
+        : checkOutDate || new Date(Date.now() + 86_400_000).toISOString();
+
+    const newStay: Stay = {
+      id: stayId,
+      propertyId: targetRoom.propertyId,
+      roomId: targetRoom.id,
+      guestTitle: guestTitle ?? '',
+      guestName: guestName.trim(),
+      guestPhone: guestPhone?.trim() || '',
+      checkInAt: isAlreadyOccupiedEditingGuest
+        ? targetRoom.guestCheckInDate || nowIso
+        : nowIso,
+      checkOutAt: checkOutIso,
+      status: 'active',
+      createdBy: actor?.email || actor?.name || 'Staff',
+    };
+
+    const updatedRooms = cachedDb.rooms.map((r) => {
+      if (r.id !== roomId) return r;
+      const updated: Room = {
+        ...r,
+        status: 'occupied',
+        guestTitle: guestTitle ?? '',
+        currentGuestName: guestName.trim(),
+        guestCheckInDate: newStay.checkInAt,
+        guestCheckOutDate: checkOutIso,
+        guestPhone: guestPhone?.trim() || '',
+        activeStayId: stayId,
+        updatedAt: nowIso,
+      };
+      void persistDoc('rooms', r.id, updated);
+      return updated;
     });
 
-    cache = {
-      ...cache,
-      rooms: updated,
+    const otherStays = cachedDb.stays.filter((s) => s.id !== stayId);
+    cachedDb = {
+      ...cachedDb,
+      rooms: updatedRooms,
+      stays: [newStay, ...otherStays],
     };
-    persist(STORAGE_KEYS.ROOMS, cache.rooms);
-    notify();
+    notifyListeners();
 
-    if (updatedRoom) {
-      try {
-        const patch: any = {
-          status: 'occupied',
-          activeStayId: stayId,
-          guestTitle: guestTitle || null,
-          currentGuestName: guestName,
-          guestCheckOutDate: checkOutDate || null,
-          guestPhone: guestPhone || null,
-          updatedAt: now,
-        };
-        setDoc(doc(db, 'rooms', roomId), patch, { merge: true }).catch((err) => {
-          console.warn('Firestore setDoc room check-in notice:', err);
-        });
-      } catch (err) {
-        console.warn('Firestore setDoc room check-in failed:', err);
-      }
-    }
+    void persistDoc('stays', stayId, newStay);
 
-    return updatedRoom;
-  },
-  checkOutRoom: (roomId: string): Room | undefined => {
-    let updatedRoom: Room | undefined;
-    const now = new Date().toISOString();
-    const updated = cache.rooms.map((r) => {
-      if (r.id === roomId) {
-        const copy: Room = {
-          ...r,
-          status: 'available' as const,
-          updatedAt: now,
-        };
-        delete copy.activeStayId;
-        delete copy.guestTitle;
-        delete copy.currentGuestName;
-        delete copy.guestCheckOutDate;
-        delete copy.guestPhone;
-        updatedRoom = copy;
-        return copy;
-      }
-      return r;
+    recordActivityInternal({
+      propertyId: targetRoom.propertyId,
+      type: 'check_in',
+      actorName: actor?.name || actor?.email || 'Manager',
+      actorEmail: actor?.email,
+      summary: `Checked in ${[guestTitle, guestName.trim()].filter(Boolean).join(' ')} to ${targetRoom.roomNumber}`,
     });
 
-    cache = {
-      ...cache,
-      rooms: updated,
-    };
-    persist(STORAGE_KEYS.ROOMS, cache.rooms);
-    notify();
+    return newStay;
+  },
 
-    if (updatedRoom) {
-      try {
-        const patch: any = {
-          status: 'available',
-          activeStayId: null,
-          guestTitle: null,
-          currentGuestName: null,
-          guestCheckOutDate: null,
-          guestPhone: null,
-          updatedAt: now,
+  /**
+   * Check-out ends the active Stay (`status: 'checked_out'`), revokes guest stay access,
+   * and sets the house to `available`.
+   */
+  checkOutRoom: (
+    roomId: string,
+    actor?: { name?: string; email?: string }
+  ): void => {
+    const targetRoom = cachedDb.rooms.find((r) => r.id === roomId);
+    const activeStayId = targetRoom?.activeStayId;
+    const nowIso = new Date().toISOString();
+
+    const updatedStays = cachedDb.stays.map((s) => {
+      if (s.id === activeStayId || (s.roomId === roomId && s.status === 'active')) {
+        const closed: Stay = {
+          ...s,
+          status: 'checked_out',
+          checkedOutAt: nowIso,
         };
-        setDoc(doc(db, 'rooms', roomId), patch, { merge: true }).catch((err) => {
-          console.warn('Firestore setDoc checkout notice:', err);
-        });
-      } catch (err) {
-        console.warn('Firestore setDoc checkout failed:', err);
+        void persistDoc('stays', s.id, closed);
+        return closed;
       }
+      return s;
+    });
+
+    // If the active stay was not yet in cachedDb.stays, persist its checked_out state directly
+    if (activeStayId && !cachedDb.stays.some((s) => s.id === activeStayId) && targetRoom) {
+      const closedStay: Stay = {
+        id: activeStayId,
+        propertyId: targetRoom.propertyId,
+        roomId: targetRoom.id,
+        guestTitle: targetRoom.guestTitle || '',
+        guestName: targetRoom.currentGuestName || 'Guest',
+        guestPhone: targetRoom.guestPhone || '',
+        checkInAt: targetRoom.guestCheckInDate || nowIso,
+        checkOutAt: targetRoom.guestCheckOutDate || nowIso,
+        status: 'checked_out',
+        checkedOutAt: nowIso,
+      };
+      updatedStays.unshift(closedStay);
+      void persistDoc('stays', activeStayId, closedStay);
     }
 
-    return updatedRoom;
+    const updatedRooms = cachedDb.rooms.map((r) => {
+      if (r.id !== roomId) return r;
+      const updated: Room = {
+        ...r,
+        status: 'available',
+        guestTitle: '',
+        currentGuestName: '',
+        guestCheckInDate: '',
+        guestCheckOutDate: '',
+        guestPhone: '',
+        activeStayId: '',
+        updatedAt: nowIso,
+      };
+      void persistDoc('rooms', r.id, updated);
+      return updated;
+    });
+
+    cachedDb = {
+      ...cachedDb,
+      rooms: updatedRooms,
+      stays: updatedStays,
+    };
+    notifyListeners();
+
+    if (targetRoom) {
+      recordActivityInternal({
+        propertyId: targetRoom.propertyId,
+        type: 'check_out',
+        actorName: actor?.name || actor?.email || 'Manager',
+        actorEmail: actor?.email,
+        summary: `Checked out ${targetRoom.currentGuestName || 'guest'} from ${targetRoom.roomNumber}`,
+      });
+    }
   },
 
-  // QR Codes - stable snapshot
-  getQRCodeByToken: (token: string): QRCodeRecord | undefined => {
-    const clean = token.trim().toUpperCase();
-    return cache.qrCodes.find((q) => q.token.trim().toUpperCase() === clean && q.status === 'active');
-  },
-  getQRCodeByRoomId: (roomId: string): QRCodeRecord | undefined => {
-    return cache.qrCodes.find((q) => q.roomId === roomId && q.status === 'active');
-  },
-  getAllQRCodes: (): QRCodeRecord[] => {
-    return cache.qrCodes;
+  /**
+   * Archives a house (`archived: true`) instead of hard-deleting it.
+   */
+  deleteRoom: (roomId: string): void => {
+    const nowIso = new Date().toISOString();
+    const updatedRooms = cachedDb.rooms.map((r) => {
+      if (r.id !== roomId) return r;
+      const archivedRoom: Room = {
+        ...r,
+        archived: true,
+        updatedAt: nowIso,
+      };
+      void persistDoc('rooms', r.id, archivedRoom);
+      return archivedRoom;
+    });
+    const updatedQRs = cachedDb.qrCodes.map((q) => {
+      if (q.roomId !== roomId) return q;
+      const revoked: QRCodeRecord = { ...q, status: 'revoked', updatedAt: nowIso };
+      void persistDoc('qrCodes', q.id, revoked);
+      return revoked;
+    });
+
+    cachedDb = {
+      ...cachedDb,
+      rooms: updatedRooms,
+      qrCodes: updatedQRs,
+    };
+    notifyListeners();
   },
 
-  // Dining - stable snapshot
-  getAllDining: (): DiningItem[] => {
-    return cache.dining;
+  // --- MEDIA ---
+  getAllMedia: (): MediaItem[] => cachedDb.media,
+
+  getMediaById: (mediaId?: string | null): MediaItem | undefined => {
+    if (!mediaId) return undefined;
+    return cachedDb.media.find((m) => m.id === mediaId);
   },
-  getDiningItems: (propertyId: string): DiningItem[] => {
-    return cache.dining.filter((d) => d.propertyId === propertyId);
+
+  resolveRoomPhotoUrl: (room?: Room | null, property?: Property | null): string | undefined => {
+    if (!room) return property?.coverImageUrl;
+    if (room.imageId) {
+      const media = cachedDb.media.find((m) => m.id === room.imageId);
+      if (media?.dataUrl) return media.dataUrl;
+    }
+    if (room.imageUrl) return room.imageUrl;
+    if (property?.coverImageId) {
+      const media = cachedDb.media.find((m) => m.id === property.coverImageId);
+      if (media?.dataUrl) return media.dataUrl;
+    }
+    return property?.coverImageUrl;
   },
+
+  saveMedia: async (input: {
+    ownerType: 'house' | 'property' | 'user';
+    ownerId: string;
+    propertyId?: string;
+    dataUrl: string;
+    width: number;
+    height: number;
+    uploadedBy: string;
+  }): Promise<MediaItem> => {
+    const mediaId = `med_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const item: MediaItem = {
+      id: mediaId,
+      propertyId: input.propertyId || 'prop_rocks_lusaka',
+      ownerType: input.ownerType,
+      ownerId: input.ownerId,
+      dataUrl: input.dataUrl,
+      width: input.width,
+      height: input.height,
+      uploadedBy: input.uploadedBy,
+      createdAt: new Date().toISOString(),
+    };
+
+    cachedDb = {
+      ...cachedDb,
+      media: [item, ...cachedDb.media],
+    };
+    notifyListeners();
+    await persistDoc('media', item.id, item);
+    return item;
+  },
+
+  // --- ACTIVITY LOG ---
+  getActivityLog: (propertyId?: string): ActivityLogEntry[] => {
+    if (!propertyId) return cachedActivityLog;
+    return cachedDb.activity
+      .filter((a) => !a.propertyId || a.propertyId === propertyId)
+      .slice(0, 50);
+  },
+
+  recordActivity: (entry: Omit<ActivityLogEntry, 'id' | 'createdAt'>): ActivityLogEntry => {
+    return recordActivityInternal(entry);
+  },
+
+  // --- USERS & STAFF ---
+  getUsersByProperty: (propertyId: string): UserProfile[] => {
+    return cachedDb.users.filter((u) => u.propertyId === propertyId && u.active !== false);
+  },
+
+  getAllUsers: (): UserProfile[] => cachedDb.users,
+
+  // --- DINING MENU ---
+  getDiningByProperty: (propertyId: string): DiningItem[] => {
+    return cachedDb.diningItems.filter((d) => d.propertyId === propertyId);
+  },
+
+  getAllDining: (): DiningItem[] => cachedDb.diningItems,
+
   addDiningItem: (
     propertyId: string,
-    itemData: {
-      name: string;
-      category: 'breakfast' | 'lunch' | 'dinner' | 'drinks' | 'dessert';
-      description: string;
-      price: number;
-      imageUrl?: string;
-      available?: boolean;
-    }
+    item: Omit<DiningItem, 'id' | 'propertyId' | 'createdAt'>
   ): DiningItem => {
     const newItem: DiningItem = {
-      id: `dine_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      ...item,
+      id: `din_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       propertyId,
-      name: itemData.name,
-      category: itemData.category,
-      description: itemData.description,
-      price: itemData.price,
-      imageUrl: itemData.imageUrl || 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=400&q=80',
-      available: itemData.available !== undefined ? itemData.available : true,
+      createdAt: new Date().toISOString(),
     };
-
-    cache = {
-      ...cache,
-      dining: [...cache.dining, newItem],
+    cachedDb = {
+      ...cachedDb,
+      diningItems: [newItem, ...cachedDb.diningItems],
     };
-    persist(STORAGE_KEYS.DINING, cache.dining);
-    notify();
-
-    try {
-      setDoc(doc(db, 'dining', newItem.id), newItem).catch((err) =>
-        console.warn('Firestore setDoc dining notice:', err)
-      );
-    } catch (err) {
-      console.warn('Firestore setDoc failed:', err);
-    }
-
+    notifyListeners();
+    void persistDoc('dining', newItem.id, newItem);
     return newItem;
   },
-  deleteDiningItem: (diningId: string): boolean => {
-    cache = {
-      ...cache,
-      dining: cache.dining.filter((d) => d.id !== diningId),
-    };
-    persist(STORAGE_KEYS.DINING, cache.dining);
-    notify();
 
-    try {
-      deleteDoc(doc(db, 'dining', diningId)).catch((err) =>
-        console.warn('Firestore deleteDoc dining notice:', err)
-      );
-    } catch (err) {
-      console.warn('Firestore deleteDoc failed:', err);
-    }
-
-    return true;
-  },
-  updateDiningItem: (
-    diningId: string,
-    updates: Partial<DiningItem>
-  ): DiningItem | undefined => {
-    let updated: DiningItem | undefined;
-    cache = {
-      ...cache,
-      dining: cache.dining.map((d) => {
-        if (d.id === diningId) {
-          updated = { ...d, ...updates };
-          return updated;
-        }
-        return d;
-      }),
-    };
-    persist(STORAGE_KEYS.DINING, cache.dining);
-    notify();
-
-    if (updated) {
-      try {
-        setDoc(doc(db, 'dining', diningId), updates as any, { merge: true }).catch((err) =>
-          console.warn('Firestore setDoc dining notice:', err)
-        );
-      } catch (err) {
-        console.warn('Firestore setDoc dining failed:', err);
-      }
-    }
-
-    return updated;
-  },
-
-  // Requests - stable snapshot
-  getAllRequests: (): ServiceRequest[] => {
-    return cache.requests;
-  },
-  getRequests: (propertyId?: string): ServiceRequest[] => {
-    if (!propertyId) return cache.requests;
-    return cache.requests.filter((r) => r.propertyId === propertyId);
-  },
-  getRequestById: (id: string): ServiceRequest | undefined => {
-    return cache.requests.find((r) => r.id === id);
-  },
-  createRequest: (payload: Omit<ServiceRequest, 'id' | 'createdAt' | 'updatedAt'>): ServiceRequest => {
-    const targetRoom = cache.rooms.find((r) => r.id === payload.roomId);
-    const resolvedStayId = payload.stayId || payload.guestSessionId || targetRoom?.activeStayId;
-    const newReq: ServiceRequest = {
-      ...payload,
-      ...(resolvedStayId ? { stayId: resolvedStayId, guestSessionId: resolvedStayId } : {}),
-      id: `req_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    cache = {
-      ...cache,
-      requests: [newReq, ...cache.requests],
-    };
-    persist(STORAGE_KEYS.REQUESTS, cache.requests);
-    notify();
-
-    // Trigger audio chime, haptic & push notification
-    try {
-      notificationService.playOrderPlacedChime();
-      notificationService.triggerHaptic('dispatch');
-      notificationService.notify({
-        title: `Request Sent`,
-        subtitle: `${newReq.roomNumber} • ${newReq.title}`,
-        category: newReq.category,
-        roomNumber: newReq.roomNumber,
-        actionLabel: 'Track Status',
-      });
-    } catch (e) {
-      console.warn('Notification trigger note:', e);
-    }
-
-    // Async write-through to live Firebase Firestore
-    try {
-      setDoc(doc(db, 'requests', newReq.id), newReq).catch((err) => {
-        console.warn('Firestore setDoc notice:', err);
-      });
-    } catch (err) {
-      console.warn('Firestore setDoc failed:', err);
-    }
-
-    return newReq;
-  },
-  updateRequestStatus: (
-    id: string,
-    status: ServiceRequest['status'],
-    assignedTo?: { uid: string; name: string }
-  ): ServiceRequest | undefined => {
-    let updatedItem: ServiceRequest | undefined;
-    const updated = cache.requests.map((item) => {
-      if (item.id === id) {
-        updatedItem = {
-          ...item,
-          status,
-          updatedAt: new Date().toISOString(),
-          ...(status === 'completed' ? { completedAt: new Date().toISOString() } : {}),
-          ...(assignedTo ? { assignedTo } : {}),
-        };
-        return updatedItem;
+  updateDiningItem: (itemId: string, updates: Partial<DiningItem>): void => {
+    const updatedDining = cachedDb.diningItems.map((item) => {
+      if (item.id === itemId) {
+        const updated = { ...item, ...updates, updatedAt: new Date().toISOString() };
+        void persistDoc('dining', item.id, updated);
+        return updated;
       }
       return item;
     });
-    cache = {
-      ...cache,
-      requests: updated,
-    };
-    persist(STORAGE_KEYS.REQUESTS, cache.requests);
-    notify();
+    cachedDb = { ...cachedDb, diningItems: updatedDining };
+    notifyListeners();
+  },
 
-    // Trigger status change sounds and in-app alerts
-    if (updatedItem) {
-      try {
-        if (status === 'completed') {
-          notificationService.playDoorbellChime();
-          notificationService.triggerHaptic('success');
-          notificationService.notify({
-            title: `Request Completed`,
-            subtitle: `${updatedItem.roomNumber} • ${updatedItem.title}`,
-            category: updatedItem.category,
-            roomNumber: updatedItem.roomNumber,
-          });
-        } else if (status === 'in_progress') {
-          notificationService.playStatusUpdateChime();
-          notificationService.triggerHaptic('medium');
-          notificationService.notify({
-            title: `On the way to your house`,
-            subtitle: `${assignedTo?.name || 'Staff'} is heading to ${updatedItem.roomNumber}`,
-            category: updatedItem.category,
-            roomNumber: updatedItem.roomNumber,
-          });
-        } else if (status === 'acknowledged') {
-          notificationService.playStatusUpdateChime();
-          notificationService.triggerHaptic('light');
-          notificationService.notify({
-            title: `Request Acknowledged`,
-            subtitle: `Reception reviewed ${updatedItem.roomNumber}'s request`,
-            category: updatedItem.category,
-            roomNumber: updatedItem.roomNumber,
-          });
-        }
-      } catch (e) {
-        console.warn('Status notification notice:', e);
+  deleteDiningItem: (itemId: string): void => {
+    const updatedDining = cachedDb.diningItems.map((item) => {
+      if (item.id === itemId) {
+        const updated = { ...item, available: false, updatedAt: new Date().toISOString() };
+        void persistDoc('dining', item.id, updated);
+        return updated;
       }
+      return item;
+    });
+    cachedDb = {
+      ...cachedDb,
+      diningItems: updatedDining.filter((i) => i.id !== itemId),
+    };
+    notifyListeners();
+  },
+
+  // --- SERVICE REQUESTS ---
+  getRequestsByProperty: (propertyId: string): ServiceRequest[] => {
+    return cachedDb.requests
+      .filter((r) => r.propertyId === propertyId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  },
+
+  getAllRequests: (): ServiceRequest[] => {
+    return cachedSortedRequests;
+  },
+
+  getRequestsByRoom: (roomId: string, stayId?: string): ServiceRequest[] => {
+    return cachedDb.requests
+      .filter((r) => r.roomId === roomId && (!stayId || r.stayId === stayId))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  },
+
+  getRequestById: (requestId: string): ServiceRequest | undefined => {
+    return cachedDb.requests.find((r) => r.id === requestId);
+  },
+
+  createRequest: (
+    requestData: Omit<
+      ServiceRequest,
+      'id' | 'createdAt' | 'updatedAt' | 'history' | 'status' | 'stayId'
+    > & { stayId?: string }
+  ): ServiceRequest => {
+    const targetProperty = cachedDb.properties.find((p) => p.id === requestData.propertyId);
+    if (targetProperty && targetProperty.status === 'suspended') {
+      throw new Error(
+        targetProperty.suspendMessage ||
+          "We're not taking requests through the app right now. Please contact reception."
+      );
     }
 
-    // Async write-through to live Firebase Firestore
+    const matchingRoom = cachedDb.rooms.find((r) => r.id === requestData.roomId);
+    const activeStayId = requestData.stayId || matchingRoom?.activeStayId;
+    if (!activeStayId) {
+      throw new Error('Cannot create a request without an active stay.');
+    }
+
+    const activeStay = cachedDb.stays.find((s) => s.id === activeStayId);
+    const guestFullName =
+      requestData.guestName ||
+      (activeStay
+        ? [activeStay.guestTitle, activeStay.guestName].filter(Boolean).join(' ')
+        : matchingRoom
+        ? [matchingRoom.guestTitle, matchingRoom.currentGuestName].filter(Boolean).join(' ')
+        : 'Guest');
+
+    const guestPhone =
+      requestData.guestPhone || activeStay?.guestPhone || matchingRoom?.guestPhone || '';
+
+    const now = new Date().toISOString();
+    const newRequest: ServiceRequest = {
+      ...requestData,
+      stayId: activeStayId,
+      guestName: guestFullName,
+      guestPhone,
+      id: `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      status: 'pending',
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      history: [{ status: 'pending', timestamp: now }],
+    };
+
+    cachedDb = {
+      ...cachedDb,
+      requests: [newRequest, ...cachedDb.requests],
+    };
+    notifyListeners();
+
+    void persistDoc('requests', newRequest.id, newRequest);
+    notificationService.playStaffAlertChime();
+
+    return newRequest;
+  },
+
+  /**
+   * Confirm a pending request (`status: 'acknowledged'`).
+   * Per Spec §3: Confirm does NOT auto-assign anyone.
+   */
+  confirmRequest: (
+    requestId: string,
+    actor?: { uid: string; name: string }
+  ): ServiceRequest | undefined => {
+    const now = new Date().toISOString();
+    let updatedItem: ServiceRequest | undefined;
+
+    const updatedRequests = cachedDb.requests.map((req) => {
+      if (req.id !== requestId) return req;
+      updatedItem = {
+        ...req,
+        status: 'acknowledged',
+        updatedAt: now,
+        history: [
+          ...req.history,
+          {
+            status: 'acknowledged',
+            timestamp: now,
+            actorId: actor?.uid,
+            actorName: actor?.name,
+            note: 'Confirmed by reception',
+          },
+        ],
+      };
+      void persistDoc('requests', updatedItem.id, updatedItem);
+      return updatedItem;
+    });
+
     if (updatedItem) {
-      try {
-        const patch: any = {
-          status,
-          updatedAt: updatedItem.updatedAt,
-        };
-        if (status === 'completed') patch.completedAt = updatedItem.completedAt;
-        if (assignedTo) patch.assignedTo = assignedTo;
-        
-        setDoc(doc(db, 'requests', id), patch, { merge: true }).catch((err) => {
-          console.warn('Firestore setDoc request notice:', err);
-        });
-      } catch (err) {
-        console.warn('Firestore setDoc request failed:', err);
-      }
+      cachedDb = { ...cachedDb, requests: updatedRequests };
+      notifyListeners();
+      notificationService.playStatusUpdateChime();
+    }
+    return updatedItem;
+  },
+
+  /**
+   * Assign a request to a property staff member or GM (never founder).
+   * Logs assignment in request history.
+   */
+  assignRequest: (
+    requestId: string,
+    assignee: { uid: string; name: string; department?: StaffDepartment } | undefined,
+    actor?: { uid: string; name: string }
+  ): ServiceRequest | undefined => {
+    const now = new Date().toISOString();
+    let updatedItem: ServiceRequest | undefined;
+
+    const updatedRequests = cachedDb.requests.map((req) => {
+      if (req.id !== requestId) return req;
+      const nextStatus: RequestStatus =
+        req.status === 'pending' && assignee ? 'acknowledged' : req.status;
+      updatedItem = {
+        ...req,
+        status: nextStatus,
+        assignedTo: assignee,
+        updatedAt: now,
+        history: [
+          ...req.history,
+          {
+            status: nextStatus,
+            timestamp: now,
+            actorId: actor?.uid || assignee?.uid,
+            actorName: actor?.name || assignee?.name,
+            note: assignee ? `Assigned to ${assignee.name}` : 'Unassigned',
+          },
+        ],
+      };
+      void persistDoc('requests', updatedItem.id, updatedItem);
+      return updatedItem;
+    });
+
+    if (updatedItem) {
+      cachedDb = { ...cachedDb, requests: updatedRequests };
+      notifyListeners();
+    }
+    return updatedItem;
+  },
+
+  updateRequestStatus: (
+    requestId: string,
+    newStatus: RequestStatus,
+    actor?: { uid: string; name: string; department?: StaffDepartment },
+    cancelReason?: string
+  ): ServiceRequest | undefined => {
+    const now = new Date().toISOString();
+    let updatedItem: ServiceRequest | undefined;
+
+    const updatedRequests = cachedDb.requests.map((req) => {
+      if (req.id !== requestId) return req;
+      updatedItem = {
+        ...req,
+        status: newStatus,
+        cancelReason: newStatus === 'cancelled' ? cancelReason || req.cancelReason : req.cancelReason,
+        updatedAt: now,
+        history: [
+          ...req.history,
+          {
+            status: newStatus,
+            timestamp: now,
+            actorId: actor?.uid,
+            actorName: actor?.name,
+            note: cancelReason ? `Cancelled: ${cancelReason}` : undefined,
+          },
+        ],
+      };
+      void persistDoc('requests', updatedItem.id, updatedItem);
+      return updatedItem;
+    });
+
+    if (updatedItem) {
+      cachedDb = { ...cachedDb, requests: updatedRequests };
+      notifyListeners();
+      notificationService.playStatusUpdateChime();
     }
 
     return updatedItem;
   },
 
-  // Users & Staff - stable snapshot (in-memory only, synced via authenticated Firestore listener)
-  getAllUsers: (): UserProfile[] => {
-    return cache.users;
-  },
-  getUsers: (propertyId?: string): UserProfile[] => {
-    if (!propertyId) return cache.users;
-    return cache.users.filter((u) => u.propertyId === propertyId);
-  },
-  getUserByEmail: (email: string): UserProfile | undefined => {
-    return cache.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-  },
-  createStaffMember: (
-    propertyId: string,
-    staffData: {
-      id?: string;
-      name: string;
-      email: string;
-      phone?: string;
-      role?: 'staff' | 'manager';
-      department: StaffDepartment;
-    }
-  ): UserProfile => {
-    const staffId = staffData.id || `staff_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  /**
+   * Archive a cancelled or completed request ("Remove from board", GM/Founder only).
+   * Kept in Firestore and visible under the "Archived" filter.
+   */
+  archiveRequest: (
+    requestId: string,
+    actor: { uid?: string; name: string; email?: string }
+  ): ServiceRequest | undefined => {
     const now = new Date().toISOString();
-    const newStaff: UserProfile = {
-      id: staffId,
-      propertyId,
-      name: staffData.name.trim(),
-      email: staffData.email.toLowerCase().trim(),
-      phone: staffData.phone?.trim() || '',
-      role: staffData.role || 'staff',
-      department: staffData.department,
-      active: true,
-      createdAt: now,
-      updatedAt: now,
-    };
+    let updatedItem: ServiceRequest | undefined;
 
-    cache = {
-      ...cache,
-      users: [...cache.users.filter((u) => u.id !== newStaff.id && u.email.toLowerCase() !== newStaff.email), newStaff],
-    };
-    notify();
+    const updatedRequests = cachedDb.requests.map((req) => {
+      if (req.id !== requestId) return req;
+      updatedItem = {
+        ...req,
+        archived: true,
+        archivedAt: now,
+        archivedBy: actor.email || actor.name,
+        updatedAt: now,
+      };
+      void persistDoc('requests', updatedItem.id, updatedItem);
+      return updatedItem;
+    });
 
-    try {
-      setDoc(doc(db, 'users', newStaff.id), newStaff).catch((err) =>
-        console.warn('Firestore setDoc staff notice:', err)
-      );
-    } catch (err) {
-      console.warn('Firestore setDoc failed:', err);
+    if (updatedItem) {
+      cachedDb = { ...cachedDb, requests: updatedRequests };
+      notifyListeners();
+      recordActivityInternal({
+        propertyId: updatedItem.propertyId,
+        type: 'request_archived',
+        actorName: actor.name,
+        actorEmail: actor.email,
+        summary: `Archived request "${updatedItem.title}" (${updatedItem.roomNumber})`,
+      });
     }
-
-    return newStaff;
+    return updatedItem;
   },
-  setUserActiveStatus: (userId: string, active: boolean): UserProfile | undefined => {
-    return dbService.updateUserProfile(userId, { active });
-  },
-  deleteStaffMember: (userId: string): boolean => {
-    cache = {
-      ...cache,
-      users: cache.users.filter((u) => u.id !== userId),
-    };
-    notify();
 
-    try {
-      deleteDoc(doc(db, 'users', userId)).catch((err) =>
-        console.warn('Firestore deleteDoc staff notice:', err)
-      );
-    } catch (err) {
-      console.warn('Firestore deleteDoc failed:', err);
-    }
-
-    return true;
-  },
-  createUser: (user: UserProfile): UserProfile => {
-    const normalized = normalizeUserProfile(user);
-    cache = {
-      ...cache,
-      users: [...cache.users.filter((u) => u.id !== normalized.id), normalized],
-    };
-    notify();
-
-    try {
-      setDoc(doc(db, 'users', normalized.id), normalized).catch((err) =>
-        console.warn('Firestore setDoc user notice:', err)
-      );
-    } catch (err) {
-      console.warn('Firestore setDoc user failed:', err);
-    }
-    return normalized;
-  },
-  updateUserProfile: (userId: string, patch: Partial<UserProfile>): UserProfile | undefined => {
-    let updatedUser: UserProfile | undefined;
+  updateDeliveryPreference: (
+    requestId: string,
+    deliveryPreference: DeliveryPreference
+  ): ServiceRequest | undefined => {
     const now = new Date().toISOString();
-    const nextUsers = cache.users.map((u) => {
+    let updatedItem: ServiceRequest | undefined;
+
+    const updatedRequests = cachedDb.requests.map((req) => {
+      if (req.id !== requestId) return req;
+      // Only editable while not completed or cancelled
+      if (req.status === 'completed' || req.status === 'cancelled') return req;
+      updatedItem = {
+        ...req,
+        deliveryPreference,
+        updatedAt: now,
+      };
+      void persistDoc('requests', updatedItem.id, updatedItem);
+      return updatedItem;
+    });
+
+    if (updatedItem) {
+      cachedDb = { ...cachedDb, requests: updatedRequests };
+      notifyListeners();
+    }
+    return updatedItem;
+  },
+
+  cancelRequestByGuest: (requestId: string): ServiceRequest | undefined => {
+    const now = new Date().toISOString();
+    let updatedItem: ServiceRequest | undefined;
+
+    const updatedRequests = cachedDb.requests.map((req) => {
+      if (req.id === requestId && req.status === 'pending') {
+        updatedItem = {
+          ...req,
+          status: 'cancelled',
+          updatedAt: now,
+          history: [...req.history, { status: 'cancelled', timestamp: now }],
+        };
+        void persistDoc('requests', updatedItem.id, updatedItem);
+        return updatedItem;
+      }
+      return req;
+    });
+
+    if (updatedItem) {
+      cachedDb = { ...cachedDb, requests: updatedRequests };
+      notifyListeners();
+    }
+    return updatedItem;
+  },
+
+  // --- STAFF PUSH DEVICE REGISTRATION & NOTIFICATION PREFERENCES ---
+  updateUserNotificationSettings: (
+    userId: string,
+    settings: UserNotificationSettings
+  ): void => {
+    const now = new Date().toISOString();
+    const updatedUsers = cachedDb.users.map((u) => {
       if (u.id === userId) {
-        updatedUser = normalizeUserProfile({ ...u, ...patch, updatedAt: now });
-        return updatedUser;
+        const updated: UserProfile = {
+          ...u,
+          notificationSettings: settings,
+          updatedAt: now,
+        };
+        void persistDoc('users', u.id, updated);
+        return updated;
       }
       return u;
     });
-    if (!updatedUser && cache.currentUser?.id === userId) {
-      updatedUser = normalizeUserProfile({ ...cache.currentUser, ...patch, updatedAt: now });
-    }
-    cache = {
-      ...cache,
-      users: nextUsers,
-      ...(cache.currentUser?.id === userId && updatedUser ? { currentUser: updatedUser } : {}),
-    };
-    notify();
+    cachedDb = { ...cachedDb, users: updatedUsers };
+    notifyListeners();
+  },
 
-    if (updatedUser) {
-      try {
-        setDoc(doc(db, 'users', userId), { ...patch, updatedAt: now }, { merge: true }).catch((err) =>
-          console.warn('Firestore updateDoc user notice:', err)
-        );
-      } catch (err) {
-        console.warn('Firestore updateDoc user failed:', err);
-      }
-    }
-    return updatedUser;
-  },
-  updateUserNotificationSettings: (
-    userId: string,
-    notificationSettings: UserNotificationSettings
-  ): UserProfile | undefined => {
-    return dbService.updateUserProfile(userId, { notificationSettings });
-  },
   saveStaffDeviceToken: async (
     userId: string,
     propertyId: string,
-    token: string
+    fcmToken: string
   ): Promise<void> => {
-    if (!userId || !token) return;
+    if (!PUSH_ENABLED) return;
     const now = new Date().toISOString();
-    const platform =
-      typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 180) : 'web';
-    try {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('hospitally_fcm_token', token);
-      }
-      await setDoc(doc(db, 'users', userId, 'devices', token), {
-        token,
-        uid: userId,
-        propertyId: propertyId || '',
-        platform,
-        createdAt: now,
-        lastSeenAt: now,
-      });
-    } catch (err) {
-      console.warn('Firestore saveStaffDeviceToken notice:', err);
-    }
-  },
-  removeStaffDeviceToken: async (
-    userId?: string,
-    token?: string
-  ): Promise<void> => {
-    const targetUid = userId || cache.currentUser?.id;
-    let targetToken = token;
-    if (!targetToken && typeof window !== 'undefined') {
-      try {
-        targetToken = localStorage.getItem('hospitally_fcm_token') || undefined;
-      } catch {}
-    }
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.removeItem('hospitally_fcm_token');
-      } catch {}
-    }
-    if (!targetUid || !targetToken) return;
-    try {
-      await deleteDoc(doc(db, 'users', targetUid, 'devices', targetToken));
-    } catch (err) {
-      console.warn('Firestore removeStaffDeviceToken notice:', err);
-    }
-  },
-  getCurrentUser: (): UserProfile | null => {
-    return cache.currentUser;
-  },
-  setCurrentUser: (user: UserProfile | null): void => {
-    const normalized = user ? normalizeUserProfile(user) : null;
-    cache = {
-      ...cache,
-      currentUser: normalized,
-      ...(normalized === null ? { users: [] } : {}),
+    const deviceId = `dev_${userId}_${fcmToken.slice(-12).replace(/[^a-zA-Z0-9]/g, '')}`;
+    const record: StaffDeviceRecord = {
+      id: deviceId,
+      userId,
+      propertyId: propertyId || 'prop_rocks_lusaka',
+      fcmToken,
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
+      platform: typeof navigator !== 'undefined' ? navigator.platform : undefined,
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
     };
-    syncAuthenticatedUserListeners(normalized);
-    notify();
+    await persistDoc('staffDevices', deviceId, record);
   },
-  clearSensitiveSession: (): void => {
-    const previousUid = cache.currentUser?.id;
-    if (previousUid) {
-      dbService.removeStaffDeviceToken(previousUid).catch(() => {});
+
+  removeStaffDeviceToken: async (userId: string): Promise<void> => {
+    if (!PUSH_ENABLED) return;
+    try {
+      const q = query(collection(db, 'staffDevices'), where('userId', '==', userId));
+      const snap = await getDocs(q);
+      await Promise.all(
+        snap.docs.map((d) =>
+          persistDoc('staffDevices', d.id, {
+            ...(d.data() as StaffDeviceRecord),
+            enabled: false,
+            updatedAt: new Date().toISOString(),
+          })
+        )
+      );
+    } catch (err) {
+      console.warn('Failed to disable staff device tokens:', err);
     }
-    cache = {
-      ...cache,
-      currentUser: null,
-      users: [],
-    };
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.removeItem('hospitally_current_user_v3');
-        localStorage.removeItem('hospitally_users_v3');
-      } catch {
-        // ignore
-      }
-    }
-    syncAuthenticatedUserListeners(null);
-    notify();
   },
 };

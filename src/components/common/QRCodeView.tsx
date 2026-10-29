@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import jsQR from 'jsqr';
+import { QRCodeRecord } from '../../types';
 
 export const QR_BASE_URL = 'https://hospitaly.vercel.app/r';
 
@@ -33,7 +34,7 @@ export function formatCenterHouseLabel(houseName?: string, qrLabel?: string): st
     return withoutParens.toUpperCase();
   }
 
-  // Common prefix shortenings e.g. "Bedroom 3" -> "BED 3", "Bobo Villa" -> "BOBO"
+  // Common prefix shortenings e.g. "Bedroom 3" -> "BED 3", "Villa Rose" -> "ROSE"
   const bedroomMatch = withoutParens.match(/^bedroom\s+(\d+)/i);
   if (bedroomMatch) {
     return `BED ${bedroomMatch[1]}`.slice(0, 8);
@@ -231,7 +232,7 @@ export async function renderPrintableQRCardCanvas(options: PrintableCardOptions)
   const qrY = 210;
   ctx.drawImage(qrCanvas, qrX, qrY, QR_SIZE, QR_SIZE);
 
-  // 6. Under it, big: House name in serif (e.g. Bobo)
+  // 6. Under it, big: House name in serif (e.g. house name)
   const displayHouse = options.houseName.trim();
   let houseFontSize = 86;
   const maxHouseWidth = CARD_W - 140;
@@ -320,6 +321,155 @@ export const QRCodeView: React.FC<QRCodeProps> = ({
           Label removed so the code scans reliably
         </span>
       )}
+    </div>
+  );
+};
+
+export interface QRPlaqueModalProps {
+  roomId?: string;
+  roomNumber: string;
+  token: string;
+  propertyName: string;
+  primaryColor?: string;
+  onClose: () => void;
+  onRegenerate?: () => QRCodeRecord | null | Promise<QRCodeRecord | null> | void;
+}
+
+export const QRPlaqueModal: React.FC<QRPlaqueModalProps> = ({
+  roomNumber,
+  token,
+  propertyName,
+  primaryColor,
+  onClose,
+  onRegenerate,
+}) => {
+  const [cardImg, setCardImg] = useState<string | null>(null);
+  const [isVerifying, setIsVerifying] = useState(true);
+  const [confirmRegen, setConfirmRegen] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setIsVerifying(true);
+    renderPrintableQRCardCanvas({
+      token,
+      houseName: roomNumber,
+      propertyName,
+      primaryColor,
+    }).then((res) => {
+      if (!active) return;
+      setCardImg(res.dataUrl);
+      setIsVerifying(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [token, roomNumber, propertyName, primaryColor]);
+
+  const handleDownloadPng = () => {
+    if (!cardImg) return;
+    setDownloading(true);
+    const link = document.createElement('a');
+    link.download = `QR-Card-${roomNumber.replace(/[^a-zA-Z0-9_-]/g, '_')}.png`;
+    link.href = cardImg;
+    link.click();
+    setDownloading(false);
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-stone-900 border border-stone-800 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl my-auto">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-serif text-lg font-bold text-white">House QR Plaque</h3>
+            <p className="text-xs text-stone-400">85 × 120 mm print-ready card</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-stone-800 text-stone-300 hover:text-white flex items-center justify-center cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Card Preview Container */}
+        <div className="relative bg-white rounded-2xl p-2 shadow-inner overflow-hidden border border-stone-200">
+          {isVerifying || !cardImg ? (
+            <div className="aspect-[85/120] w-full flex items-center justify-center text-xs text-stone-500">
+              Generating 300 DPI card...
+            </div>
+          ) : (
+            <img
+              src={cardImg}
+              alt={`QR Card for ${roomNumber}`}
+              className="w-full aspect-[85/120] object-contain rounded-xl"
+            />
+          )}
+        </div>
+
+        {/* Action Buttons */}
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          <button
+            type="button"
+            onClick={handleDownloadPng}
+            disabled={!cardImg || downloading}
+            className="py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+          >
+            Download PNG (300 DPI)
+          </button>
+          <button
+            type="button"
+            onClick={handlePrint}
+            className="py-2.5 px-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium border border-stone-700 transition-all cursor-pointer"
+          >
+            Print Card
+          </button>
+        </div>
+
+        {/* Regenerate Token Option */}
+        {onRegenerate && (
+          <div className="pt-2 border-t border-stone-800/80">
+            {confirmRegen ? (
+              <div className="space-y-2 p-2.5 rounded-xl bg-red-950/40 border border-red-900/50 text-left">
+                <p className="text-[11px] text-red-300">
+                  Are you sure? Any physically printed cards will stop working immediately.
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmRegen(false)}
+                    className="flex-1 py-1.5 rounded-lg border border-stone-700 text-stone-300 text-xs"
+                  >
+                    Keep current
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRegenerate();
+                      setConfirmRegen(false);
+                    }}
+                    className="flex-1 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold"
+                  >
+                    Regenerate
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmRegen(true)}
+                className="w-full text-center text-xs text-stone-400 hover:text-red-400 py-1 transition-colors cursor-pointer"
+              >
+                Regenerate QR token
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
