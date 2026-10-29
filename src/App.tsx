@@ -16,6 +16,7 @@ import { StaffDashboard } from './components/staff/StaffDashboard';
 import { SuperAdminDashboard } from './components/admin/SuperAdminDashboard';
 import { LoginGate } from './components/auth/LoginGate';
 import { InAppNotificationBanner } from './components/common/InAppNotificationBanner';
+import { GuestLoadingScreen } from './components/guest/GuestLoadingScreen';
 import { Loader2 } from 'lucide-react';
 
 type RoutePortal = 'hq' | 'staff' | 'guest';
@@ -32,7 +33,7 @@ function resolvePortalFromPath(pathname: string): RoutePortal {
 }
 
 function AppContent() {
-  const { setPropertySlug, setRoomId } = useTenant();
+  const { setPropertySlug, setRoomId, stayState, property } = useTenant();
   const { user, loading } = useAuth();
 
   // Initialize live Firestore synchronization on app mount
@@ -144,11 +145,34 @@ function AppContent() {
   if (portal === 'staff') {
     if (loading) {
       return (
-        <div className="min-h-screen bg-stone-950 text-stone-200 flex flex-col items-center justify-center gap-3">
-          <Loader2 className="w-7 h-7 text-emerald-400 animate-spin" />
-          <p className="text-xs font-mono uppercase tracking-widest text-stone-400">
-            Verifying Staff Portal Session...
-          </p>
+        <div data-testid="staff-loading-shell" className="min-h-screen bg-stone-100 font-sans antialiased text-stone-900">
+          <header className="bg-white border-b border-stone-900/[0.08] h-14 px-4 sm:px-6 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-[#1C3A31] text-amber-300 flex items-center justify-center font-serif font-bold text-sm">
+                RA
+              </div>
+              <div className="h-4 w-32 bg-stone-200 rounded animate-pulse" />
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-stone-100 animate-pulse" />
+          </header>
+          <main className="p-3.5 sm:p-6 max-w-6xl mx-auto space-y-4">
+            <div className="flex items-center gap-2 border-b border-stone-200 pb-2.5">
+              <div className="h-9 w-24 bg-stone-200 rounded-xl animate-pulse" />
+              <div className="h-9 w-24 bg-stone-200 rounded-xl animate-pulse" />
+            </div>
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="p-4 bg-white rounded-2xl border border-stone-200 shadow-2xs space-y-3 animate-pulse">
+                  <div className="flex justify-between items-center">
+                    <div className="h-4 w-28 bg-stone-200 rounded" />
+                    <div className="h-4 w-16 bg-stone-200 rounded" />
+                  </div>
+                  <div className="h-3 w-48 bg-stone-100 rounded" />
+                  <div className="h-10 bg-stone-100 rounded-xl" />
+                </div>
+              ))}
+            </div>
+          </main>
         </div>
       );
     }
@@ -179,6 +203,17 @@ function AppContent() {
   }
 
   // 3. PUBLIC GUEST EXPERIENCE (/)
+  if (stayState.status === 'loading') {
+    return (
+      <GuestLoadingScreen
+        propertyName={property?.name || 'Rock Apartments'}
+        houseName={stayState.houseName}
+        receptionPhone={property?.contactPhone}
+        onRetry={() => window.location.reload()}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-stone-100 font-sans antialiased text-stone-900 relative">
       {guestView !== 'status' && (

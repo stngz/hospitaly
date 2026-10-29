@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useSyncExternalS
 import { Property, Room } from '../types';
 import { dbService, subscribeToStore, subscribeGuestStayRequests, subscribeGuestRoom } from '../lib/store';
 
-export type GuestStayStatus = 'active' | 'unoccupied' | 'invalid_token' | 'checked_out' | 'no_session';
+export type GuestStayStatus = 'loading' | 'active' | 'unoccupied' | 'invalid_token' | 'checked_out' | 'no_session';
 
 export interface GuestStayState {
   status: GuestStayStatus;
@@ -76,7 +76,7 @@ export const TenantProvider: React.FC<{
 
   const [propertySlug, setPropertySlug] = useState<string>(initialSlug || 'rocks-apartments');
   const [roomId, setRoomId] = useState<string | undefined>(undefined);
-  const [stayState, setStayState] = useState<GuestStayState>({ status: 'no_session' });
+  const mountTimeRef = React.useRef(Date.now());
 
   const getUrlToken = (): string | null => {
     if (typeof window === 'undefined') return null;
@@ -90,6 +90,29 @@ export const TenantProvider: React.FC<{
     return null;
   };
 
+  const [stayState, setStayState] = useState<GuestStayState>(() => {
+    if (typeof window !== 'undefined') {
+      const pathMatch = window.location.pathname.match(/\/r\/([a-zA-Z0-9_-]+)/);
+      const params = new URLSearchParams(window.location.search);
+      const hasToken = pathMatch || params.get('token') || params.get('qr');
+      if (hasToken) {
+        const tokenStr = pathMatch ? pathMatch[1] : (params.get('token') || params.get('qr') || '');
+        const parts = tokenStr.split('-');
+        const tentativeHouse =
+          parts.length >= 2
+            ? parts[1].charAt(0).toUpperCase() + parts[1].slice(1).toLowerCase()
+            : undefined;
+        return { status: 'loading', houseName: tentativeHouse };
+      }
+      try {
+        if (localStorage.getItem(GUEST_SESSION_STORAGE_KEY)) {
+          return { status: 'loading' };
+        }
+      } catch {}
+    }
+    return { status: 'no_session' };
+  });
+
   const getUrlStayId = (): string | null => {
     if (typeof window === 'undefined') return null;
     const params = new URLSearchParams(window.location.search);
@@ -97,17 +120,35 @@ export const TenantProvider: React.FC<{
   };
 
   const updateStayState = (next: GuestStayState) => {
-    setStayState((prev) => {
-      if (
-        prev.status === next.status &&
-        prev.stayId === next.stayId &&
-        prev.houseName === next.houseName &&
-        prev.errorMessage === next.errorMessage
-      ) {
-        return prev;
-      }
-      return next;
-    });
+    const elapsed = Date.now() - mountTimeRef.current;
+    const remaining = Math.max(0, 600 - elapsed);
+    if (remaining > 0 && stayState.status === 'loading') {
+      setTimeout(() => {
+        setStayState((prev) => {
+          if (
+            prev.status === next.status &&
+            prev.stayId === next.stayId &&
+            prev.houseName === next.houseName &&
+            prev.errorMessage === next.errorMessage
+          ) {
+            return prev;
+          }
+          return next;
+        });
+      }, remaining);
+    } else {
+      setStayState((prev) => {
+        if (
+          prev.status === next.status &&
+          prev.stayId === next.stayId &&
+          prev.houseName === next.houseName &&
+          prev.errorMessage === next.errorMessage
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    }
   };
 
   const updateRoomId = (nextId?: string) => {
@@ -135,7 +176,7 @@ export const TenantProvider: React.FC<{
 
     // CASE 1: Guest opened a specific QR token URL (?token=..., ?qr=..., or /r/...)
     if (urlToken) {
-      if (qrCodes.length === 0 || rooms.length === 0) {
+      if (qrCodes.length === 0) {
         return;
       }
 
@@ -151,21 +192,28 @@ export const TenantProvider: React.FC<{
         return;
       }
 
-      const matchingRoom = rooms.find((r) => r.id === matchingQR.roomId);
+      const matchingRoom: Room =
+        rooms.find((r) => r.id === matchingQR.roomId) || {
+          id: matchingQR.roomId,
+          propertyId: matchingQR.propertyId,
+          name: matchingQR.houseName || matchingQR.roomId,
+          roomNumber: matchingQR.houseName || matchingQR.roomId,
+          houseType: matchingQR.houseType || 'Apartment',
+          roomType: matchingQR.houseType || 'Apartment',
+          status: matchingQR.activeStayId ? 'occupied' : 'available',
+          activeStayId: matchingQR.activeStayId || undefined,
+          currentGuestName: matchingQR.guestGreeting || '',
+          wifiName: matchingQR.wifiName,
+          wifiPassword: matchingQR.wifiPassword,
+          guestCheckOutDate: matchingQR.guestCheckOutDate || undefined,
+          imageId: matchingQR.imageId,
+          amenities: [],
+          archived: false,
+        };
+
       const targetProp = properties.find((p) => p.id === matchingQR.propertyId);
       if (targetProp) {
         updatePropertySlug(targetProp.slug);
-      }
-
-      if (!matchingRoom) {
-        updateStayState({
-          status: 'invalid_token',
-          errorMessage: 'This QR code is no longer active. Please contact reception.',
-        });
-        updateRoomId(undefined);
-        subscribeGuestStayRequests(null);
-        subscribeGuestRoom(null);
-        return;
       }
 
       subscribeGuestRoom(matchingRoom.id);
@@ -296,6 +344,28 @@ export const TenantProvider: React.FC<{
   let room: Room | null = null;
   if (property && roomId) {
     room = rooms.find((r) => r.id === roomId && r.propertyId === property.id) || null;
+    if (!room) {
+      const activeQR = qrCodes.find((q) => q.roomId === roomId && q.status === 'active');
+      if (activeQR) {
+        room = {
+          id: activeQR.roomId,
+          propertyId: activeQR.propertyId,
+          name: activeQR.houseName || activeQR.roomId,
+          roomNumber: activeQR.houseName || activeQR.roomId,
+          houseType: activeQR.houseType || 'Apartment',
+          roomType: activeQR.houseType || 'Apartment',
+          status: activeQR.activeStayId ? 'occupied' : 'available',
+          activeStayId: activeQR.activeStayId || undefined,
+          currentGuestName: activeQR.guestGreeting || '',
+          wifiName: activeQR.wifiName,
+          wifiPassword: activeQR.wifiPassword,
+          guestCheckOutDate: activeQR.guestCheckOutDate || undefined,
+          imageId: activeQR.imageId,
+          amenities: [],
+          archived: false,
+        };
+      }
+    }
   }
 
   const handleSetPropertySlug = (slug: string) => {

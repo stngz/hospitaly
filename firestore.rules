@@ -3,6 +3,109 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: properties
+    // Document ID: propertyId (e.g., 'prop_rocks_lusaka')
+    // Fields:
+    //   - name: string (required)
+    //   - slug: string (required)
+    //   - status: string ('active' | 'suspended')
+    //   - contactPhone: string
+    //   - whatsappPhone: string
+    //   - timezone: string
+    //   - currency: string
+    //
+    // Subcollection: properties/{propertyId}/private
+    // Document ID: settingDoc (e.g., 'settings')
+    // Fields:
+    //   - contactEmail: string
+    //   - suspendedBy: string | null
+    //   - suspendedAt: string | null
+    //
+    // Collection: rooms
+    // Document ID: roomId (e.g., 'room_rocks_101')
+    // Fields:
+    //   - propertyId: string (required, immutable)
+    //   - name: string (required)
+    //   - houseType: string (required)
+    //   - status: string ('available' | 'occupied' | 'maintenance')
+    //   - activeStayId: string | null
+    //   - archived: bool
+    //   - wifiName: string
+    //   - wifiPassword: string
+    //
+    // Collection: stays
+    // Document ID: stayId (e.g., 'stay_...')
+    // Fields:
+    //   - propertyId: string (required, immutable)
+    //   - roomId: string (required)
+    //   - status: string ('active' | 'completed' | 'cancelled')
+    //   - guestName: string
+    //   - guestPhone: string
+    //   - checkInAt: string
+    //   - checkOutAt: string
+    //
+    // Collection: qrCodes
+    // Document ID: token (e.g., random base62 string)
+    // Fields:
+    //   - token: string (required, immutable)
+    //   - propertyId: string (required)
+    //   - roomId: string (required)
+    //   - activeStayId: string | null
+    //   - status: string ('active' | 'revoked')
+    //   - houseName: string
+    //   - houseType: string
+    //   - imageId: string
+    //   - wifiName: string
+    //   - wifiPassword: string
+    //   - guestGreeting: string
+    //
+    // Collection: guestSessions
+    // Document ID: uid (matches request.auth.uid of anonymous guest)
+    // Fields:
+    //   - token: string (required)
+    //   - roomId: string (required)
+    //   - stayId: string (required)
+    //   - propertyId: string (optional)
+    //   - createdAt: string | timestamp
+    //
+    // Collection: requests
+    // Document ID: requestId (e.g., 'req_...')
+    // Fields:
+    //   - propertyId: string (required, immutable)
+    //   - roomId: string (optional for legacy, immutable if present)
+    //   - stayId: string (required)
+    //   - guestUid: string (optional, matches request.auth.uid for guest)
+    //   - title: string (required)
+    //   - description: string
+    //   - status: string ('pending' | 'in_progress' | 'completed' | 'cancelled')
+    //   - verification: string ('pending' | 'verified' | 'reopened' | 'none')
+    //   - verifiedBy: string
+    //   - verifiedAt: string | timestamp
+    //   - archived: bool
+    //   - deliveryPreference: string ('knock' | 'leave_at_door')
+    //   - assignedTo: string | null
+    //
+    // Collection: users
+    // Document ID: userId (matches request.auth.uid)
+    // Fields:
+    //   - email: string (required)
+    //   - role: string ('founder' | 'manager' | 'staff' | 'admin')
+    //   - propertyId: string
+    //   - active: bool
+    //
+    // Collection: activity
+    // Document ID: activityId
+    // Fields:
+    //   - propertyId: string
+    //   - userId: string
+    //   - action: string
+    //   - summary: string
+    //   - createdAt: string | timestamp
+    //
+    // ===============================================================
     // Helper Functions & Security Invariants
     // ===============================================================
 
@@ -13,6 +116,22 @@ service cloud.firestore {
     function isAnonymous() {
       return isAuthenticated() &&
         request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+
+    // Pilot test accounts on local emulator or unverified test environments
+    function isEmailVerifiedOrPilot() {
+      return isAuthenticated() && (
+        request.auth.token.email_verified == true || (
+          request.auth.token.firebase.sign_in_provider == 'password' &&
+          request.auth.token.email in [
+            'founder.pilot@hospitaly.app',
+            'manager.pilot@example.com',
+            'staff.pilot@example.com',
+            'housekeeping.pilot@example.com',
+            'maintenance.pilot@example.com'
+          ]
+        )
+      );
     }
 
     function hasUserProfile() {
@@ -26,21 +145,14 @@ service cloud.firestore {
 
     function isUserActive() {
       return isAuthenticated() &&
+        isEmailVerifiedOrPilot() &&
         hasUserProfile() &&
         getUserData().active == true;
     }
 
-    function isKnownFounderEmail() {
-      return isAuthenticated() &&
-        request.auth.token.email in ['nathanielmazaba@gmail.com', 'founder.pilot@hospitaly.app'];
-    }
-
+    // Platform Founder strictly defined by active profile with founder/admin role
     function isPlatformFounder() {
-      return isAuthenticated() && (
-        isKnownFounderEmail() ||
-        (request.auth.token.keys().hasAny(['role']) && request.auth.token.role in ['founder', 'admin']) ||
-        (isUserActive() && getUserData().role in ['founder', 'admin'])
-      );
+      return isUserActive() && getUserData().role in ['founder', 'admin'];
     }
 
     function isPropertyManager(propId) {
@@ -64,9 +176,10 @@ service cloud.firestore {
         get(/databases/$(database)/documents/properties/$(propId)).data.status == 'active';
     }
 
-    function isPublicRoom() {
-      return (!('currentGuestName' in resource.data) || resource.data.currentGuestName == null || resource.data.currentGuestName == '') &&
-             (!('guestPhone' in resource.data) || resource.data.guestPhone == null || resource.data.guestPhone == '');
+    function hasActiveGuestSession(uid, roomId, stayId) {
+      return exists(/databases/$(database)/documents/guestSessions/$(uid)) &&
+        get(/databases/$(database)/documents/guestSessions/$(uid)).data.roomId == roomId &&
+        get(/databases/$(database)/documents/guestSessions/$(uid)).data.stayId == stayId;
     }
 
     // ===============================================================
@@ -76,6 +189,7 @@ service cloud.firestore {
     // Properties:
     // - Active properties readable by anyone; suspended readable by platform founder or assigned staff
     // - Updates allowed by Founder, or by Manager of that property (cannot change property status)
+    // - Subcollection 'private': contactEmail, suspendedBy accessible only to founder or staff of property
     match /properties/{propertyId} {
       allow get: if resource.data.status == 'active' || isPlatformFounder() || isStaffMember(propertyId);
       allow list: if isPlatformFounder() || (isUserActive() && getUserData().role in ['staff', 'manager', 'admin']);
@@ -89,32 +203,21 @@ service cloud.firestore {
       );
 
       allow delete: if isPlatformFounder();
+
+      match /private/{settingDoc} {
+        allow read, write: if isPlatformFounder() || isStaffMember(propertyId);
+      }
     }
 
     // Rooms (Houses):
-    // - Unauthenticated CANNOT list rooms (test plan §A.1).
-    // - Anyone can get a specific non-PII room (or staff can get occupied room).
-    // - Staff of property can list rooms when active.
-    // - Staff can update operational check-in/out fields only.
-    // - Manager can edit room configuration (Wi-Fi, rules, photo).
-    // - When property suspended, non-founder writes are blocked.
+    // - No public read. Only platform founder or staff member of that property can get or list.
+    // - Create: Founder only (Wave 2 Q2 requirement).
+    // - Update: Founder, or property manager (if active), or staff member for operational fields.
+    // - Delete: Founder only.
     match /rooms/{roomId} {
-      allow get: if isPlatformFounder() ||
-                    isStaffMember(resource.data.propertyId) ||
-                    isPublicRoom() ||
-                    (
-                      // Guest in an active stay can read their room
-                      'activeStayId' in resource.data &&
-                      resource.data.activeStayId != null
-                    );
+      allow get, list: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
 
-      allow list: if isPlatformFounder() ||
-                     (isUserActive() && getUserData().role in ['staff', 'manager', 'admin']);
-
-      allow create: if isPlatformFounder() || (
-        isPropertyManager(request.resource.data.propertyId) &&
-        isPropertyActive(request.resource.data.propertyId)
-      );
+      allow create: if isPlatformFounder();
 
       allow update: if isPlatformFounder() || (
         isPropertyActive(resource.data.propertyId) && (
@@ -132,22 +235,15 @@ service cloud.firestore {
         )
       );
 
-      allow delete: if isPlatformFounder() || (
-        isPropertyManager(resource.data.propertyId) &&
-        isPropertyActive(resource.data.propertyId)
-      );
+      allow delete: if isPlatformFounder();
     }
 
     // Stays:
-    // - Unauthenticated CANNOT list stays.
-    // - Anyone can get a specific stay by ID.
-    // - Staff of property can create/update stays while property is active.
-    // - When property suspended, non-founder writes are blocked.
+    // - No public read. Only platform founder or staff member of that property can get or list.
+    // - Create / Update: staff member / manager / founder when property active.
+    // - Delete: Founder only.
     match /stays/{stayId} {
-      allow get: if true;
-
-      allow list: if isPlatformFounder() ||
-                     (isUserActive() && getUserData().role in ['staff', 'manager', 'admin']);
+      allow get, list: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
 
       allow create: if isPlatformFounder() || (
         isStaffMember(request.resource.data.propertyId) &&
@@ -164,11 +260,15 @@ service cloud.firestore {
     }
 
     // QR Codes:
-    // - Anyone can get or read active QR code.
-    // - Staff/Manager/Founder manage QR codes.
-    match /qrCodes/{qrId} {
-      allow read: if resource.data.status == 'active' ||
-                     isPlatformFounder() ||
+    // - Guest public read: get active token doc containing guest-facing data.
+    // - List: only platform founder or staff of that property.
+    // - Create, update, delete: founder or property manager.
+    match /qrCodes/{token} {
+      allow get: if resource.data.status == 'active' ||
+                    isPlatformFounder() ||
+                    isStaffMember(resource.data.propertyId);
+
+      allow list: if isPlatformFounder() ||
                      isStaffMember(resource.data.propertyId);
 
       allow create, update: if isPlatformFounder() || (
@@ -182,51 +282,82 @@ service cloud.firestore {
       );
     }
 
+    // Guest Sessions:
+    // - Anonymous guest session bound to active QR token, roomId, and activeStayId.
+    // - Create: authenticated user creates own doc matching active QR token data.
+    // - Get: owner, founder, or staff member of that property.
+    // - List: staff or founder only.
+    // - Update, delete: owner or founder.
+    match /guestSessions/{uid} {
+      allow create: if isAuthenticated() &&
+        request.auth.uid == uid &&
+        request.resource.data.token is string &&
+        exists(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)) &&
+        get(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)).data.status == 'active' &&
+        get(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)).data.roomId == request.resource.data.roomId &&
+        get(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)).data.activeStayId == request.resource.data.stayId;
+
+      allow get: if (isAuthenticated() && request.auth.uid == uid) ||
+                    isPlatformFounder() ||
+                    ('propertyId' in resource.data && isStaffMember(resource.data.propertyId));
+
+      allow list: if isPlatformFounder() ||
+                     (isUserActive() && getUserData().role in ['staff', 'manager', 'admin']);
+
+      allow update, delete: if (isAuthenticated() && request.auth.uid == uid) || isPlatformFounder();
+    }
+
     // Requests:
-    // - Unauthenticated CANNOT list requests.
-    // - Guest can create request only for room/stay of their token and only while property is active.
-    // - Guest can read only requests with their stayId; cannot read another stay's requests.
-    // - Staff of property A cannot read or write property B.
-    // - Staff cannot archive tickets.
-    // - Manager can archive cancelled/completed tickets.
-    // - Guest can cancel pending or update deliveryPreference while not completed.
-    // - When property suspended, non-founder writes are blocked.
+    // - Guest create: authenticated, active guest session, matching roomId/stayId/guestUid, status 'pending', archived false, active property.
+    // - Staff create: staff member can create requests when property active.
+    // - Guest read: authenticated matching guestUid or active session stayId.
+    // - Staff/GM/Founder read: isPlatformFounder() or isStaffMember(propertyId).
+    // - Guest list query: bounded to limit <= 50 and filters by guestUid == auth.uid or matches active stay.
+    // - Guest update: cancel pending, or deliveryPreference while not completed; cannot touch archived/verification/assignedTo/title.
+    // - Staff/GM update:
+    //     * Property active & propertyId unchanged & legacy roomId resilient.
+    //     * GM/Founder: can verify (verification: 'verified'), reopen, update. Archive allowed ONLY if cancelled or (completed and verified).
+    //     * Staff: can set status: 'completed' and verification: 'pending'. CANNOT set verification: 'verified'. CANNOT archive.
+    // - Delete: Founder or GM.
     match /requests/{requestId} {
       allow get: if isPlatformFounder() ||
                     isStaffMember(resource.data.propertyId) ||
                     (
-                      // Guest can read request if it matches active stay of the room
-                      isPropertyActive(resource.data.propertyId) &&
-                      exists(/databases/$(database)/documents/rooms/$(resource.data.roomId)) &&
-                      get(/databases/$(database)/documents/rooms/$(resource.data.roomId)).data.activeStayId == resource.data.stayId &&
-                      (!('guestUid' in resource.data) || (isAuthenticated() && resource.data.guestUid == request.auth.uid))
+                      isAuthenticated() && (
+                        resource.data.get('guestUid', '') == request.auth.uid ||
+                        (
+                          exists(/databases/$(database)/documents/guestSessions/$(request.auth.uid)) &&
+                          get(/databases/$(database)/documents/guestSessions/$(request.auth.uid)).data.stayId == resource.data.stayId
+                        )
+                      )
                     );
 
       allow list: if isPlatformFounder() ||
                      (isUserActive() && isStaffMember(resource.data.propertyId)) ||
                      (
-                       // Guest query bounded to their active stay
+                       isAuthenticated() &&
                        request.query.limit != null &&
                        request.query.limit <= 50 &&
-                       isPropertyActive(resource.data.propertyId) &&
-                       exists(/databases/$(database)/documents/rooms/$(resource.data.roomId)) &&
-                       get(/databases/$(database)/documents/rooms/$(resource.data.roomId)).data.activeStayId == resource.data.stayId &&
-                       (!('guestUid' in resource.data) || (isAuthenticated() && resource.data.guestUid == request.auth.uid))
+                       (
+                         resource.data.get('guestUid', '') == request.auth.uid ||
+                         (
+                           exists(/databases/$(database)/documents/guestSessions/$(request.auth.uid)) &&
+                           get(/databases/$(database)/documents/guestSessions/$(request.auth.uid)).data.stayId == resource.data.stayId
+                         )
+                       )
                      );
 
       allow create: if isPlatformFounder() || (
         isPropertyActive(request.resource.data.propertyId) && (
           // Staff member create
           isStaffMember(request.resource.data.propertyId) ||
-          // Guest create: property active, room exists & occupied & not archived, stayId matches room.activeStayId
+          // Guest create with active session
           (
+            isAuthenticated() &&
+            hasActiveGuestSession(request.auth.uid, request.resource.data.roomId, request.resource.data.stayId) &&
+            request.resource.data.guestUid == request.auth.uid &&
             request.resource.data.status == 'pending' &&
-            request.resource.data.get('archived', false) == false &&
-            exists(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)) &&
-            get(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)).data.status == 'occupied' &&
-            get(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)).data.propertyId == request.resource.data.propertyId &&
-            get(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)).data.get('archived', false) == false &&
-            request.resource.data.stayId == get(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)).data.activeStayId
+            request.resource.data.get('archived', false) == false
           )
         )
       );
@@ -234,39 +365,51 @@ service cloud.firestore {
       allow update: if isPlatformFounder() || (
         isPropertyActive(resource.data.propertyId) &&
         request.resource.data.propertyId == resource.data.propertyId &&
-        request.resource.data.roomId == resource.data.roomId &&
+        (!('roomId' in resource.data) || request.resource.data.roomId == resource.data.roomId) &&
         (
-          // Property Manager update
+          // GM / Property Manager update
           (
             isPropertyManager(resource.data.propertyId) &&
-            // If setting archived: true, request must be cancelled or completed
+            // Archiving rule: If setting archived: true, must be cancelled or (completed and verified)
             (
               request.resource.data.get('archived', false) != true ||
-              resource.data.status in ['cancelled', 'completed']
+              resource.data.status == 'cancelled' ||
+              (
+                resource.data.status == 'completed' &&
+                (resource.data.get('verification', '') == 'verified' || request.resource.data.get('verification', '') == 'verified')
+              )
             )
           ) ||
-          // Staff update (cannot archive tickets)
+          // Staff update (cannot archive tickets, cannot set verification to 'verified')
           (
             isStaffMember(resource.data.propertyId) &&
-            request.resource.data.get('archived', false) == resource.data.get('archived', false)
+            request.resource.data.get('archived', false) == resource.data.get('archived', false) &&
+            request.resource.data.get('verification', '') != 'verified' &&
+            (
+              request.resource.data.get('verification', '') == resource.data.get('verification', '') ||
+              (request.resource.data.status == 'completed' && request.resource.data.get('verification', '') == 'pending')
+            )
           ) ||
-          // Guest update (cancel while pending, or change deliveryPreference)
+          // Guest update (cancel while pending, or change deliveryPreference while active)
           (
-            // Guest cancel while pending
+            isAuthenticated() &&
+            resource.data.get('guestUid', '') == request.auth.uid &&
+            request.resource.data.get('guestUid', '') == resource.data.get('guestUid', '') &&
+            request.resource.data.get('archived', false) == false &&
+            request.resource.data.get('verification', '') == resource.data.get('verification', '') &&
+            request.resource.data.get('assignedTo', null) == resource.data.get('assignedTo', null) &&
+            request.resource.data.title == resource.data.title &&
             (
-              resource.data.status == 'pending' &&
-              request.resource.data.status == 'cancelled' &&
-              request.resource.data.title == resource.data.title &&
-              request.resource.data.get('archived', false) == false &&
-              request.resource.data.get('assignedTo', null) == resource.data.get('assignedTo', null)
-            ) ||
-            // Guest update deliveryPreference while active
-            (
-              !(resource.data.status in ['completed', 'cancelled']) &&
-              request.resource.data.status == resource.data.status &&
-              request.resource.data.get('archived', false) == false &&
-              request.resource.data.get('assignedTo', null) == resource.data.get('assignedTo', null) &&
-              request.resource.data.title == resource.data.title
+              // Cancel while pending
+              (
+                resource.data.status == 'pending' &&
+                request.resource.data.status == 'cancelled'
+              ) ||
+              // Update delivery preference while active
+              (
+                !(resource.data.status in ['completed', 'cancelled']) &&
+                request.resource.data.status == resource.data.status
+              )
             )
           )
         )
@@ -338,15 +481,23 @@ service cloud.firestore {
       }
     }
 
+    // Staff Devices:
+    // - Registered FCM tokens per staff user
+    match /staffDevices/{deviceId} {
+      allow read, write: if isPlatformFounder() || (isUserActive() && request.auth.uid == resource.data.userId);
+      allow create: if isPlatformFounder() || (isUserActive() && request.auth.uid == request.resource.data.userId);
+    }
+
     // Activity Log:
-    // - Manager & Founder can read
-    // - Staff/Manager/Founder or active property can record activity
+    // - Manager & Founder can read (or active staff for authenticated listeners)
+    // - Staff/Manager/Founder (isUserActive()) can record activity
+    // - Guests and unauthenticated CANNOT create activity directly
     match /activity/{activityId} {
       allow read: if isPlatformFounder() || (
-        isUserActive() && getUserData().role in ['manager', 'founder', 'admin']
+        isUserActive() && getUserData().role in ['staff', 'manager', 'founder', 'admin']
       );
 
-      allow create: if isPlatformFounder() || isUserActive() || isPropertyActive(request.resource.data.propertyId);
+      allow create: if isPlatformFounder() || isUserActive();
 
       allow update, delete: if isPlatformFounder();
     }

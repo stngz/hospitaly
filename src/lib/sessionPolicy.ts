@@ -94,11 +94,19 @@ export interface SessionCheckResult {
   remainingMs: number;
 }
 
-export function evaluateSessionState(role: UserRole, now: number = Date.now()): SessionCheckResult {
-  if (role === 'guest') {
+export function normalizeUserRole(role: string): Exclude<UserRole, 'guest'> | 'guest' {
+  if (role === 'admin' || role === 'founder') return 'founder';
+  if (role === 'manager') return 'manager';
+  if (role === 'staff') return 'staff';
+  return 'guest';
+}
+
+export function evaluateSessionState(role: UserRole | string, now: number = Date.now()): SessionCheckResult {
+  const normalized = normalizeUserRole(role);
+  if (normalized === 'guest') {
     return { expired: false, warningActive: false, remainingMs: Infinity };
   }
-  const policy = SESSION_POLICIES[role];
+  const policy = SESSION_POLICIES[normalized];
   if (!policy) {
     return { expired: false, warningActive: false, remainingMs: Infinity };
   }

@@ -146,8 +146,8 @@ function refreshDerivedCaches() {
 if (typeof window !== 'undefined') {
   try {
     const raw =
-      (window as any).__HOSPITALLY_INITIAL_DATA__ ||
-      localStorage.getItem('hospitally_seed_data');
+      localStorage.getItem('hospitally_seed_data') ||
+      (window as any).__HOSPITALLY_INITIAL_DATA__;
     if (raw) {
       const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
       if (parsed.properties) cachedDb.properties = parsed.properties;
@@ -160,6 +160,23 @@ if (typeof window !== 'undefined') {
       refreshDerivedCaches();
     }
   } catch {}
+
+  window.addEventListener('storage', (event) => {
+    if (event.key === 'hospitally_seed_data' && event.newValue) {
+      try {
+        const parsed = JSON.parse(event.newValue);
+        if (parsed.properties) cachedDb.properties = parsed.properties;
+        else if (parsed.property) cachedDb.properties = [parsed.property];
+        if (parsed.rooms) cachedDb.rooms = parsed.rooms;
+        if (parsed.stays) cachedDb.stays = parsed.stays;
+        if (parsed.qrCodes) cachedDb.qrCodes = parsed.qrCodes;
+        if (parsed.users) cachedDb.users = parsed.users;
+        if (parsed.requests) cachedDb.requests = parsed.requests;
+        refreshDerivedCaches();
+        listeners.forEach((listener) => listener());
+      } catch {}
+    }
+  });
 }
 
 let firestoreInitialized = false;
@@ -175,6 +192,11 @@ const activeUnsubscribers: Array<() => void> = [];
 
 function notifyListeners() {
   refreshDerivedCaches();
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('hospitally_seed_data', JSON.stringify(cachedDb));
+    } catch {}
+  }
   listeners.forEach((listener) => listener());
 }
 
@@ -190,8 +212,19 @@ async function persistDoc<T extends { id?: string }>(
   try {
     const cleanData = stripUndefined({ ...data, id: docId });
     await setDoc(doc(db, collectionName, docId), cleanData, { merge: true });
-  } catch (err) {
+  } catch (err: any) {
     console.warn(`Firestore write failed for ${collectionName}/${docId}:`, err);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('hospitally-write-error', {
+          detail: {
+            collection: collectionName,
+            docId,
+            error: err?.message || String(err),
+          },
+        })
+      );
+    }
   }
 }
 
@@ -827,6 +860,11 @@ export const dbService = {
       token,
       status: 'active',
       createdAt: new Date().toISOString(),
+      houseName: cleanName,
+      houseType: houseType.trim(),
+      wifiName: options?.wifiName?.trim() || undefined,
+      wifiPassword: options?.wifiPassword?.trim() || undefined,
+      imageId: options?.imageId,
     };
 
     cachedDb = {
@@ -1405,13 +1443,18 @@ export const dbService = {
       if (req.id !== requestId) return req;
       const nextStatus: RequestStatus =
         req.status === 'pending' && assignee ? 'acknowledged' : req.status;
-      updatedItem = {
+      const updated: ServiceRequest = {
         ...req,
+        propertyId: req.propertyId || 'prop_rocks_lusaka',
+        roomId: req.roomId || '',
+        stayId: req.stayId || '',
+        title: req.title || 'Request',
+        description: req.description || '',
         status: nextStatus,
         assignedTo: assignee,
         updatedAt: now,
         history: [
-          ...req.history,
+          ...(req.history || []),
           {
             status: nextStatus,
             timestamp: now,
@@ -1421,8 +1464,9 @@ export const dbService = {
           },
         ],
       };
-      void persistDoc('requests', updatedItem.id, updatedItem);
-      return updatedItem;
+      updatedItem = updated;
+      void persistDoc('requests', updated.id, updated);
+      return updated;
     });
 
     if (updatedItem) {
@@ -1443,13 +1487,25 @@ export const dbService = {
 
     const updatedRequests = cachedDb.requests.map((req) => {
       if (req.id !== requestId) return req;
-      updatedItem = {
+      const updated: ServiceRequest = {
         ...req,
+        propertyId: req.propertyId || 'prop_rocks_lusaka',
+        roomId: req.roomId || '',
+        stayId: req.stayId || '',
+        title: req.title || 'Request',
+        description: req.description || '',
         status: newStatus,
-        cancelReason: newStatus === 'cancelled' ? cancelReason || req.cancelReason : req.cancelReason,
+        verification:
+          newStatus === 'completed'
+            ? req.verification || 'pending'
+            : newStatus === 'in_progress' && req.verification === 'pending'
+            ? undefined
+            : req.verification,
+        cancelReason:
+          newStatus === 'cancelled' ? cancelReason || req.cancelReason : req.cancelReason,
         updatedAt: now,
         history: [
-          ...req.history,
+          ...(req.history || []),
           {
             status: newStatus,
             timestamp: now,
@@ -1459,6 +1515,74 @@ export const dbService = {
           },
         ],
       };
+      updatedItem = updated;
+      void persistDoc('requests', updated.id, updated);
+      return updated;
+    });
+
+    if (updatedItem) {
+      cachedDb = { ...cachedDb, requests: updatedRequests };
+      notifyListeners();
+      notificationService.playStatusUpdateChime();
+    }
+
+    return updatedItem;
+  },
+
+  /**
+   * GM/Founder verification of completed requests.
+   * - verify: marks verification = 'verified', verifiedBy, verifiedAt.
+   * - reopen: moves status back to 'in_progress', clears verification, records reopenReason note.
+   */
+  verifyRequest: (
+    requestId: string,
+    action: 'verify' | 'reopen',
+    actor: { uid: string; name: string; role?: string },
+    reopenReason?: string
+  ): ServiceRequest | undefined => {
+    const now = new Date().toISOString();
+    let updatedItem: ServiceRequest | undefined;
+
+    const updatedRequests = cachedDb.requests.map((req) => {
+      if (req.id !== requestId) return req;
+      if (action === 'verify') {
+        updatedItem = {
+          ...req,
+          verification: 'verified',
+          verifiedBy: actor.name || actor.uid,
+          verifiedAt: now,
+          updatedAt: now,
+          history: [
+            ...(req.history || []),
+            {
+              status: req.status,
+              timestamp: now,
+              actorId: actor.uid,
+              actorName: actor.name,
+              note: 'Verified by GM',
+            },
+          ],
+        };
+      } else {
+        // reopen
+        updatedItem = {
+          ...req,
+          status: 'in_progress',
+          verification: undefined,
+          reopenReason: reopenReason || 'Reopened by GM',
+          updatedAt: now,
+          history: [
+            ...(req.history || []),
+            {
+              status: 'in_progress',
+              timestamp: now,
+              actorId: actor.uid,
+              actorName: actor.name,
+              note: reopenReason ? `Reopened: ${reopenReason}` : 'Reopened by GM',
+            },
+          ],
+        };
+      }
       void persistDoc('requests', updatedItem.id, updatedItem);
       return updatedItem;
     });
@@ -1475,6 +1599,7 @@ export const dbService = {
   /**
    * Archive a cancelled or completed request ("Remove from board", GM/Founder only).
    * Kept in Firestore and visible under the "Archived" filter.
+   * Allowed ONLY if cancelled or (completed and verified).
    */
   archiveRequest: (
     requestId: string,
@@ -1485,6 +1610,18 @@ export const dbService = {
 
     const updatedRequests = cachedDb.requests.map((req) => {
       if (req.id !== requestId) return req;
+      if (req.status !== 'cancelled' && req.verification !== 'verified') {
+        const errorMsg = 'Archive allowed only after request is verified or cancelled.';
+        console.warn(errorMsg);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('hospitally-write-error', {
+              detail: { collection: 'requests', docId: req.id, error: errorMsg },
+            })
+          );
+        }
+        return req;
+      }
       updatedItem = {
         ...req,
         archived: true,

@@ -13,12 +13,15 @@ import {
 } from '../../lib/time';
 import { compressImageFileToJpeg } from '../../lib/imageCompression';
 import { DEFAULT_HOUSE_GUIDE } from '../../lib/seeds/rocksApartments';
+import { FOUNDER_CONTACT_PHONE, FOUNDER_WHATSAPP_NUMBER } from '../../lib/config';
 import {
   RequestStatus,
   Room,
+  ServiceRequest,
   DeliveryPreference,
   HouseGuideConfig,
   UserProfile,
+  StaffDepartment,
 } from '../../types';
 import { QRPlaqueModal, renderPrintableQRCardCanvas } from '../common/QRCodeView';
 import {
@@ -51,6 +54,10 @@ import {
   Archive,
   Image as ImageIcon,
   BookOpen,
+  Bell,
+  BellOff,
+  RotateCcw,
+  UserPlus,
 } from 'lucide-react';
 
 interface StaffDashboardProps {
@@ -76,17 +83,33 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   onSelectRoomForGuest,
   onSwitchToAdmin,
 }) => {
-  const { user, signOut } = useAuth();
+  const { user, signOut, provisionAccount } = useAuth();
   const now = useNow(30_000);
 
   const isFounder = user?.role === 'founder';
   const isManagerOrAdmin = user?.role === 'manager' || user?.role === 'founder';
   const isStaffOnly = user?.role === 'staff';
 
+  const canViewCheckOuts =
+    user?.role === 'founder' ||
+    user?.role === 'manager' ||
+    user?.department === 'housekeeping' ||
+    user?.department === 'reception';
+
   const [dashboardTab, setDashboardTab] = useState<DashboardTab>('requests');
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
   const [wakeLockActive, setWakeLockActive] = useState(false);
   const wakeLockSentinelRef = useRef<any>(null);
+
+  // Sound alert activation state (stored per device)
+  const [soundAlertsEnabled, setSoundAlertsEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    const stored = localStorage.getItem('hospitally_sound_alerts_enabled');
+    return stored !== null ? stored === 'true' : true;
+  });
+
+  // Visible error toast banner state (never silent on write failures)
+  const [writeErrorToast, setWriteErrorToast] = useState<string | null>(null);
 
   // Requests filtering state
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -97,6 +120,10 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   // Cancel Request Modal
   const [cancelPromptReqId, setCancelPromptReqId] = useState<string | null>(null);
   const [cancelReasonText, setCancelReasonText] = useState('');
+
+  // Reopen Request Modal (GM verification)
+  const [reopenModalReqId, setReopenModalReqId] = useState<string | null>(null);
+  const [reopenReasonText, setReopenReasonText] = useState('');
 
   // Houses filtering state
   const [roomSearchQuery, setRoomSearchQuery] = useState('');
@@ -111,6 +138,17 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   const [newRoomWifiName, setNewRoomWifiName] = useState('');
   const [newRoomWifiPassword, setNewRoomWifiPassword] = useState('');
   const [newRoomAmenities, setNewRoomAmenities] = useState<string[]>(DEFAULT_HOUSE_AMENITIES);
+
+  // Founder in property desk: Create Account modal state
+  const [isCreateStaffModalOpen, setIsCreateStaffModalOpen] = useState(false);
+  const [newStaffName, setNewStaffName] = useState('');
+  const [newStaffEmail, setNewStaffEmail] = useState('');
+  const [newStaffRole, setNewStaffRole] = useState<'manager' | 'staff'>('staff');
+  const [newStaffDept, setNewStaffDept] = useState<StaffDepartment>('housekeeping');
+  const [newStaffPhone, setNewStaffPhone] = useState('');
+  const [newStaffPassword, setNewStaffPassword] = useState('');
+  const [isProvisioningStaff, setIsProvisioningStaff] = useState(false);
+  const [staffProvisionError, setStaffProvisionError] = useState<string | null>(null);
 
   // Edit House modal state
   const [editHouseRoom, setEditHouseRoom] = useState<Room | null>(null);
@@ -132,9 +170,9 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   const [guideCheckInTime, setGuideCheckInTime] = useState('');
   const [guideCheckOutTime, setGuideCheckOutTime] = useState('');
 
-  // Check-In modal state
+  // Check-In modal state (default title is empty, options: None, Mr, Mrs, Ms, Dr)
   const [checkInRoom, setCheckInRoom] = useState<Room | null>(null);
-  const [checkInGuestTitle, setCheckInGuestTitle] = useState<'' | 'Mr' | 'Mrs' | 'Ms' | 'Dr'>('Ms');
+  const [checkInGuestTitle, setCheckInGuestTitle] = useState<'' | 'Mr' | 'Mrs' | 'Ms' | 'Dr'>('');
   const [checkInGuestName, setCheckInGuestName] = useState('');
   const [checkInCheckoutDate, setCheckInCheckoutDate] = useState('');
   const [checkInCheckoutTime, setCheckInCheckoutTime] = useState('11:00');
@@ -259,6 +297,11 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
     (r) => !r.archived && (r.status === 'in_progress' || r.status === 'acknowledged')
   ).length;
   const completedCount = visibleRequests.filter((r) => !r.archived && r.status === 'completed').length;
+  const toVerifyCount = isManagerOrAdmin
+    ? visibleRequests.filter(
+        (r) => !r.archived && r.status === 'completed' && r.verification === 'pending'
+      ).length
+    : 0;
   const cancelledCount = visibleRequests.filter((r) => !r.archived && r.status === 'cancelled').length;
   const archivedCount = isManagerOrAdmin
     ? propertyScopedRequests.filter((r) => r.archived === true).length
@@ -266,6 +309,19 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   const unassignedCount = visibleRequests.filter(
     (r) => !r.archived && r.status === 'pending' && !r.assignedTo?.uid
   ).length;
+
+  // Listen for write failure events and show visible error toast banner (never silent)
+  useEffect(() => {
+    const handler = (e: any) => {
+      const errorMsg =
+        e.detail?.error ||
+        'Operation failed. Please check your connection or contact reception.';
+      setWriteErrorToast(errorMsg);
+      setTimeout(() => setWriteErrorToast(null), 6000);
+    };
+    window.addEventListener('hospitally-write-error', handler);
+    return () => window.removeEventListener('hospitally-write-error', handler);
+  }, []);
 
   // Tab Title alert count: (2) Hospitaly Staff
   useEffect(() => {
@@ -277,25 +333,36 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
     };
   }, [pendingCount, inProgressCount]);
 
-  // Audio alert on new incoming pending request
+  // Audio & vibration alert on new incoming pending request (repeats once after 10s if still unconfirmed)
   useEffect(() => {
     const currentPendingIds = new Set(
       visibleRequests.filter((r) => !r.archived && r.status === 'pending').map((r) => r.id)
     );
     if (prevPendingIdsRef.current !== null) {
-      let hasNewPending = false;
+      const newlyPendingIds: string[] = [];
       currentPendingIds.forEach((id) => {
         if (!prevPendingIdsRef.current!.has(id)) {
-          hasNewPending = true;
+          newlyPendingIds.push(id);
         }
       });
-      if (hasNewPending) {
+      if (newlyPendingIds.length > 0 && soundAlertsEnabled) {
         notificationService.playStaffAlertChime();
-        notificationService.triggerHaptic('dispatch');
+        notificationService.triggerHaptic('staff_alert');
+
+        // Repeat once after 10s if still unconfirmed
+        newlyPendingIds.forEach((reqId) => {
+          setTimeout(() => {
+            const req = dbService.getAllRequests().find((r: ServiceRequest) => r.id === reqId);
+            if (req && req.status === 'pending' && !req.archived) {
+              notificationService.playStaffAlertChime();
+              notificationService.triggerHaptic('staff_alert');
+            }
+          }, 10_000);
+        });
       }
     }
     prevPendingIdsRef.current = currentPendingIds;
-  }, [visibleRequests]);
+  }, [visibleRequests, soundAlertsEnabled]);
 
   // Filter staff: active members only, exclude founder from assignment dropdowns
   const assignableStaff = allUsers.filter(
@@ -305,9 +372,11 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
       (!currentProperty || !u.propertyId || u.propertyId === currentProperty.id)
   );
 
+  // Team list strictly excludes founder (founder lives in HQ accounts only)
   const teamListMembers = allUsers.filter(
     (u) =>
       u.active !== false &&
+      u.role !== 'founder' &&
       (!currentProperty || !u.propertyId || u.propertyId === currentProperty.id)
   );
 
@@ -407,11 +476,121 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
     setCancelPromptReqId(null);
   };
 
+  const handleVerifyRequest = (requestId: string) => {
+    if (!isManagerOrAdmin || isPropertySuspended) return;
+    dbService.verifyRequest(requestId, 'verify', { uid: user.id, name: user.name, role: user.role });
+  };
+
+  const handleOpenReopenPrompt = (requestId: string) => {
+    setReopenModalReqId(requestId);
+    setReopenReasonText('');
+  };
+
+  const handleConfirmReopenPrompt = () => {
+    if (!reopenModalReqId || isPropertySuspended || !reopenReasonText.trim()) return;
+    dbService.verifyRequest(
+      reopenModalReqId,
+      'reopen',
+      { uid: user.id, name: user.name, role: user.role },
+      reopenReasonText.trim()
+    );
+    setReopenModalReqId(null);
+    setReopenReasonText('');
+  };
+
+  const handleAddHouseSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isFounder || !newRoomNumber.trim() || isPropertySuspended) return;
+    dbService.addRoomWithQR(
+      currentProperty?.id || 'prop_rocks_lusaka',
+      newRoomNumber.trim(),
+      newHouseType.trim() || 'Garden Apartment',
+      {
+        wifiName: newRoomWifiName.trim() || undefined,
+        wifiPassword: newRoomWifiPassword.trim() || undefined,
+        amenities: newRoomAmenities,
+      }
+    );
+    setIsAddRoomOpen(false);
+    setNewRoomNumber('');
+    setNewHouseType('Garden Apartment');
+    setNewRoomWifiName('');
+    setNewRoomWifiPassword('');
+  };
+
+  const handleCreateStaffAccountSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStaffProvisionError(null);
+    if (!newStaffName.trim() || !newStaffEmail.trim() || !newStaffPassword.trim()) {
+      setStaffProvisionError('Name, email, and password are required.');
+      return;
+    }
+    if (newStaffPassword.trim().length < 6) {
+      setStaffProvisionError('Password must be at least 6 characters.');
+      return;
+    }
+    setIsProvisioningStaff(true);
+    try {
+      await provisionAccount({
+        name: newStaffName.trim(),
+        email: newStaffEmail.trim(),
+        tempPassword: newStaffPassword.trim(),
+        role: newStaffRole,
+        department: newStaffRole === 'staff' ? newStaffDept : 'management',
+        propertyId: currentProperty?.id || 'prop_rocks_lusaka',
+        phone: newStaffPhone.trim() || undefined,
+      });
+      setIsCreateStaffModalOpen(false);
+      setNewStaffName('');
+      setNewStaffEmail('');
+      setNewStaffPassword('');
+      setNewStaffPhone('');
+    } catch (err: any) {
+      setStaffProvisionError(err?.message || 'Failed to create staff account.');
+    } finally {
+      setIsProvisioningStaff(false);
+    }
+  };
+
+  const handleToggleSoundAlerts = async () => {
+    if (!soundAlertsEnabled) {
+      notificationService.unlockAudio();
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        try {
+          await Notification.requestPermission();
+        } catch {
+          // ignore
+        }
+      }
+      try {
+        if ('wakeLock' in navigator && !wakeLockActive) {
+          wakeLockSentinelRef.current = await (navigator as any).wakeLock.request('screen');
+          setWakeLockActive(true);
+        }
+      } catch {
+        // ignore
+      }
+      setSoundAlertsEnabled(true);
+      localStorage.setItem('hospitally_sound_alerts_enabled', 'true');
+      notificationService.playStaffAlertChime();
+    } else {
+      setSoundAlertsEnabled(false);
+      localStorage.setItem('hospitally_sound_alerts_enabled', 'false');
+    }
+  };
+
+  const handleTestAlert = () => {
+    notificationService.playStaffAlertChime();
+    notificationService.triggerHaptic('staff_alert');
+    setWriteErrorToast('Test alert triggered: chime and haptic feedback played.');
+    setTimeout(() => setWriteErrorToast(null), 3000);
+  };
+
   // --- CHECK-IN / CHECK-OUT FLOWS ---
 
   const handleOpenCheckInModal = (room: Room) => {
     setCheckInRoom(room);
-    setCheckInGuestTitle((room.guestTitle as any) || 'Ms');
+    setCheckInGuestTitle((room.guestTitle as any) || '');
     setCheckInGuestName(room.currentGuestName || '');
     setCheckInPhone(room.guestPhone || '');
 
@@ -611,6 +790,8 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   const filteredRequests = visibleRequests.filter((r) => {
     if (filterStatus === 'archived') {
       if (!r.archived) return false;
+    } else if (filterStatus === 'to_verify') {
+      if (r.archived || r.status !== 'completed' || r.verification !== 'pending') return false;
     } else {
       if (r.archived) return false;
       if (filterStatus !== 'all' && r.status !== filterStatus) return false;
@@ -632,6 +813,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   // --- RENDER CHECK-OUT STRIP COMPONENT ---
 
   const renderCheckOutStrip = () => {
+    if (!canViewCheckOuts) return null;
     return (
       <div
         data-testid="live-checkout-strip"
@@ -775,13 +957,33 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
             </span>
           </div>
           <a
-            href="https://wa.me/260970000001?text=Hello%20Hospitaly%2C%20please%20resume%20our%20property%20account."
+            href={`https://wa.me/${FOUNDER_WHATSAPP_NUMBER}?text=Hello%20Hospitaly%2C%20please%20resume%20our%20property%20account.`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs font-bold text-[#1C3A31] underline shrink-0"
           >
             Contact Hospitaly to resume
           </a>
+        </div>
+      )}
+
+      {/* Floating Write Error Toast (never silent on action failures) */}
+      {writeErrorToast && (
+        <div
+          data-testid="write-error-toast"
+          className="fixed top-16 left-4 right-4 sm:left-auto sm:right-6 sm:w-96 z-50 p-3 bg-red-700 text-white text-xs font-semibold rounded-2xl shadow-xl flex items-center justify-between gap-2"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-white" />
+            <span className="truncate">{writeErrorToast}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setWriteErrorToast(null)}
+            className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/20 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5 text-white" />
+          </button>
         </div>
       )}
 
@@ -803,67 +1005,89 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
           </div>
         </div>
 
-        {/* ⋯ Menu */}
-        <div className="relative">
+        {/* Header Right Actions: Sound Alerts Bell + ⋯ Menu */}
+        <div className="flex items-center gap-2">
+          {/* Sound Alerts Bell Button (Q3.2: 1-tap audio unlock, notification request & wake lock) */}
           <button
             type="button"
-            data-testid="staff-menu-btn"
-            onClick={() => setIsHeaderMenuOpen((v) => !v)}
-            aria-label="Staff options menu"
-            className="w-11 h-11 rounded-xl border border-stone-200 bg-stone-50 hover:bg-stone-100 flex items-center justify-center text-stone-700 cursor-pointer"
+            data-testid="toggle-sound-alerts-btn"
+            onClick={handleToggleSoundAlerts}
+            title={soundAlertsEnabled ? 'Sound alerts on' : 'Turn on sound alerts'}
+            aria-label={soundAlertsEnabled ? 'Sound alerts on' : 'Turn on sound alerts'}
+            className={`w-11 h-11 rounded-xl border flex items-center justify-center transition-colors cursor-pointer ${
+              soundAlertsEnabled
+                ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                : 'border-stone-200 bg-stone-50 text-stone-600 hover:bg-stone-100'
+            }`}
           >
-            <MoreHorizontal className="w-5 h-5" />
+            {soundAlertsEnabled ? (
+              <Bell className="w-5 h-5 text-emerald-700" />
+            ) : (
+              <BellOff className="w-5 h-5 text-stone-400" />
+            )}
           </button>
 
-          {isHeaderMenuOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setIsHeaderMenuOpen(false)} />
-              <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-white border border-stone-200 shadow-2xl py-2 z-50 text-xs">
-                <div className="px-3.5 py-2 border-b border-stone-100">
-                  <div className="font-bold text-stone-900 truncate">{user.name}</div>
-                  <div className="text-stone-500 capitalize">
-                    {user.role === 'manager'
-                      ? 'General Manager'
-                      : user.role === 'founder'
-                      ? 'Platform Founder'
-                      : `Staff · ${user.department || 'Housekeeping'}`}
-                  </div>
-                </div>
+          {/* ⋯ Menu */}
+          <div className="relative">
+            <button
+              type="button"
+              data-testid="staff-menu-btn"
+              onClick={() => setIsHeaderMenuOpen((v) => !v)}
+              aria-label="Staff options menu"
+              className="w-11 h-11 rounded-xl border border-stone-200 bg-stone-50 hover:bg-stone-100 flex items-center justify-center text-stone-700 cursor-pointer"
+            >
+              <MoreHorizontal className="w-5 h-5" />
+            </button>
 
-                <button
-                  type="button"
-                  data-testid="toggle-wake-lock"
-                  onClick={() => {
-                    setIsHeaderMenuOpen(false);
-                    toggleScreenWakeLock();
-                  }}
-                  className="w-full px-3.5 py-2.5 text-left text-stone-700 hover:bg-stone-50 flex items-center justify-between cursor-pointer"
-                >
-                  <div className="flex items-center gap-2">
-                    <Smartphone className="w-4 h-4 text-stone-500" />
-                    <span>Keep screen on</span>
+            {isHeaderMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setIsHeaderMenuOpen(false)} />
+                <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-white border border-stone-200 shadow-2xl py-2 z-50 text-xs">
+                  <div className="px-3.5 py-2 border-b border-stone-100">
+                    <div className="font-bold text-stone-900 truncate">{user.name}</div>
+                    <div className="text-stone-500 capitalize">
+                      {user.role === 'manager'
+                        ? 'General Manager'
+                        : user.role === 'founder'
+                        ? 'Platform Founder'
+                        : `Staff · ${user.department || 'Housekeeping'}`}
+                    </div>
                   </div>
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full font-bold ${
-                      wakeLockActive ? 'bg-emerald-100 text-emerald-900' : 'bg-stone-100 text-stone-600'
-                    }`}
+
+                  <button
+                    type="button"
+                    data-testid="toggle-wake-lock"
+                    onClick={() => {
+                      setIsHeaderMenuOpen(false);
+                      toggleScreenWakeLock();
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left text-stone-700 hover:bg-stone-50 flex items-center justify-between cursor-pointer"
                   >
-                    {wakeLockActive ? 'On' : 'Off'}
-                  </span>
-                </button>
+                    <div className="flex items-center gap-2">
+                      <Smartphone className="w-4 h-4 text-stone-500" />
+                      <span>Keep screen on</span>
+                    </div>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                        wakeLockActive ? 'bg-emerald-100 text-emerald-900' : 'bg-stone-100 text-stone-600'
+                      }`}
+                    >
+                      {wakeLockActive ? 'On' : 'Off'}
+                    </span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsHeaderMenuOpen(false);
-                    notificationService.playStaffAlertChime();
-                    notificationService.triggerHaptic('dispatch');
-                  }}
-                  className="w-full px-3.5 py-2.5 text-left text-stone-700 hover:bg-stone-50 flex items-center gap-2 cursor-pointer"
-                >
-                  <Volume2 className="w-4 h-4 text-amber-700" />
-                  <span>Test alert chime</span>
-                </button>
+                  <button
+                    type="button"
+                    data-testid="test-alert-btn"
+                    onClick={() => {
+                      setIsHeaderMenuOpen(false);
+                      handleTestAlert();
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left text-stone-700 hover:bg-stone-50 flex items-center gap-2 cursor-pointer"
+                  >
+                    <Volume2 className="w-4 h-4 text-amber-700" />
+                    <span>Test alert</span>
+                  </button>
 
                 {isFounder && onSwitchToAdmin && (
                   <button
@@ -896,7 +1120,8 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
             </>
           )}
         </div>
-      </header>
+      </div>
+    </header>
 
       {/* Main Container */}
       <main className="p-3.5 sm:p-6 max-w-6xl mx-auto space-y-4">
@@ -1047,6 +1272,23 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               >
                 Done ({completedCount})
               </button>
+
+              {/* GM-only "To verify" chip (Q2.2) */}
+              {isManagerOrAdmin && (
+                <button
+                  type="button"
+                  data-testid="chip-to_verify"
+                  onClick={() => setFilterStatus('to_verify')}
+                  className={`min-h-11 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border ${
+                    filterStatus === 'to_verify'
+                      ? 'bg-amber-700 text-white border-amber-700'
+                      : 'bg-white border-stone-200 text-stone-700'
+                  }`}
+                >
+                  To verify ({toVerifyCount})
+                </button>
+              )}
+
               <button
                 type="button"
                 data-testid="chip-cancelled"
@@ -1191,7 +1433,10 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
 
                         {req.deliveryPreference && (
                           <span className="text-stone-500">
-                            Pref: {req.deliveryPreference.replace('_', ' ')}
+                            Pref:{' '}
+                            {req.deliveryPreference === 'leave_at_door'
+                              ? 'Leave at door'
+                              : 'Knock'}
                           </span>
                         )}
                       </div>
@@ -1269,9 +1514,48 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                         )}
 
                         {req.status === 'completed' && !req.archived && (
-                          <span className="min-h-11 flex-1 py-2 px-3 text-xs font-bold text-emerald-800 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center justify-center gap-1">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Completed
-                          </span>
+                          <>
+                            {req.verification === 'verified' ? (
+                              <span
+                                data-testid={`verified-badge-${req.id}`}
+                                className="min-h-11 flex-1 py-2 px-3 text-xs font-bold text-emerald-800 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center justify-center gap-1"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" /> Verified by {req.verifiedBy || 'GM'}
+                              </span>
+                            ) : (
+                              <span
+                                data-testid={`to-verify-badge-${req.id}`}
+                                className="min-h-11 flex-1 py-2 px-3 text-xs font-bold text-amber-900 bg-amber-50 rounded-xl border border-amber-200 flex items-center justify-center gap-1"
+                              >
+                                <Clock className="w-3.5 h-3.5" /> Done (To verify)
+                              </span>
+                            )}
+
+                            {isManagerOrAdmin && req.verification !== 'verified' && (
+                              <>
+                                <button
+                                  type="button"
+                                  data-testid={`verify-request-btn-${req.id}`}
+                                  disabled={isPropertySuspended}
+                                  onClick={() => handleVerifyRequest(req.id)}
+                                  className="min-h-11 py-2 px-3 bg-emerald-700 text-white hover:bg-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 disabled:opacity-50 cursor-pointer"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>Verified</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  data-testid={`reopen-request-btn-${req.id}`}
+                                  disabled={isPropertySuspended}
+                                  onClick={() => handleOpenReopenPrompt(req.id)}
+                                  className="min-h-11 py-2 px-3 bg-amber-600 text-white hover:bg-amber-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 disabled:opacity-50 cursor-pointer"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                  <span>Reopen</span>
+                                </button>
+                              </>
+                            )}
+                          </>
                         )}
 
                         {req.status === 'cancelled' && !req.archived && (
@@ -1296,10 +1580,11 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                             </button>
                           )}
 
-                        {/* Archive button (GM / Founder only, on cancelled or completed) */}
+                        {/* Archive button (GM / Founder only, strictly after verified or cancelled) */}
                         {isManagerOrAdmin &&
                           !req.archived &&
-                          (req.status === 'cancelled' || req.status === 'completed') && (
+                          (req.status === 'cancelled' ||
+                            (req.status === 'completed' && req.verification === 'verified')) && (
                             <button
                               type="button"
                               data-testid={`archive-req-btn-${req.id}`}
@@ -1374,16 +1659,18 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                   <span>Edit house guide</span>
                 </button>
 
-                <button
-                  type="button"
-                  data-testid="add-house-btn"
-                  disabled={isPropertySuspended}
-                  onClick={() => setIsAddRoomOpen(true)}
-                  className="min-h-11 flex items-center gap-1.5 px-3.5 py-2 bg-[#1C3A31] text-[#E0B973] rounded-xl text-xs font-semibold disabled:opacity-50 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add house</span>
-                </button>
+                {isFounder && (
+                  <button
+                    type="button"
+                    data-testid="add-house-btn"
+                    disabled={isPropertySuspended}
+                    onClick={() => setIsAddRoomOpen(true)}
+                    className="min-h-11 flex items-center gap-1.5 px-3.5 py-2 bg-[#1C3A31] text-[#E0B973] rounded-xl text-xs font-semibold disabled:opacity-50 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add house</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1450,32 +1737,38 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                           </button>
                         </div>
 
-                        {/* Occupied Guest Details */}
-                        {isOccupied && formattedGuest ? (
-                          <div className="p-3 bg-emerald-50/70 border border-emerald-100 rounded-xl space-y-1 text-xs">
-                            <div className="flex items-center gap-1.5 font-bold text-emerald-950">
-                              <User className="w-3.5 h-3.5 text-emerald-800" />
-                              <span>{formattedGuest}</span>
+                        {/* Occupied Guest Details (visible only to authorized departments) */}
+                        {canViewCheckOuts ? (
+                          isOccupied && formattedGuest ? (
+                            <div className="p-3 bg-emerald-50/70 border border-emerald-100 rounded-xl space-y-1 text-xs">
+                              <div className="flex items-center gap-1.5 font-bold text-emerald-950">
+                                <User className="w-3.5 h-3.5 text-emerald-800" />
+                                <span>{formattedGuest}</span>
+                              </div>
+                              {room.guestCheckOutDate && (
+                                <div className="flex items-center gap-1.5 text-xs text-emerald-900 font-medium">
+                                  <Calendar className="w-3.5 h-3.5 text-emerald-700" />
+                                  <span>
+                                    Check-out:{' '}
+                                    {formatPropertyDate(room.guestCheckOutDate, timezone)}
+                                  </span>
+                                </div>
+                              )}
+                              {room.guestPhone && (
+                                <div className="flex items-center gap-1.5 text-xs text-emerald-900 whitespace-nowrap">
+                                  <Phone className="w-3.5 h-3.5 text-emerald-700" />
+                                  <span>{room.guestPhone}</span>
+                                </div>
+                              )}
                             </div>
-                            {room.guestCheckOutDate && (
-                              <div className="flex items-center gap-1.5 text-xs text-emerald-900 font-medium">
-                                <Calendar className="w-3.5 h-3.5 text-emerald-700" />
-                                <span>
-                                  Check-out:{' '}
-                                  {formatPropertyDate(room.guestCheckOutDate, timezone)}
-                                </span>
-                              </div>
-                            )}
-                            {room.guestPhone && (
-                              <div className="flex items-center gap-1.5 text-xs text-emerald-900 whitespace-nowrap">
-                                <Phone className="w-3.5 h-3.5 text-emerald-700" />
-                                <span>{room.guestPhone}</span>
-                              </div>
-                            )}
-                          </div>
+                          ) : (
+                            <div className="p-3 bg-stone-50 border border-stone-100 rounded-xl text-xs text-stone-500">
+                              Available for check-in
+                            </div>
+                          )
                         ) : (
-                          <div className="p-3 bg-stone-50 border border-stone-100 rounded-xl text-xs text-stone-500">
-                            Available for check-in
+                          <div className="p-3 bg-stone-50 border border-stone-100 rounded-xl text-xs text-stone-600 font-medium">
+                            {isOccupied ? 'Occupied' : 'Available'}
                           </div>
                         )}
                       </div>
@@ -1483,39 +1776,41 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
 
                     {/* Actions Row */}
                     <div className="p-4 pt-0 space-y-2">
-                      <div className="flex items-center gap-2">
-                        {isOccupied ? (
-                          <>
+                      {canViewCheckOuts && (
+                        <div className="flex items-center gap-2">
+                          {isOccupied ? (
+                            <>
+                              <button
+                                type="button"
+                                data-testid={`card-checkout-btn-${room.id}`}
+                                disabled={isPropertySuspended}
+                                onClick={() => setCheckOutConfirmRoom(room)}
+                                className="min-h-11 flex-1 py-2 px-3 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold rounded-xl disabled:opacity-50 cursor-pointer"
+                              >
+                                Check out
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isPropertySuspended}
+                                onClick={() => handleOpenCheckInModal(room)}
+                                className="min-h-11 py-2 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-xl disabled:opacity-50 cursor-pointer"
+                              >
+                                Edit guest
+                              </button>
+                            </>
+                          ) : (
                             <button
                               type="button"
-                              data-testid={`card-checkout-btn-${room.id}`}
-                              disabled={isPropertySuspended}
-                              onClick={() => setCheckOutConfirmRoom(room)}
-                              className="min-h-11 flex-1 py-2 px-3 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold rounded-xl disabled:opacity-50 cursor-pointer"
-                            >
-                              Check out
-                            </button>
-                            <button
-                              type="button"
+                              data-testid={`card-checkin-btn-${room.id}`}
                               disabled={isPropertySuspended}
                               onClick={() => handleOpenCheckInModal(room)}
-                              className="min-h-11 py-2 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-xl disabled:opacity-50 cursor-pointer"
+                              className="min-h-11 flex-1 py-2 px-3 bg-[#1C3A31] hover:bg-emerald-950 text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
                             >
-                              Edit guest
+                              Check in
                             </button>
-                          </>
-                        ) : (
-                          <button
-                            type="button"
-                            data-testid={`card-checkin-btn-${room.id}`}
-                            disabled={isPropertySuspended}
-                            onClick={() => handleOpenCheckInModal(room)}
-                            className="min-h-11 flex-1 py-2 px-3 bg-[#1C3A31] hover:bg-emerald-950 text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                          >
-                            Check in
-                          </button>
-                        )}
-                      </div>
+                          )}
+                        </div>
+                      )}
 
                       <button
                         type="button"
@@ -1547,19 +1842,31 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                 </p>
               </div>
 
-              {/* GM "Request new account" WhatsApp button */}
-              <a
-                href={`https://wa.me/260970000001?text=${encodeURIComponent(
-                  `Hello Founder, I would like to request a new staff account for ${
-                    currentProperty?.name || 'Rock Apartments'
-                  }.`
-                )}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="min-h-11 px-3.5 py-2 bg-[#E0B973] text-stone-950 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shrink-0"
-              >
-                <span>Request new account</span>
-              </a>
+              {/* Founder "Create account" vs GM "Request new account" WhatsApp button (Q2.5) */}
+              {isFounder ? (
+                <button
+                  type="button"
+                  data-testid="create-account-btn"
+                  onClick={() => setIsCreateStaffModalOpen(true)}
+                  className="min-h-11 px-3.5 py-2 bg-[#E0B973] hover:bg-[#d4ad65] text-stone-950 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>Create account</span>
+                </button>
+              ) : (
+                <a
+                  href={`https://wa.me/${FOUNDER_WHATSAPP_NUMBER}?text=${encodeURIComponent(
+                    `Hello Founder, I would like to request a new staff account for ${
+                      currentProperty?.name || 'Rock Apartments'
+                    }.`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-h-11 px-3.5 py-2 bg-[#E0B973] text-stone-950 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shrink-0"
+                >
+                  <span>Request new account</span>
+                </a>
+              )}
             </div>
 
             {/* Mobile Stacked Cards (< 768px) with whitespace-nowrap phones */}
@@ -2100,6 +2407,289 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                 Cancel request
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL: REOPEN REQUEST PROMPT (GM VERIFICATION, Q2.2)
+         ========================================================================= */}
+      {reopenModalReqId && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
+        >
+          <div className="bg-white max-w-sm w-full rounded-3xl p-5 shadow-2xl space-y-3">
+            <h3 className="text-base font-serif font-bold text-stone-900">Reopen request</h3>
+            <p className="text-xs text-stone-600">
+              Please enter the reason for reopening this request (required):
+            </p>
+            <input
+              type="text"
+              data-testid="reopen-reason-input"
+              required
+              placeholder="e.g. Guest reported issue still unresolved"
+              value={reopenReasonText}
+              onChange={(e) => setReopenReasonText(e.target.value)}
+              className="w-full min-h-11 px-3 py-2 text-xs rounded-xl border border-stone-300"
+            />
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setReopenModalReqId(null);
+                  setReopenReasonText('');
+                }}
+                className="min-h-11 flex-1 py-2 rounded-xl bg-stone-100 text-stone-700 text-xs font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="confirm-reopen-btn"
+                disabled={!reopenReasonText.trim()}
+                onClick={handleConfirmReopenPrompt}
+                className="min-h-11 flex-1 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
+              >
+                Reopen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL: ADD HOUSE (FOUNDER ONLY, Q2.4)
+         ========================================================================= */}
+      {isAddRoomOpen && isFounder && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
+        >
+          <div className="bg-white max-w-md w-full rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-stone-100 flex items-center justify-between">
+              <div>
+                <span className="text-xs uppercase font-bold text-stone-500 block">
+                  Add House
+                </span>
+                <h3 className="text-base font-serif font-bold text-stone-900">
+                  {currentProperty?.name || 'Rock Apartments'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddRoomOpen(false)}
+                className="w-11 h-11 rounded-full flex items-center justify-center text-stone-500 hover:bg-stone-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddHouseSubmit} className="p-4 space-y-3.5 overflow-y-auto flex-1">
+              <div>
+                <label className="text-xs font-bold text-stone-600 block mb-1">House name / number *</label>
+                <input
+                  type="text"
+                  required
+                  data-testid="add-house-name-input"
+                  placeholder="e.g. Kasama House"
+                  value={newRoomNumber}
+                  onChange={(e) => setNewRoomNumber(e.target.value)}
+                  className="w-full min-h-11 px-3 py-2 text-xs rounded-xl border border-stone-300"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-stone-600 block mb-1">House type *</label>
+                <input
+                  type="text"
+                  required
+                  data-testid="add-house-type-input"
+                  placeholder="e.g. 2-Bedroom Pool Villa"
+                  value={newHouseType}
+                  onChange={(e) => setNewHouseType(e.target.value)}
+                  className="w-full min-h-11 px-3 py-2 text-xs rounded-xl border border-stone-300"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-bold text-stone-600 block mb-1">Wi-Fi Network Name</label>
+                  <input
+                    type="text"
+                    data-testid="add-house-wifi-name-input"
+                    placeholder="e.g. RockGuest"
+                    value={newRoomWifiName}
+                    onChange={(e) => setNewRoomWifiName(e.target.value)}
+                    className="w-full min-h-11 px-3 py-2 text-xs rounded-xl border border-stone-300"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-stone-600 block mb-1">Wi-Fi Password</label>
+                  <input
+                    type="text"
+                    data-testid="add-house-wifi-password-input"
+                    placeholder="e.g. Welcome2026"
+                    value={newRoomWifiPassword}
+                    onChange={(e) => setNewRoomWifiPassword(e.target.value)}
+                    className="w-full min-h-11 px-3 py-2 text-xs rounded-xl border border-stone-300"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-stone-100 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddRoomOpen(false)}
+                  className="min-h-11 flex-1 py-2 rounded-xl bg-stone-100 text-stone-700 text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  data-testid="submit-add-house-btn"
+                  className="min-h-11 flex-1 py-2 rounded-xl bg-[#1C3A31] text-[#E0B973] text-xs font-bold cursor-pointer"
+                >
+                  Create House &amp; QR
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL: FOUNDER CREATE ACCOUNT IN PROPERTY DESK (Q2.5)
+         ========================================================================= */}
+      {isCreateStaffModalOpen && isFounder && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
+        >
+          <div className="bg-white max-w-md w-full rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-stone-100 flex items-center justify-between">
+              <div>
+                <span className="text-xs uppercase font-bold text-stone-500 block">
+                  Create Account
+                </span>
+                <h3 className="text-base font-serif font-bold text-stone-900">
+                  {currentProperty?.name || 'Rock Apartments'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCreateStaffModalOpen(false)}
+                className="w-11 h-11 rounded-full flex items-center justify-center text-stone-500 hover:bg-stone-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateStaffAccountSubmit} className="p-4 space-y-3.5 overflow-y-auto flex-1">
+              {staffProvisionError && (
+                <div className="p-2.5 rounded-xl bg-red-50 text-red-700 text-xs font-medium">
+                  {staffProvisionError}
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs font-bold text-stone-600 block mb-1">Full name *</label>
+                <input
+                  type="text"
+                  required
+                  data-testid="create-staff-name-input"
+                  placeholder="e.g. John Phiri"
+                  value={newStaffName}
+                  onChange={(e) => setNewStaffName(e.target.value)}
+                  className="w-full min-h-11 px-3 py-2 text-xs rounded-xl border border-stone-300"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-stone-600 block mb-1">Email address *</label>
+                <input
+                  type="email"
+                  required
+                  data-testid="create-staff-email-input"
+                  placeholder="staff@example.com"
+                  value={newStaffEmail}
+                  onChange={(e) => setNewStaffEmail(e.target.value)}
+                  className="w-full min-h-11 px-3 py-2 text-xs rounded-xl border border-stone-300"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-bold text-stone-600 block mb-1">Role</label>
+                  <select
+                    value={newStaffRole}
+                    onChange={(e) => setNewStaffRole(e.target.value as any)}
+                    className="w-full min-h-11 px-2.5 py-2 text-xs rounded-xl border border-stone-300 bg-white"
+                  >
+                    <option value="staff">Staff</option>
+                    <option value="manager">General Manager</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-stone-600 block mb-1">Department</label>
+                  <select
+                    value={newStaffDept}
+                    onChange={(e) => setNewStaffDept(e.target.value as any)}
+                    className="w-full min-h-11 px-2.5 py-2 text-xs rounded-xl border border-stone-300 bg-white"
+                  >
+                    <option value="housekeeping">Housekeeping</option>
+                    <option value="reception">Reception</option>
+                    <option value="maintenance">Maintenance</option>
+                    <option value="concierge">Concierge</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-stone-600 block mb-1">Initial Password *</label>
+                <input
+                  type="password"
+                  required
+                  data-testid="create-staff-password-input"
+                  placeholder="At least 6 characters"
+                  value={newStaffPassword}
+                  onChange={(e) => setNewStaffPassword(e.target.value)}
+                  className="w-full min-h-11 px-3 py-2 text-xs rounded-xl border border-stone-300"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-stone-600 block mb-1">Phone / WhatsApp (optional)</label>
+                <input
+                  type="tel"
+                  placeholder="+260 97 000 0000"
+                  value={newStaffPhone}
+                  onChange={(e) => setNewStaffPhone(e.target.value)}
+                  className="w-full min-h-11 px-3 py-2 text-xs rounded-xl border border-stone-300"
+                />
+              </div>
+
+              <div className="pt-2 border-t border-stone-100 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateStaffModalOpen(false)}
+                  className="min-h-11 flex-1 py-2 rounded-xl bg-stone-100 text-stone-700 text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProvisioningStaff}
+                  data-testid="submit-create-staff-btn"
+                  className="min-h-11 flex-1 py-2 rounded-xl bg-[#1C3A31] text-[#E0B973] text-xs font-bold disabled:opacity-50 cursor-pointer"
+                >
+                  {isProvisioningStaff ? 'Creating...' : 'Create Account'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

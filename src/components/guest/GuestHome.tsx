@@ -40,6 +40,8 @@ interface QuickRequestItem {
   category: 'housekeeping' | 'maintenance' | 'pool_garden';
   icon: React.ComponentType<{ className?: string }>;
   desc: string;
+  placeholder: string;
+  type: 'item' | 'service';
 }
 
 const QUICK_REQUESTS: QuickRequestItem[] = [
@@ -50,6 +52,8 @@ const QUICK_REQUESTS: QuickRequestItem[] = [
     category: 'housekeeping',
     icon: Waves,
     desc: 'Fresh bath towels for the house.',
+    placeholder: 'e.g. 2 bath towels please',
+    type: 'item',
   },
   {
     id: 'pool_towels',
@@ -58,6 +62,8 @@ const QUICK_REQUESTS: QuickRequestItem[] = [
     category: 'pool_garden',
     icon: Waves,
     desc: 'Fresh swimming pool towels.',
+    placeholder: 'e.g. 4 pool towels',
+    type: 'item',
   },
   {
     id: 'pillows',
@@ -66,6 +72,8 @@ const QUICK_REQUESTS: QuickRequestItem[] = [
     category: 'housekeeping',
     icon: Feather,
     desc: 'Extra pillows for the bedroom.',
+    placeholder: 'e.g. 2 extra pillows',
+    type: 'item',
   },
   {
     id: 'cleaning',
@@ -74,6 +82,8 @@ const QUICK_REQUESTS: QuickRequestItem[] = [
     category: 'housekeeping',
     icon: Sparkles,
     desc: 'House refresh and cleaning.',
+    placeholder: 'e.g. please clean the kitchen and bathroom',
+    type: 'service',
   },
   {
     id: 'gas_kitchen',
@@ -82,6 +92,8 @@ const QUICK_REQUESTS: QuickRequestItem[] = [
     category: 'maintenance',
     icon: ChefHat,
     desc: 'Assistance with the kitchen gas stove or cookware.',
+    placeholder: "e.g. the gas stove won't light",
+    type: 'service',
   },
   {
     id: 'broken',
@@ -90,6 +102,8 @@ const QUICK_REQUESTS: QuickRequestItem[] = [
     category: 'maintenance',
     icon: Wrench,
     desc: 'Maintenance check inside the house.',
+    placeholder: 'e.g. the shower is cold / AC not working',
+    type: 'service',
   },
 ];
 
@@ -350,7 +364,7 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
     notificationService.triggerHaptic('light');
     setConfirmItem(item);
     setQuickNote('');
-    setQuickDelivery('knock');
+    setQuickDelivery(item.type === 'item' ? 'leave_at_door' : 'knock');
   };
 
   const handleConfirmQuickSend = () => {
@@ -405,6 +419,7 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
         timezone={property.timezone}
         houseName={room.name || room.roomNumber}
         houseTypeLabel={getHouseTypeDisplay(room)}
+        checkOutDate={room.guestCheckOutDate}
         guestTitle={room.guestTitle}
         guestName={room.currentGuestName}
         photoUrl={housePhotoUrl}
@@ -569,44 +584,46 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
                 data-testid="quick-request-note-input"
                 value={quickNote}
                 onChange={(e) => setQuickNote(e.target.value)}
-                placeholder="e.g. 2 bath towels please"
+                placeholder={confirmItem.placeholder}
                 className="w-full min-h-11 px-3.5 py-2.5 rounded-xl border border-stone-300 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#1C3A31]"
               />
             </div>
 
-            <div>
-              <span className="text-xs font-semibold text-stone-600 block mb-1.5">
-                Delivery preference
-              </span>
-              <div className="grid grid-cols-3 gap-2">
-                {(
-                  [
-                    { id: 'knock', label: 'Knock', icon: DoorClosed },
-                    { id: 'bell', label: 'Ring', icon: BellRing },
-                    { id: 'leave_at_door', label: 'Leave at door', icon: Moon },
-                  ] as const
-                ).map((opt) => {
-                  const OptIcon = opt.icon;
-                  const active = quickDelivery === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      data-testid={`quick-delivery-${opt.id}`}
-                      onClick={() => setQuickDelivery(opt.id)}
-                      className={`min-h-11 p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center justify-center gap-1 cursor-pointer ${
-                        active
-                          ? 'bg-[#1C3A31] text-white border-[#1C3A31]'
-                          : 'bg-stone-50 text-stone-700 border-stone-200'
-                      }`}
-                    >
-                      <OptIcon className="w-4 h-4" />
-                      <span>{opt.label}</span>
-                    </button>
-                  );
-                })}
+            {/* Delivery options depend on request (Q1.5) - no "Ring" anywhere */}
+            {confirmItem.type === 'item' ? (
+              <div>
+                <span className="text-xs font-semibold text-stone-600 block mb-1.5">
+                  Delivery preference
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      { id: 'leave_at_door', label: 'Leave at door', icon: Moon },
+                      { id: 'knock', label: 'Knock', icon: DoorClosed },
+                    ] as const
+                  ).map((opt) => {
+                    const OptIcon = opt.icon;
+                    const active = quickDelivery === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        data-testid={`quick-delivery-${opt.id}`}
+                        onClick={() => setQuickDelivery(opt.id)}
+                        className={`min-h-11 p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center justify-center gap-1 cursor-pointer ${
+                          active
+                            ? 'bg-[#1C3A31] text-white border-[#1C3A31]'
+                            : 'bg-stone-50 text-stone-700 border-stone-200'
+                        }`}
+                      >
+                        <OptIcon className="w-4 h-4" />
+                        <span>{opt.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            ) : null}
 
             <button
               type="button"

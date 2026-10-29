@@ -200,9 +200,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       try {
+        startAuthenticatedListeners();
         const profile = await resolveOrSyncUserProfile(fbUser);
         ensureSessionTimestampsInitialized();
-        startAuthenticatedListeners();
         setResolvedProfile(profile);
       } catch (err) {
         console.warn('User profile resolution failed:', err);

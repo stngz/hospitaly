@@ -140,6 +140,14 @@ export interface QRCodeRecord {
   roomId: string;
   token: string;
   status: 'active' | 'revoked';
+  houseName?: string;
+  houseType?: string;
+  imageId?: string;
+  wifiName?: string;
+  wifiPassword?: string;
+  guestGreeting?: string;
+  activeStayId?: string | null;
+  guestCheckOutDate?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -167,6 +175,13 @@ export interface ServiceRequest {
   status: RequestStatus;
   priority: RequestPriority;
   deliveryPreference?: DeliveryPreference;
+  qrToken?: string;
+  guestUid?: string;
+  estimatedTime?: string;
+  verification?: 'pending' | 'verified';
+  verifiedBy?: string;
+  verifiedAt?: string;
+  reopenReason?: string;
   cancelReason?: string;
   refCode?: string;
   createdAt: string;

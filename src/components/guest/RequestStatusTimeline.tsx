@@ -11,7 +11,6 @@ import {
   Sparkles,
   Check,
   DoorClosed,
-  BellRing,
   Moon,
   Clock,
 } from 'lucide-react';
@@ -282,42 +281,64 @@ export const RequestStatusTimeline: React.FC<RequestStatusTimelineProps> = ({
         )}
 
         {/* 4. DELIVERY PREFERENCE (Editable while not completed/cancelled) */}
-        {!isCancelled && !isCompleted && (
-          <div className="bg-white rounded-3xl p-4 border border-stone-900/[0.08] shadow-diffused space-y-3">
-            <span className="text-xs uppercase tracking-wider text-stone-500 font-bold block">
-              Delivery preference
-            </span>
+        {!isCancelled && !isCompleted && (() => {
+          const isHouseService =
+            req.category === 'maintenance' ||
+            req.title.toLowerCase().includes('cleaning') ||
+            req.title.toLowerCase().includes('gas') ||
+            req.title.toLowerCase().includes('kitchen') ||
+            req.title.toLowerCase().includes('broken');
 
-            <div className="grid grid-cols-3 gap-2">
-              {(
-                [
-                  { id: 'knock', label: 'Knock', icon: DoorClosed },
-                  { id: 'bell', label: 'Ring', icon: BellRing },
-                  { id: 'leave_at_door', label: 'Leave at door', icon: Moon },
-                ] as const
-              ).map((opt) => {
-                const Icon = opt.icon;
-                const active = activeDeliveryPref === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    data-testid={`status-delivery-${opt.id}`}
-                    onClick={() => handleDeliveryChange(opt.id)}
-                    className={`min-h-11 flex flex-col items-center justify-center p-2.5 rounded-2xl border text-center transition-all select-none active:scale-[0.96] cursor-pointer ${
-                      active
-                        ? 'bg-[#1C3A31] border-[#1C3A31] text-white font-bold shadow-2xs'
-                        : 'bg-stone-50 border-stone-200/80 text-stone-700 hover:bg-stone-100'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4 mb-1" />
-                    <span className="text-xs leading-tight">{opt.label}</span>
-                  </button>
-                );
-              })}
+          if (isHouseService) {
+            return (
+              <div className="bg-white rounded-3xl p-4 border border-stone-900/[0.08] shadow-diffused space-y-2">
+                <span className="text-xs uppercase tracking-wider text-stone-500 font-bold block">
+                  Delivery preference
+                </span>
+                <div className="flex items-center gap-2 p-3 bg-stone-50 rounded-2xl border border-stone-200/80 text-xs font-semibold text-stone-800">
+                  <DoorClosed className="w-4 h-4 text-[#1C3A31]" />
+                  <span>Knock (staff enters house for service)</span>
+                </div>
+              </div>
+            );
+          }
+
+          const deliveryOptions = [
+            { id: 'leave_at_door', label: 'Leave at door', icon: Moon },
+            { id: 'knock', label: 'Knock', icon: DoorClosed },
+          ] as const;
+
+          return (
+            <div className="bg-white rounded-3xl p-4 border border-stone-900/[0.08] shadow-diffused space-y-3">
+              <span className="text-xs uppercase tracking-wider text-stone-500 font-bold block">
+                Delivery preference
+              </span>
+
+              <div className="grid grid-cols-2 gap-2">
+                {deliveryOptions.map((opt) => {
+                  const Icon = opt.icon;
+                  const active = activeDeliveryPref === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      data-testid={`status-delivery-${opt.id}`}
+                      onClick={() => handleDeliveryChange(opt.id)}
+                      className={`min-h-11 flex flex-col items-center justify-center p-2.5 rounded-2xl border text-center transition-all select-none active:scale-[0.96] cursor-pointer ${
+                        active
+                          ? 'bg-[#1C3A31] border-[#1C3A31] text-white font-bold shadow-2xs'
+                          : 'bg-stone-50 border-stone-200/80 text-stone-700 hover:bg-stone-100'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4 mb-1" />
+                      <span className="text-xs leading-tight">{opt.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* 5. CANCELLATION OPTION (Only while pending) */}
         {canGuestCancel && (

@@ -267,7 +267,7 @@ export const ServiceRequestFlow: React.FC<ServiceRequestFlowProps> = ({
             rows={3}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Write a note for our team..."
+            placeholder="Tell us what you need"
             className="w-full text-sm p-3 rounded-xl border border-stone-900/[0.12] bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[#1C3A31]/25 focus:border-[#1C3A31]"
           />
         </div>
@@ -311,11 +311,10 @@ export const ServiceRequestFlow: React.FC<ServiceRequestFlowProps> = ({
           <span className="text-xs font-bold uppercase tracking-wider text-stone-500 block mb-1.5">
             Delivery preference
           </span>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {(
               [
                 { id: 'knock', label: 'Knock', icon: DoorClosed },
-                { id: 'bell', label: 'Ring', icon: BellRing },
                 { id: 'leave_at_door', label: 'Leave at door', icon: Moon },
               ] as const
             ).map((opt) => {

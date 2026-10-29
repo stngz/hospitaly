@@ -69,4 +69,22 @@ describe('Role-based Session Policies', () => {
     expect(result.expired).toBe(true);
     expect(result.reason).toBe('max_age');
   });
+
+  it('normalises legacy "admin" role to founder policy and expires correctly', () => {
+    const now = 200000000;
+    // 31 min idle -> expired for admin (founder policy: 30 min)
+    store[SESSION_STORAGE_KEYS.lastActivityAt] = String(now - 31 * 60 * 1000);
+    store[SESSION_STORAGE_KEYS.sessionStartedAt] = String(now - 40 * 60 * 1000);
+
+    const idleResult = evaluateSessionState('admin' as any, now);
+    expect(idleResult.expired).toBe(true);
+    expect(idleResult.reason).toBe('idle');
+
+    // 8.5 hours session -> max_age expired for admin
+    store[SESSION_STORAGE_KEYS.lastActivityAt] = String(now - 5 * 60 * 1000);
+    store[SESSION_STORAGE_KEYS.sessionStartedAt] = String(now - 8.5 * 3600 * 1000);
+    const maxResult = evaluateSessionState('admin' as any, now);
+    expect(maxResult.expired).toBe(true);
+    expect(maxResult.reason).toBe('max_age');
+  });
 });

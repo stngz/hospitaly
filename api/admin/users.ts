@@ -1,13 +1,39 @@
 import firebaseConfig from '../../firebase-applet-config.json' with { type: 'json' };
+import { initializeApp, getApps, cert, App } from 'firebase-admin/app';
+import { getAuth, Auth } from 'firebase-admin/auth';
+
+let adminAuthInstance: Auth | null = null;
+function getAdminAuth(): Auth | null {
+  if (adminAuthInstance) return adminAuthInstance;
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (raw) {
+    try {
+      const cred = JSON.parse(raw);
+      let app: App;
+      if (getApps().length === 0) {
+        app = initializeApp({
+          credential: cert(cred),
+        });
+      } else {
+        app = getApps()[0];
+      }
+      adminAuthInstance = getAuth(app);
+      return adminAuthInstance;
+    } catch (err) {
+      console.warn('Failed to initialize firebase-admin with FIREBASE_SERVICE_ACCOUNT:', err);
+    }
+  }
+  return null;
+}
 
 /**
  * Trusted Backend Endpoint for Founder-Only Account Administration (/api/admin/users)
  *
  * Security model:
  * 1. Requires a valid Firebase ID token in the `Authorization: Bearer <token>` header.
- * 2. Verifies the token against Google Identity Toolkit (`accounts:lookup`) and checks
- *    the caller's authoritative Firestore profile in `users/{uid}` (must have `role == 'founder'` and `active == true`).
- * 3. Never uses a client-side secondary Firebase app as a security boundary.
+ * 2. Uses Firebase Admin SDK (with service-account key from FIREBASE_SERVICE_ACCOUNT env var)
+ *    to verify caller, create users, and generate password reset links independent of public sign-up.
+ * 3. Fallback to Google Identity Toolkit for local development/emulator where service account is unset.
  */
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST' && req.method !== 'PATCH') {
@@ -22,27 +48,38 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    // 1. Verify caller's Firebase ID Token via Identity Toolkit REST API
-    const lookupRes = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseConfig.apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken }),
+    const adminAuth = getAdminAuth();
+    let callerUid = '';
+
+    if (adminAuth) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(idToken);
+        callerUid = decoded.uid;
+      } catch (err) {
+        return res.status(401).json({ error: 'Invalid or expired Firebase ID token.' });
       }
-    );
+    } else {
+      // Fallback: Verify caller's Firebase ID Token via Identity Toolkit REST API
+      const lookupRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseConfig.apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken }),
+        }
+      );
 
-    if (!lookupRes.ok) {
-      return res.status(401).json({ error: 'Invalid or expired Firebase ID token.' });
+      if (!lookupRes.ok) {
+        return res.status(401).json({ error: 'Invalid or expired Firebase ID token.' });
+      }
+
+      const lookupData = await lookupRes.json();
+      const callerAuthUser = lookupData?.users?.[0];
+      if (!callerAuthUser?.localId) {
+        return res.status(401).json({ error: 'Unable to resolve authenticated user.' });
+      }
+      callerUid = callerAuthUser.localId;
     }
-
-    const lookupData = await lookupRes.json();
-    const callerAuthUser = lookupData?.users?.[0];
-    if (!callerAuthUser?.localId) {
-      return res.status(401).json({ error: 'Unable to resolve authenticated user.' });
-    }
-
-    const callerUid = callerAuthUser.localId;
     const dbId = firebaseConfig.firestoreDatabaseId || '(default)';
     const firestoreBaseUrl = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/${encodeURIComponent(dbId)}/documents`;
 
@@ -79,12 +116,36 @@ export default async function handler(req: any, res: any) {
         return res.status(400).json({ error: 'Name, email, and assigned propertyId are required.' });
       }
 
-      // Create the Firebase Auth account via Identity Toolkit if temporary password is provided
-      // Note: On the backend this does not affect the Founder's browser session.
+      // Create the Firebase Auth account via Firebase Admin SDK (independent of public signup)
+      // or fallback to Identity Toolkit for local dev/emulator
       let provisionedUid = '';
       let authCreated = false;
 
-      if (tempPassword && String(tempPassword).length >= 8) {
+      if (adminAuth) {
+        if (tempPassword && String(tempPassword).length >= 6) {
+          try {
+            const userRec = await adminAuth.createUser({
+              email: cleanEmail,
+              password: String(tempPassword),
+              displayName: cleanName,
+            });
+            provisionedUid = userRec.uid;
+            authCreated = true;
+          } catch (createErr: any) {
+            if (createErr.code === 'auth/email-already-exists') {
+              const existingUser = await adminAuth.getUserByEmail(cleanEmail);
+              provisionedUid = existingUser.uid;
+            } else {
+              return res.status(400).json({ error: `Firebase Admin createUser failed: ${createErr.message}` });
+            }
+          }
+        }
+        try {
+          await adminAuth.generatePasswordResetLink(cleanEmail);
+        } catch {
+          // ignore reset link generation error
+        }
+      } else if (tempPassword && String(tempPassword).length >= 6) {
         const signUpRes = await fetch(
           `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseConfig.apiKey}`,
           {

@@ -8,6 +8,7 @@ interface GuestHeroBannerProps {
   timezone?: string;
   houseName: string;
   houseTypeLabel?: string;
+  checkOutDate?: string | null;
   guestTitle?: 'Mr' | 'Mrs' | 'Ms' | 'Dr' | '';
   guestName?: string;
   photoUrl?: string;
@@ -20,6 +21,7 @@ export const GuestHeroBanner: React.FC<GuestHeroBannerProps> = ({
   timezone = 'Africa/Lusaka',
   houseName,
   houseTypeLabel,
+  checkOutDate,
   guestTitle,
   guestName,
   photoUrl,
@@ -33,6 +35,28 @@ export const GuestHeroBanner: React.FC<GuestHeroBannerProps> = ({
 
   const guestDisplayName = guestName?.trim()
     ? `${guestTitle ? `${guestTitle} ` : ''}${guestName.trim()}`
+    : null;
+
+  // Quiet check-out format: e.g. "until Fri 30 Oct"
+  const formattedQuietCheckOut = checkOutDate
+    ? (() => {
+        try {
+          const raw = checkOutDate.trim();
+          const parsed = raw.includes('T') ? raw : `${raw}T11:00:00+02:00`;
+          const d = new Date(parsed.length === 16 ? `${parsed}:00+02:00` : parsed);
+          if (Number.isNaN(d.getTime())) return null;
+          const parts = new Intl.DateTimeFormat('en-GB', {
+            weekday: 'short',
+            day: 'numeric',
+            month: 'short',
+            timeZone: timezone,
+          }).formatToParts(d);
+          const get = (type: string) => parts.find((p) => p.type === type)?.value || '';
+          return `until ${get('weekday')} ${get('day')} ${get('month')}`.trim();
+        } catch {
+          return null;
+        }
+      })()
     : null;
 
   const activePhotoSrc =
@@ -73,11 +97,11 @@ export const GuestHeroBanner: React.FC<GuestHeroBannerProps> = ({
         <DuskIllustration />
       )}
 
-      {/* Top row — property + city left, frosted time pill right */}
-      <div className="relative z-10 flex items-center justify-between gap-2 text-xs tracking-[0.12em] uppercase text-[#F7F3EC]/90">
-        <span className="inline-flex items-center gap-2 font-semibold truncate">
+      {/* Top row — property + city left, frosted time pill right (time only, city appears once only) */}
+      <div className="relative z-10 flex items-center justify-between gap-3 text-xs tracking-[0.12em] uppercase text-[#F7F3EC]/90">
+        <span className="inline-flex items-center gap-2 font-semibold min-w-0 flex-1 truncate">
           <span className="w-1.5 h-1.5 rounded-full bg-[#E0B973] shadow-[0_0_0_4px_rgba(224,185,115,0.2)] shrink-0" />
-          <span className="truncate">
+          <span data-testid="banner-property-city" className="truncate">
             {propertyName} &middot; {city}
           </span>
         </span>
@@ -85,11 +109,11 @@ export const GuestHeroBanner: React.FC<GuestHeroBannerProps> = ({
           data-testid="lusaka-clock-pill"
           className="shrink-0 px-2.5 py-1 rounded-full bg-black/35 backdrop-blur-md border border-white/15 tracking-[0.04em] font-medium text-xs text-white"
         >
-          {timeStr} {city}
+          <span data-testid="banner-time">{timeStr}</span>
         </span>
       </div>
 
-      {/* Bottom block — greeting, Welcome to House, House Type (NO check-out info) */}
+      {/* Bottom block — greeting, Welcome to House, House Type + quiet check-out */}
       <div className="relative z-10 space-y-1">
         {guestDisplayName && (
           <p
@@ -108,8 +132,14 @@ export const GuestHeroBanner: React.FC<GuestHeroBannerProps> = ({
         </h1>
 
         {houseTypeLabel && (
-          <p data-testid="guest-house-type" className="pt-1 text-[13px] text-[#F7F3EC]/85">
-            {houseTypeLabel}
+          <p
+            data-testid="guest-house-type"
+            className="pt-1 text-[13px] text-[#F7F3EC]/85"
+          >
+            <span data-testid="banner-quiet-checkout">
+              {houseTypeLabel}
+              {formattedQuietCheckOut && ` · ${formattedQuietCheckOut}`}
+            </span>
           </p>
         )}
       </div>

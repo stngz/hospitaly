@@ -101,6 +101,10 @@ export function parseCheckOutTimestamp(
     const d = new Date(`${trimmed}T${defaultCheckOutTime}:00+02:00`);
     return Number.isNaN(d.getTime()) ? null : d.getTime();
   }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(trimmed)) {
+    const d = new Date(`${trimmed.length === 16 ? `${trimmed}:00` : trimmed}+02:00`);
+    return Number.isNaN(d.getTime()) ? null : d.getTime();
+  }
   const d = new Date(trimmed);
   return Number.isNaN(d.getTime()) ? null : d.getTime();
 }

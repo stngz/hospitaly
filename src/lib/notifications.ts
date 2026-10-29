@@ -6,7 +6,7 @@
 
 import app from './firebase';
 
-type HapticStyle = 'light' | 'medium' | 'success' | 'warning' | 'dispatch';
+export type HapticStyle = 'light' | 'medium' | 'success' | 'warning' | 'dispatch' | 'staff_alert';
 
 export interface InAppNotification {
   id: string;
@@ -56,6 +56,29 @@ class SoundAndNotificationService {
     }
   }
 
+  /**
+   * Unlocks the Web Audio context by creating and playing a 1-sample silent buffer synchronously
+   * inside a direct user gesture tap.
+   */
+  public unlockAudio(): void {
+    if (typeof window === 'undefined') return;
+    try {
+      const ctx = this.getAudioContext();
+      if (ctx) {
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(() => {});
+        }
+        const buffer = ctx.createBuffer(1, 1, 22050);
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        source.start(0);
+      }
+    } catch (e) {
+      console.warn('Audio unlock warning:', e);
+    }
+  }
+
   public isSoundEnabled(): boolean {
     return this.soundEnabled;
   }
@@ -99,6 +122,9 @@ class SoundAndNotificationService {
           break;
         case 'dispatch':
           navigator.vibrate([20, 25, 40, 25, 60]);
+          break;
+        case 'staff_alert':
+          navigator.vibrate([300, 100, 300]);
           break;
       }
     } catch {
