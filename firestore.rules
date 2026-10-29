@@ -122,14 +122,17 @@ service cloud.firestore {
     function isEmailVerifiedOrPilot() {
       return isAuthenticated() && (
         request.auth.token.email_verified == true || (
-          request.auth.token.firebase.sign_in_provider == 'password' &&
-          request.auth.token.email in [
-            'founder.pilot@hospitaly.app',
-            'manager.pilot@example.com',
-            'staff.pilot@example.com',
-            'housekeeping.pilot@example.com',
-            'maintenance.pilot@example.com'
-          ]
+          request.auth.token.firebase.sign_in_provider == 'password' && (
+            request.auth.token.email in [
+              'founder.pilot@hospitaly.app',
+              'manager.pilot@example.com',
+              'staff.pilot@example.com',
+              'housekeeping.pilot@example.com',
+              'maintenance.pilot@example.com',
+              'nathanielmazaba@gmail.com'
+            ] ||
+            hasUserProfile()
+          )
         )
       );
     }
@@ -215,7 +218,8 @@ service cloud.firestore {
     // - Update: Founder, or property manager (if active), or staff member for operational fields.
     // - Delete: Founder only.
     match /rooms/{roomId} {
-      allow get, list: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
+      allow get: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
+      allow list: if isPlatformFounder() || (isUserActive() && getUserData().role in ['staff', 'manager', 'admin']);
 
       allow create: if isPlatformFounder();
 
@@ -243,7 +247,8 @@ service cloud.firestore {
     // - Create / Update: staff member / manager / founder when property active.
     // - Delete: Founder only.
     match /stays/{stayId} {
-      allow get, list: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
+      allow get: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
+      allow list: if isPlatformFounder() || (isUserActive() && getUserData().role in ['staff', 'manager', 'admin']);
 
       allow create: if isPlatformFounder() || (
         isStaffMember(request.resource.data.propertyId) &&
@@ -269,7 +274,7 @@ service cloud.firestore {
                     isStaffMember(resource.data.propertyId);
 
       allow list: if isPlatformFounder() ||
-                     isStaffMember(resource.data.propertyId);
+                     (isUserActive() && getUserData().role in ['staff', 'manager', 'admin']);
 
       allow create, update: if isPlatformFounder() || (
         isPropertyManager(request.resource.data.propertyId) &&
@@ -333,7 +338,7 @@ service cloud.firestore {
                     );
 
       allow list: if isPlatformFounder() ||
-                     (isUserActive() && isStaffMember(resource.data.propertyId)) ||
+                     (isUserActive() && getUserData().role in ['staff', 'manager', 'admin']) ||
                      (
                        isAuthenticated() &&
                        request.query.limit != null &&
@@ -452,11 +457,10 @@ service cloud.firestore {
     // - ONLY Founder can change roles or property assignment or deactivation.
     // - Staff/Manager can update non-privileged fields on own profile.
     match /users/{userId} {
-      allow get: if isPlatformFounder() || (
-        isUserActive() && (
-          request.auth.uid == userId ||
-          getUserData().propertyId == resource.data.propertyId
-        )
+      allow get: if isAuthenticated() && (
+        request.auth.uid == userId ||
+        isPlatformFounder() ||
+        (isUserActive() && getUserData().propertyId == resource.data.propertyId)
       );
 
       allow list: if isPlatformFounder() || (
