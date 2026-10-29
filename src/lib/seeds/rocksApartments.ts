@@ -72,7 +72,7 @@ export const ROCKS_APARTMENTS_PROPERTY: Property = {
   primaryColor: '#1D2426',
   secondaryColor: '#F3EBE3',
   accentColor: '#2F7F86',
-  coverImageUrl: '/images/rocks-suite-enhanced.jpg',
+  coverImageUrl: '/images/rock-apartments-cover.jpg',
   wifiName: '8119 vip',
   wifiPassword: '@rocks.8119',
   description: 'Private pool houses and serviced apartments in Lusaka, Zambia.',

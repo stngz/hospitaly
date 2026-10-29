@@ -57,7 +57,7 @@ export function buildPilotSeedData(now = new Date()) {
     description:
       'Private serviced apartments in Lusaka with pool, garden, and dedicated on-site team.',
     logoUrl: '/images/rocks-logo.png',
-    coverImageUrl: '/images/rocks-suite-enhanced.jpg',
+    coverImageUrl: '/images/rock-apartments-cover.jpg',
     primaryColor: '#1E3A5F',
     secondaryColor: '#C8A45D',
     accentColor: '#3B82F6',
