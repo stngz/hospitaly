@@ -6,7 +6,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TenantProvider, useTenant } from './context/TenantContext';
-import { initFirestoreListeners } from './lib/store';
 import { GuestHome } from './components/guest/GuestHome';
 import { ServiceRequestFlow } from './components/guest/ServiceRequestFlow';
 import { RequestStatusTimeline } from './components/guest/RequestStatusTimeline';
@@ -36,11 +35,6 @@ function resolvePortalFromPath(pathname: string): RoutePortal {
 function AppContent() {
   const { setPropertySlug, setRoomId, stayState, property } = useTenant();
   const { user, loading } = useAuth();
-
-  // Initialize live Firestore synchronization on app mount
-  useEffect(() => {
-    initFirestoreListeners();
-  }, []);
 
   const [portal, setPortal] = useState<RoutePortal>(() =>
     typeof window !== 'undefined' ? resolvePortalFromPath(window.location.pathname) : 'guest'

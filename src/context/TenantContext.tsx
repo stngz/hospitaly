@@ -77,6 +77,7 @@ export const TenantProvider: React.FC<{
   const [propertySlug, setPropertySlug] = useState<string>(initialSlug || 'rocks-apartments');
   const [roomId, setRoomId] = useState<string | undefined>(undefined);
   const mountTimeRef = React.useRef(Date.now());
+  const inFlightFetchRef = React.useRef<Set<string>>(new Set());
 
   const getUrlToken = (): string | null => {
     if (typeof window === 'undefined') return null;
@@ -176,119 +177,128 @@ export const TenantProvider: React.FC<{
 
     // CASE 1: Guest opened a specific QR token URL (?token=..., ?qr=..., or /r/...)
     if (urlToken) {
-      if (qrCodes.length === 0) {
-        return;
-      }
+      let matchingQR = dbService.getAnyQRByToken(urlToken);
 
-      const matchingQR = dbService.getAnyQRByToken(urlToken);
+      const processResolvedQR = (qr: typeof matchingQR) => {
+        if (!qr || qr.status !== 'active' || !qr.roomId) {
+          updateStayState({
+            status: 'invalid_token',
+            errorMessage: 'This QR code is no longer active. Please contact reception.',
+          });
+          updateRoomId(undefined);
+          subscribeGuestStayRequests(null);
+          return;
+        }
 
-      if (!matchingQR || matchingQR.status !== 'active' || !matchingQR.roomId) {
-        updateStayState({
-          status: 'invalid_token',
-          errorMessage: 'This QR code is no longer active. Please contact reception.',
-        });
-        updateRoomId(undefined);
-        subscribeGuestStayRequests(null);
-        return;
-      }
+        const matchingRoom: Room =
+          rooms.find((r) => r.id === qr.roomId) || {
+            id: qr.roomId,
+            propertyId: qr.propertyId,
+            name: qr.houseName || qr.roomId,
+            roomNumber: qr.houseName || qr.roomId,
+            houseType: qr.houseType || 'Apartment',
+            roomType: qr.houseType || 'Apartment',
+            status: qr.activeStayId ? 'occupied' : 'available',
+            activeStayId: qr.activeStayId || undefined,
+            currentGuestName: qr.guestGreeting || '',
+            wifiName: qr.wifiName,
+            wifiPassword: qr.wifiPassword,
+            guestCheckOutDate: qr.guestCheckOutDate || undefined,
+            imageId: qr.imageId,
+            amenities: [],
+            archived: false,
+          };
 
-      const matchingRoom: Room =
-        rooms.find((r) => r.id === matchingQR.roomId) || {
-          id: matchingQR.roomId,
-          propertyId: matchingQR.propertyId,
-          name: matchingQR.houseName || matchingQR.roomId,
-          roomNumber: matchingQR.houseName || matchingQR.roomId,
-          houseType: matchingQR.houseType || 'Apartment',
-          roomType: matchingQR.houseType || 'Apartment',
-          status: matchingQR.activeStayId ? 'occupied' : 'available',
-          activeStayId: matchingQR.activeStayId || undefined,
-          currentGuestName: matchingQR.guestGreeting || '',
-          wifiName: matchingQR.wifiName,
-          wifiPassword: matchingQR.wifiPassword,
-          guestCheckOutDate: matchingQR.guestCheckOutDate || undefined,
-          imageId: matchingQR.imageId,
-          amenities: [],
-          archived: false,
-        };
+        const targetProp = properties.find((p) => p.id === qr.propertyId);
+        if (targetProp) {
+          updatePropertySlug(targetProp.slug);
+        } else if (!inFlightFetchRef.current.has(`prop_${qr.propertyId}`)) {
+          inFlightFetchRef.current.add(`prop_${qr.propertyId}`);
+          void dbService.getOrFetchPropertyById(qr.propertyId).then((p) => {
+            if (p) updatePropertySlug(p.slug);
+          });
+        }
 
-      const targetProp = properties.find((p) => p.id === matchingQR.propertyId);
-      if (targetProp) {
-        updatePropertySlug(targetProp.slug);
-      }
+        // Check if this browser was already bound to an earlier stay in this exact house
+        // that has now checked out (or been replaced by a new stay)
+        const previousStayIdForRoom =
+          urlStayId ||
+          (savedSession && savedSession.roomId === matchingRoom.id ? savedSession.stayId : null);
 
-      subscribeGuestRoom(matchingRoom.id);
-
-      // Check if this browser was already bound to an earlier stay in this exact house
-      // that has now checked out (or been replaced by a new stay)
-      const previousStayIdForRoom =
-        urlStayId ||
-        (savedSession && savedSession.roomId === matchingRoom.id ? savedSession.stayId : null);
-
-      if (
-        previousStayIdForRoom &&
-        matchingRoom.activeStayId !== previousStayIdForRoom
-      ) {
-        const previousStayDoc = stays.find((s) => s.id === previousStayIdForRoom);
         if (
-          !previousStayDoc ||
-          previousStayDoc.status === 'checked_out' ||
-          matchingRoom.status !== 'occupied' ||
+          previousStayIdForRoom &&
           matchingRoom.activeStayId !== previousStayIdForRoom
         ) {
+          const previousStayDoc = stays.find((s) => s.id === previousStayIdForRoom);
+          if (
+            !previousStayDoc ||
+            previousStayDoc.status === 'checked_out' ||
+            matchingRoom.status !== 'occupied' ||
+            matchingRoom.activeStayId !== previousStayIdForRoom
+          ) {
+            updateRoomId(matchingRoom.id);
+            updateStayState({
+              status: 'checked_out',
+              houseName: matchingRoom.roomNumber,
+              stayId: previousStayIdForRoom,
+              errorMessage: 'Thanks for staying with us',
+            });
+            subscribeGuestStayRequests(null);
+            return;
+          }
+        }
+
+        // Check if house is currently unoccupied
+        if (matchingRoom.status !== 'occupied' || !matchingRoom.activeStayId) {
           updateRoomId(matchingRoom.id);
           updateStayState({
-            status: 'checked_out',
+            status: 'unoccupied',
             houseName: matchingRoom.roomNumber,
-            stayId: previousStayIdForRoom,
-            errorMessage: 'Thanks for staying with us',
+            errorMessage: `This house isn't checked in yet. Please contact reception.`,
           });
           subscribeGuestStayRequests(null);
           return;
         }
-      }
 
-      // Check if house is currently unoccupied
-      if (matchingRoom.status !== 'occupied' || !matchingRoom.activeStayId) {
+        // House IS occupied -> bind to current activeStayId
+        const stayIdentifier = matchingRoom.activeStayId;
+        try {
+          localStorage.setItem(
+            GUEST_SESSION_STORAGE_KEY,
+            JSON.stringify({
+              roomId: matchingRoom.id,
+              stayId: stayIdentifier,
+              propertyId: matchingRoom.propertyId,
+              roomNumber: matchingRoom.roomNumber,
+              token: urlToken,
+            } satisfies StoredGuestSession)
+          );
+        } catch {
+          // ignore storage errors
+        }
+
         updateRoomId(matchingRoom.id);
         updateStayState({
-          status: 'unoccupied',
+          status: 'active',
           houseName: matchingRoom.roomNumber,
-          errorMessage: `This house isn't checked in yet. Please contact reception.`,
+          stayId: stayIdentifier,
         });
-        subscribeGuestStayRequests(null);
-        return;
-      }
+        subscribeGuestStayRequests(stayIdentifier);
+      };
 
-      // House IS occupied -> bind to current activeStayId
-      const stayIdentifier = matchingRoom.activeStayId;
-      try {
-        localStorage.setItem(
-          GUEST_SESSION_STORAGE_KEY,
-          JSON.stringify({
-            roomId: matchingRoom.id,
-            stayId: stayIdentifier,
-            propertyId: matchingRoom.propertyId,
-            roomNumber: matchingRoom.roomNumber,
-            token: urlToken,
-          } satisfies StoredGuestSession)
-        );
-      } catch {
-        // ignore storage errors
+      if (matchingQR) {
+        processResolvedQR(matchingQR);
+      } else if (!inFlightFetchRef.current.has(`qr_${urlToken}`)) {
+        inFlightFetchRef.current.add(`qr_${urlToken}`);
+        void dbService.getOrFetchQRByToken(urlToken).then((fetchedQR) => {
+          processResolvedQR(fetchedQR);
+        });
       }
-
-      updateRoomId(matchingRoom.id);
-      updateStayState({
-        status: 'active',
-        houseName: matchingRoom.roomNumber,
-        stayId: stayIdentifier,
-      });
-      subscribeGuestStayRequests(stayIdentifier);
       return;
     }
 
     // CASE 2: No URL token present -> Check if browser has a valid stored active stay session
     if (savedSession && rooms.length > 0) {
-      subscribeGuestRoom(savedSession.roomId);
       const matchingRoom = rooms.find((r) => r.id === savedSession.roomId);
 
       if (

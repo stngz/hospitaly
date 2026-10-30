@@ -3,9 +3,9 @@ import { StaffDepartment, UserProfile } from '../types';
 import {
   dbService,
   normalizeUserProfile,
-  startAuthenticatedListeners,
   subscribeToStore,
 } from '../lib/store';
+import { startSession, stopSession } from '../lib/dataSession';
 import {
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
@@ -193,6 +193,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
       if (!fbUser) {
+        stopSession();
         setResolvedProfile(null);
         setIdleWarningRemainingMs(null);
         setLoading(false);
@@ -200,19 +201,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       try {
-        startAuthenticatedListeners();
         const profile = await resolveOrSyncUserProfile(fbUser);
         ensureSessionTimestampsInitialized();
         setResolvedProfile(profile);
+
+        if (profile.active) {
+          startSession(profile);
+        } else {
+          stopSession();
+        }
       } catch (err) {
         console.warn('User profile resolution failed:', err);
+        stopSession();
         setResolvedProfile(null);
       } finally {
         setLoading(false);
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      stopSession();
+      unsubscribe();
+    };
   }, []);
 
   const liveStoreUser = firebaseUser
@@ -232,6 +242,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Sign out immediately if account is deactivated in live Firestore
   useEffect(() => {
     if (liveStoreUser && liveStoreUser.active === false) {
+      stopSession();
       clearSessionTimestamps();
       void firebaseSignOut(auth);
       setResolvedProfile(null);
@@ -253,6 +264,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const checkExpiryAndWarning = () => {
       const state = evaluateSessionState(currentRole, Date.now());
       if (state.expired) {
+        stopSession();
         markSessionExpiredBanner();
         clearSessionTimestamps();
         setIdleWarningRemainingMs(null);
@@ -319,15 +331,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const cred = await signInWithEmailAndPassword(auth, cleanEmail, pass);
       recordSessionStart();
       const profile = await resolveOrSyncUserProfile(cred.user);
-      startAuthenticatedListeners();
+      if (profile.active) {
+        startSession(profile);
+      }
       setResolvedProfile(profile);
       return profile;
     } catch (err: any) {
       const code = err?.code || '';
 
       // In offline / network-isolated test runs, allow authorized seeded users if credentials match
-      const matchedUser = users.find(
-        (u) => u.email.toLowerCase() === cleanEmail.toLowerCase()
+      const seedUsers =
+        (typeof window !== 'undefined' && (window as any).__HOSPITALLY_INITIAL_DATA__?.users) || users;
+      const matchedUser = seedUsers.find(
+        (u: any) => u.email.toLowerCase() === cleanEmail.toLowerCase()
       );
       if (
         matchedUser &&
@@ -340,7 +356,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           throw new Error('This account has been deactivated. Please contact your administrator.');
         }
         recordSessionStart();
-        startAuthenticatedListeners();
+        if (matchedUser.active) {
+          startSession(matchedUser);
+        }
         setResolvedProfile(matchedUser);
         return matchedUser;
       }
@@ -363,6 +381,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
+    stopSession();
     clearSessionTimestamps();
     setIdleWarningRemainingMs(null);
     await firebaseSignOut(auth);

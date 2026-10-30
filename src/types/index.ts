@@ -272,3 +272,20 @@ export interface DiningItem {
   createdAt?: string;
   updatedAt?: string;
 }
+
+export interface Lead {
+  id: string;
+  name: string;
+  propertyName: string;
+  propertyType: string;
+  rooms: number;
+  city: string;
+  whatsapp: string;
+  email?: string;
+  message?: string;
+  source: 'landing';
+  status?: 'new' | 'contacted' | 'won' | 'lost';
+  notes?: string;
+  createdAt: string;
+}
+

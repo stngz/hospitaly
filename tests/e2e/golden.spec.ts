@@ -3,6 +3,8 @@ import { buildPilotSeedData } from '../../scripts/seed-emulator';
 
 test.describe('Golden Suites (Section 0 - Must Keep Working)', () => {
   test.beforeEach(async ({ page }) => {
+    page.on('console', msg => console.log('GOLDEN LOG:', msg.text()));
+    page.on('pageerror', err => console.log('GOLDEN ERROR:', err.message));
     const seed = buildPilotSeedData();
     await page.addInitScript((data) => {
       (window as any).__HOSPITALLY_INITIAL_DATA__ = data;

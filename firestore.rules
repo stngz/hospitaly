@@ -1,3 +1,7 @@
+// Version: 3.0.0-p0-data-session
+// Date: 2026-10-30
+// Single Source of Truth: Never paste rules into the console by hand. Always deploy via repository script.
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -219,7 +223,7 @@ service cloud.firestore {
     // - Delete: Founder only.
     match /rooms/{roomId} {
       allow get: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
-      allow list: if isPlatformFounder() || (isUserActive() && getUserData().role in ['staff', 'manager', 'admin']);
+      allow list: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
 
       allow create: if isPlatformFounder();
 
@@ -248,7 +252,7 @@ service cloud.firestore {
     // - Delete: Founder only.
     match /stays/{stayId} {
       allow get: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
-      allow list: if isPlatformFounder() || (isUserActive() && getUserData().role in ['staff', 'manager', 'admin']);
+      allow list: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
 
       allow create: if isPlatformFounder() || (
         isStaffMember(request.resource.data.propertyId) &&
@@ -274,7 +278,7 @@ service cloud.firestore {
                     isStaffMember(resource.data.propertyId);
 
       allow list: if isPlatformFounder() ||
-                     (isUserActive() && getUserData().role in ['staff', 'manager', 'admin']);
+                     isStaffMember(resource.data.propertyId);
 
       allow create, update: if isPlatformFounder() || (
         isPropertyManager(request.resource.data.propertyId) &&
@@ -338,7 +342,7 @@ service cloud.firestore {
                     );
 
       allow list: if isPlatformFounder() ||
-                     (isUserActive() && getUserData().role in ['staff', 'manager', 'admin']) ||
+                     isStaffMember(resource.data.propertyId) ||
                      (
                        isAuthenticated() &&
                        request.query.limit != null &&
@@ -513,6 +517,28 @@ service cloud.firestore {
         isPropertyManager(request.resource.data.propertyId) &&
         isPropertyActive(request.resource.data.propertyId)
       );
+    }
+
+    // Leads (Landing page quote requests):
+    // - Unauthenticated / anyone can CREATE a lead with strictly validated fields:
+    //   name, propertyName, propertyType, city, whatsapp (<= 120 chars)
+    //   optional email (<= 120), optional message (<= 1000), rooms int 1-2000
+    //   source == 'landing'
+    // - NO ONE except platform Founder can read, update, or delete leads.
+    match /leads/{leadId} {
+      allow get, list, update, delete: if isPlatformFounder();
+      allow create: if request.resource.data.keys().hasOnly([
+          'id', 'name', 'propertyName', 'propertyType', 'rooms', 'city', 'whatsapp', 'email', 'message', 'source', 'status', 'notes', 'createdAt'
+        ]) &&
+        request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 120 &&
+        request.resource.data.propertyName is string && request.resource.data.propertyName.size() > 0 && request.resource.data.propertyName.size() <= 120 &&
+        request.resource.data.propertyType is string && request.resource.data.propertyType.size() <= 120 &&
+        request.resource.data.city is string && request.resource.data.city.size() <= 120 &&
+        request.resource.data.whatsapp is string && request.resource.data.whatsapp.size() <= 120 &&
+        (!('email' in request.resource.data) || (request.resource.data.email is string && request.resource.data.email.size() <= 120)) &&
+        (!('message' in request.resource.data) || (request.resource.data.message is string && request.resource.data.message.size() <= 1000)) &&
+        request.resource.data.rooms is int && request.resource.data.rooms >= 1 && request.resource.data.rooms <= 2000 &&
+        request.resource.data.source == 'landing';
     }
 
     // Catch-all deny

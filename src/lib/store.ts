@@ -14,6 +14,7 @@ import {
   ActivityLogEntry,
   HouseGuideConfig,
   StaffDepartment,
+  Lead,
 } from '../types';
 import {
   ROCKS_APARTMENTS_PROPERTY,
@@ -21,12 +22,13 @@ import {
 } from './seeds/rocksApartments';
 import { DEFAULT_SUSPEND_MESSAGE, PUSH_ENABLED } from './config';
 import { notificationService } from './notifications';
-import { db } from './firebase';
+import { db, auth } from './firebase';
 import {
   collection,
   doc,
   onSnapshot,
   setDoc,
+  getDoc,
   getDocs,
   query,
   where,
@@ -113,10 +115,11 @@ interface AppDatabase {
   media: MediaItem[];
   activity: ActivityLogEntry[];
   diningItems: DiningItem[];
+  leads: Lead[];
 }
 
 const DEFAULT_DB: AppDatabase = {
-  properties: [ROCKS_APARTMENTS_PROPERTY],
+  properties: [],
   rooms: [],
   stays: [],
   qrCodes: [],
@@ -125,6 +128,7 @@ const DEFAULT_DB: AppDatabase = {
   media: [],
   activity: [],
   diningItems: [],
+  leads: [],
 };
 
 type Listener = () => void;
@@ -265,7 +269,7 @@ function recordActivityInternal(
  */
 export function subscribeGuestStayRequests(stayId: string | null | undefined): void {
   const cleanStayId = (stayId || '').trim();
-  if (!cleanStayId) {
+  if (!cleanStayId || !auth.currentUser) {
     if (guestRequestsUnsub) {
       guestRequestsUnsub();
       guestRequestsUnsub = null;
@@ -318,7 +322,7 @@ export function subscribeGuestStayRequests(stayId: string | null | undefined): v
  */
 export function subscribeGuestRoom(roomId: string | null | undefined): void {
   const cleanRoomId = (roomId || '').trim();
-  if (!cleanRoomId) {
+  if (!cleanRoomId || !auth.currentUser) {
     if (guestRoomUnsub) {
       guestRoomUnsub();
       guestRoomUnsub = null;
@@ -396,197 +400,130 @@ export function subscribeGuestRoom(roomId: string | null | undefined): void {
 }
 
 /**
- * Public listeners needed on first load (`properties`, `rooms`, `qrCodes`, `stays`, `media`).
- * No auto-delete or rewrite functions run on load.
+ * Session setters called exclusively by DataSession manager.
  */
-export function initFirestoreListeners(): void {
-  if (publicListenersActive) return;
-  publicListenersActive = true;
-  firestoreInitialized = true;
-
-  const unsubProps = onSnapshot(
-    collection(db, 'properties'),
-    (snapshot) => {
-      if (!snapshot.empty) {
-        const properties = snapshot.docs.map((d) => ({
-          ...ROCKS_APARTMENTS_PROPERTY,
-          ...(d.data() as Property),
-          id: d.id,
-          houseGuide: {
-            ...DEFAULT_HOUSE_GUIDE,
-            ...((d.data() as Property).houseGuide || {}),
-          },
-        }));
-        cachedDb = { ...cachedDb, properties };
-      }
-      firestoreReady = true;
-      notifyListeners();
-    },
-    (err) => {
-      console.warn('Firestore properties listener error:', err);
-      firestoreReady = true;
-      notifyListeners();
-    }
-  );
-
-  const unsubRooms = onSnapshot(
-    query(collection(db, 'rooms'), limit(50)),
-    (snapshot) => {
-      const rooms = snapshot.docs.map((d) => {
-        const data = d.data() as Room;
-        return {
-          ...data,
-          id: d.id,
-          roomNumber: data.name || data.roomNumber || d.id,
-          name: data.name || data.roomNumber || d.id,
-          roomType: data.houseType || data.roomType || 'Apartment',
-          houseType: data.houseType || data.roomType || 'Apartment',
-        };
-      });
-      cachedDb = { ...cachedDb, rooms };
-      firestoreReady = true;
-      notifyListeners();
-    },
-    (err) => console.warn('Firestore rooms listener error:', err)
-  );
-
-  const unsubStays = onSnapshot(
-    query(collection(db, 'stays'), limit(50)),
-    (snapshot) => {
-      const stays = snapshot.docs.map((d) => ({
-        ...(d.data() as Stay),
-        id: d.id,
-      }));
-      cachedDb = { ...cachedDb, stays };
-      notifyListeners();
-    },
-    (err) => console.warn('Firestore stays listener error:', err)
-  );
-
-  const unsubQRs = onSnapshot(
-    collection(db, 'qrCodes'),
-    (snapshot) => {
-      const qrCodes = snapshot.docs.map((d) => {
-        const data = d.data() as QRCodeRecord;
-        return {
-          ...data,
-          id: d.id,
-          token: data.token || d.id,
-        };
-      });
-      cachedDb = { ...cachedDb, qrCodes };
-      firestoreReady = true;
-      notifyListeners();
-    },
-    (err) => console.warn('Firestore qrCodes listener error:', err)
-  );
-
-  const unsubMedia = onSnapshot(
-    collection(db, 'media'),
-    (snapshot) => {
-      const media = snapshot.docs.map((d) => ({
-        ...(d.data() as MediaItem),
-        id: d.id,
-      }));
-      cachedDb = { ...cachedDb, media };
-      notifyListeners();
-    },
-    (err) => console.warn('Firestore media listener error:', err)
-  );
-
-  activeUnsubscribers.push(unsubProps, unsubRooms, unsubStays, unsubQRs, unsubMedia);
+export function setSessionProperties(properties: Property[]): void {
+  cachedDb = { ...cachedDb, properties };
+  firestoreReady = true;
+  notifyListeners();
 }
 
-const loggedMissingCategoryIds = new Set<string>();
+export function setSessionProperty(property: Property): void {
+  const otherProps = cachedDb.properties.filter((p) => p.id !== property.id);
+  cachedDb = { ...cachedDb, properties: [property, ...otherProps] };
+  firestoreReady = true;
+  notifyListeners();
+}
+
+export function setSessionRooms(rooms: Room[]): void {
+  cachedDb = { ...cachedDb, rooms };
+  firestoreReady = true;
+  notifyListeners();
+}
+
+export function setSessionStays(stays: Stay[]): void {
+  cachedDb = { ...cachedDb, stays };
+  notifyListeners();
+}
+
+export function setSessionQRCodes(qrCodes: QRCodeRecord[]): void {
+  cachedDb = { ...cachedDb, qrCodes };
+  firestoreReady = true;
+  notifyListeners();
+}
+
+export function setSessionRequests(requests: ServiceRequest[]): void {
+  cachedDb = { ...cachedDb, requests };
+  refreshDerivedCaches();
+  notifyListeners();
+}
+
+export function setSessionUsers(users: UserProfile[]): void {
+  cachedDb = { ...cachedDb, users };
+  notifyListeners();
+}
+
+export function setSessionActivity(activity: ActivityLogEntry[]): void {
+  cachedDb = { ...cachedDb, activity };
+  refreshDerivedCaches();
+  notifyListeners();
+}
+
+export function setSessionDining(diningItems: DiningItem[]): void {
+  cachedDb = { ...cachedDb, diningItems };
+  notifyListeners();
+}
+
+export function setSessionLeads(leads: Lead[]): void {
+  cachedDb = { ...cachedDb, leads };
+  notifyListeners();
+}
+
+export function clearStoreCache(): void {
+  cachedDb = {
+    properties: [],
+    rooms: [],
+    stays: [],
+    qrCodes: [],
+    requests: [],
+    users: [],
+    media: [],
+    activity: [],
+    diningItems: [],
+    leads: [],
+  };
+  refreshDerivedCaches();
+  listeners.forEach((listener) => listener());
+}
+
+export function resetToSeedDataIfAvailable(): void {
+  if (typeof window !== 'undefined') {
+    try {
+      const raw =
+        localStorage.getItem('hospitally_seed_data') ||
+        (window as any).__HOSPITALLY_INITIAL_DATA__;
+      if (raw) {
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (parsed.properties) cachedDb.properties = parsed.properties;
+        else if (parsed.property) cachedDb.properties = [parsed.property];
+        if (parsed.rooms) cachedDb.rooms = parsed.rooms;
+        if (parsed.stays) cachedDb.stays = parsed.stays;
+        if (parsed.qrCodes) cachedDb.qrCodes = parsed.qrCodes;
+        if (parsed.users) cachedDb.users = parsed.users;
+        if (parsed.requests) {
+          cachedDb.requests = parsed.requests.map((r: any) => ({
+            ...r,
+            category: r.category || r.department || 'general',
+            title: r.title || 'Service request',
+            roomNumber: r.roomNumber || 'House',
+          }));
+        }
+        if (parsed.leads) cachedDb.leads = parsed.leads;
+        if (parsed.activity) cachedDb.activity = parsed.activity;
+        refreshDerivedCaches();
+        listeners.forEach((listener) => listener());
+      }
+    } catch {}
+  }
+}
 
 /**
- * Staff / Manager / Founder listeners (`requests`, `users`, `activity`, `dining`).
+ * Deprecated: Data listeners are now managed strictly via dataSession.startSession(profile)
  */
-export function startAuthenticatedListeners(): void {
-  if (staffListenersActive) return;
-  staffListenersActive = true;
+export function initFirestoreListeners(): void {}
+export function startAuthenticatedListeners(): void {}
 
-  const unsubReqs = onSnapshot(
-    collection(db, 'requests'),
-    (snapshot) => {
-      const requests = snapshot.docs
-        .map((d) => {
-          const raw = d.data() as Partial<ServiceRequest>;
-          if (!raw.category && !loggedMissingCategoryIds.has(d.id)) {
-            loggedMissingCategoryIds.add(d.id);
-            console.warn(`[Hospitaly] Legacy request missing category: ID ${d.id} (title="${raw.title || 'Untitled'}")`);
-          }
-          return {
-            ...raw,
-            id: d.id,
-            propertyId: raw.propertyId || 'prop_rocks_lusaka',
-            roomId: raw.roomId || 'room_general',
-            roomNumber: raw.roomNumber || 'House',
-            title: raw.title || 'Service request',
-            category: raw.category || (raw as any).department || 'general',
-            status: raw.status || 'pending',
-            history: Array.isArray(raw.history) && raw.history.length > 0
-              ? raw.history
-              : [{ status: raw.status || 'pending', timestamp: raw.createdAt || new Date().toISOString() }],
-            archived: typeof raw.archived === 'boolean' ? raw.archived : false,
-            priority: raw.priority || 'normal',
-            createdAt: raw.createdAt || new Date().toISOString(),
-            updatedAt: raw.updatedAt || raw.createdAt || new Date().toISOString(),
-          } as ServiceRequest;
-        })
-        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-      cachedDb = { ...cachedDb, requests };
-      refreshDerivedCaches();
-      notifyListeners();
-    },
-    (err) => console.warn('Firestore requests listener error:', err)
-  );
+// Referential stability constants for useSyncExternalStore selectors
+const STABLE_EMPTY_PROPERTIES: Property[] = [];
+const STABLE_EMPTY_ROOMS: Room[] = [];
+const STABLE_EMPTY_STAYS: Stay[] = [];
+const STABLE_EMPTY_QRCODES: QRCodeRecord[] = [];
+const STABLE_EMPTY_USERS: UserProfile[] = [];
 
-  const unsubUsers = onSnapshot(
-    collection(db, 'users'),
-    (snapshot) => {
-      const users = snapshot.docs.map((d) =>
-        normalizeUserProfile(d.data() as Partial<UserProfile>, d.id)
-      );
-      cachedDb = { ...cachedDb, users };
-      notifyListeners();
-    },
-    (err) => console.warn('Firestore users listener error:', err)
-  );
-
-  const unsubActivity = onSnapshot(
-    collection(db, 'activity'),
-    (snapshot) => {
-      const activity = snapshot.docs
-        .map((d) => ({ ...(d.data() as ActivityLogEntry), id: d.id }))
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-        .slice(0, 50);
-      cachedDb = { ...cachedDb, activity };
-      notifyListeners();
-    },
-    (err) => console.warn('Firestore activity listener error:', err)
-  );
-
-  const unsubDining = onSnapshot(
-    collection(db, 'dining'),
-    (snapshot) => {
-      const diningItems = snapshot.docs.map((d) => ({
-        ...(d.data() as DiningItem),
-        id: d.id,
-      }));
-      cachedDb = { ...cachedDb, diningItems };
-      notifyListeners();
-    },
-    (err) => console.warn('Firestore dining listener error:', err)
-  );
-
-  activeUnsubscribers.push(unsubReqs, unsubUsers, unsubActivity, unsubDining);
-}
+let cachedUnarchivedRooms: Room[] = STABLE_EMPTY_ROOMS;
+let lastUnarchivedSource: Room[] | null = null;
 
 export function subscribeToStore(listener: Listener): () => void {
-  if (!firestoreInitialized && typeof window !== 'undefined') {
-    initFirestoreListeners();
-  }
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
@@ -595,14 +532,44 @@ export function subscribeToStore(listener: Listener): () => void {
 
 export const dbService = {
   // --- PROPERTIES ---
-  getProperties: (): Property[] => cachedDb.properties,
+  getProperties: (): Property[] => {
+    if (cachedDb.properties && cachedDb.properties.length > 0) {
+      return cachedDb.properties;
+    }
+    if (typeof window !== 'undefined' && (window as any).__HOSPITALLY_INITIAL_DATA__?.properties?.length) {
+      return (window as any).__HOSPITALLY_INITIAL_DATA__.properties;
+    }
+    return STABLE_EMPTY_PROPERTIES;
+  },
 
   getPropertyBySlug: (slug: string): Property | undefined => {
-    return cachedDb.properties.find((p) => p.slug === slug);
+    const list = dbService.getProperties();
+    return list.find((p) => p.slug === slug);
   },
 
   getPropertyById: (id: string): Property | undefined => {
-    return cachedDb.properties.find((p) => p.id === id);
+    const list = dbService.getProperties();
+    return list.find((p) => p.id === id);
+  },
+
+  getOrFetchPropertyById: async (propertyId: string): Promise<Property | undefined> => {
+    const cleanId = propertyId.trim();
+    if (!cleanId) return undefined;
+    const local = cachedDb.properties.find((p) => p.id === cleanId);
+    if (local) return local;
+    try {
+      const snap = await getDoc(doc(db, 'properties', cleanId));
+      if (snap.exists()) {
+        const prop = { ...(snap.data() as Property), id: snap.id };
+        const other = cachedDb.properties.filter((p) => p.id !== snap.id);
+        cachedDb = { ...cachedDb, properties: [...other, prop] };
+        notifyListeners();
+        return prop;
+      }
+    } catch (err) {
+      console.warn('Failed to fetch property document:', err);
+    }
+    return undefined;
   },
 
   updatePropertySettings: (
@@ -799,40 +766,67 @@ export const dbService = {
   },
 
   // --- ROOMS (HOUSES) & STAYS ---
+  getAllRoomsIncludingArchived: (): Room[] => {
+    if (cachedDb.rooms.length > 0) return cachedDb.rooms;
+    if (typeof window !== 'undefined' && (window as any).__HOSPITALLY_INITIAL_DATA__?.rooms?.length) {
+      return (window as any).__HOSPITALLY_INITIAL_DATA__.rooms;
+    }
+    return STABLE_EMPTY_ROOMS;
+  },
+
+  getAllRooms: (): Room[] => {
+    const list = dbService.getAllRoomsIncludingArchived();
+    if (list === lastUnarchivedSource) {
+      return cachedUnarchivedRooms;
+    }
+    lastUnarchivedSource = list;
+    cachedUnarchivedRooms = list.filter((r) => !r.archived);
+    return cachedUnarchivedRooms;
+  },
+
   getRoomsByProperty: (propertyId: string, includeArchived: boolean = false): Room[] => {
-    return cachedDb.rooms.filter(
+    const list = dbService.getAllRoomsIncludingArchived();
+    return list.filter(
       (r) => r.propertyId === propertyId && (includeArchived || !r.archived)
     );
   },
 
-  getAllRooms: (): Room[] => {
-    return cachedActiveRooms;
-  },
-
-  getAllRoomsIncludingArchived: (): Room[] => {
-    return cachedDb.rooms;
-  },
-
   getRoomById: (roomId: string): Room | undefined => {
-    return cachedDb.rooms.find((r) => r.id === roomId);
+    const list = dbService.getAllRoomsIncludingArchived();
+    return list.find((r) => r.id === roomId);
+  },
+
+  getAllStays: (): Stay[] => {
+    if (cachedDb.stays.length > 0) return cachedDb.stays;
+    if (typeof window !== 'undefined' && (window as any).__HOSPITALLY_INITIAL_DATA__?.stays?.length) {
+      return (window as any).__HOSPITALLY_INITIAL_DATA__.stays;
+    }
+    return STABLE_EMPTY_STAYS;
   },
 
   getStaysByProperty: (propertyId: string): Stay[] => {
-    return cachedDb.stays.filter((s) => s.propertyId === propertyId);
+    const list = dbService.getAllStays();
+    return list.filter((s) => s.propertyId === propertyId);
   },
-
-  getAllStays: (): Stay[] => cachedDb.stays,
 
   getStayById: (stayId?: string | null): Stay | undefined => {
     if (!stayId) return undefined;
-    return cachedDb.stays.find((s) => s.id === stayId);
+    const list = dbService.getAllStays();
+    return list.find((s) => s.id === stayId);
   },
 
-  getAllQRCodes: (): QRCodeRecord[] => cachedDb.qrCodes,
+  getAllQRCodes: (): QRCodeRecord[] => {
+    if (cachedDb.qrCodes.length > 0) return cachedDb.qrCodes;
+    if (typeof window !== 'undefined' && (window as any).__HOSPITALLY_INITIAL_DATA__?.qrCodes?.length) {
+      return (window as any).__HOSPITALLY_INITIAL_DATA__.qrCodes;
+    }
+    return STABLE_EMPTY_QRCODES;
+  },
 
   getQRByToken: (token: string): QRCodeRecord | undefined => {
     const clean = token.trim().toLowerCase();
-    return cachedDb.qrCodes.find(
+    const list = dbService.getAllQRCodes();
+    return list.find(
       (q) =>
         (q.token.toLowerCase() === clean || q.id.toLowerCase() === clean) &&
         q.status === 'active'
@@ -841,9 +835,33 @@ export const dbService = {
 
   getAnyQRByToken: (token: string): QRCodeRecord | undefined => {
     const clean = token.trim().toLowerCase();
-    return cachedDb.qrCodes.find(
+    const list = dbService.getAllQRCodes();
+    return list.find(
       (q) => q.token.toLowerCase() === clean || q.id.toLowerCase() === clean
     );
+  },
+
+  getOrFetchQRByToken: async (token: string): Promise<QRCodeRecord | undefined> => {
+    const clean = token.trim();
+    if (!clean) return undefined;
+    const local = cachedDb.qrCodes.find(
+      (q) => q.token.toLowerCase() === clean.toLowerCase() || q.id.toLowerCase() === clean.toLowerCase()
+    );
+    if (local) return local;
+    try {
+      const snap = await getDoc(doc(db, 'qrCodes', clean));
+      if (snap.exists()) {
+        const data = snap.data() as QRCodeRecord;
+        const record: QRCodeRecord = { ...data, id: snap.id, token: data.token || snap.id };
+        const other = cachedDb.qrCodes.filter((q) => q.id !== snap.id);
+        cachedDb = { ...cachedDb, qrCodes: [...other, record] };
+        notifyListeners();
+        return record;
+      }
+    } catch (err) {
+      console.warn('Failed to fetch qrCode document:', err);
+    }
+    return undefined;
   },
 
   addRoomWithQR: (
@@ -1291,7 +1309,15 @@ export const dbService = {
     return cachedDb.users.filter((u) => u.propertyId === propertyId && u.active !== false);
   },
 
-  getAllUsers: (): UserProfile[] => cachedDb.users,
+  getAllUsers: (): UserProfile[] => {
+    if (cachedDb.users && cachedDb.users.length > 0) {
+      return cachedDb.users;
+    }
+    if (typeof window !== 'undefined' && (window as any).__HOSPITALLY_INITIAL_DATA__?.users?.length) {
+      return (window as any).__HOSPITALLY_INITIAL_DATA__.users;
+    }
+    return STABLE_EMPTY_USERS;
+  },
 
   // --- DINING MENU ---
   getDiningByProperty: (propertyId: string): DiningItem[] => {
@@ -1802,6 +1828,43 @@ export const dbService = {
       );
     } catch (err) {
       console.warn('Failed to disable staff device tokens:', err);
+    }
+  },
+
+  // --- LEADS ---
+  getLeads: (): Lead[] => cachedDb.leads || [],
+
+  createLead: async (leadData: Omit<Lead, 'id' | 'createdAt'>): Promise<Lead> => {
+    const leadId = `lead_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const newLead: Lead = {
+      ...leadData,
+      id: leadId,
+      status: 'new',
+      createdAt: new Date().toISOString(),
+    };
+    cachedDb = {
+      ...cachedDb,
+      leads: [newLead, ...(cachedDb.leads || [])],
+    };
+    notifyListeners();
+    try {
+      await setDoc(doc(db, 'leads', leadId), newLead);
+    } catch (err) {
+      console.warn('Failed to write lead to Firestore:', err);
+    }
+    return newLead;
+  },
+
+  updateLeadStatus: async (leadId: string, status: Lead['status'], notes?: string): Promise<void> => {
+    const updatedLeads = (cachedDb.leads || []).map((l) =>
+      l.id === leadId ? { ...l, status, notes: notes !== undefined ? notes : l.notes } : l
+    );
+    cachedDb = { ...cachedDb, leads: updatedLeads };
+    notifyListeners();
+    try {
+      await setDoc(doc(db, 'leads', leadId), { status, ...(notes !== undefined ? { notes } : {}) }, { merge: true });
+    } catch (err) {
+      console.warn('Failed to update lead status:', err);
     }
   },
 };
