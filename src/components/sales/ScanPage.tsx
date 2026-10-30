@@ -16,23 +16,51 @@ export const ScanPage: React.FC<ScanPageProps> = ({ onClose, onNavigateToToken }
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleDetectedUrl = (scannedText: string) => {
-    const trimmed = scannedText.trim();
-    // Match /r/{token} pattern or bare token
-    const pathMatch = trimmed.match(/\/r\/([a-zA-Z0-9_-]+)/);
-    const tokenMatch = pathMatch ? pathMatch[1] : trimmed;
+  // HOTFIX (scanner): only open real Shekin room cards, and only after the same code is
+  // read twice in a row. Before, any half-read or foreign QR jumped straight to a broken page.
+  const [hint, setHint] = useState<string | null>(null);
+  const lastReadRef = useRef<{ token: string; count: number } | null>(null);
+  const navigatingRef = useRef(false);
 
-    // Stop camera stream immediately
+  const extractRoomToken = (scannedText: string): string | null => {
+    try {
+      const url = new URL(scannedText.trim());
+      const host = url.hostname.toLowerCase();
+      const allowedHost =
+        host === window.location.hostname.toLowerCase() ||
+        host === 'hospitaly.vercel.app' ||
+        host === 'shekin.app' ||
+        host.endsWith('.shekin.app');
+      const match = url.pathname.match(/^\/r\/([a-zA-Z0-9_-]{6,})\/?$/);
+      if (!allowedHost || !match) return null;
+      return match[1];
+    } catch {
+      return null; // not a full URL -> not one of our cards (or a partial read)
+    }
+  };
+
+  // Returns true when the scanner should stop (we are opening the house).
+  const handleDetectedText = (scannedText: string): boolean => {
+    if (navigatingRef.current) return true;
+    const token = extractRoomToken(scannedText);
+    if (!token) {
+      lastReadRef.current = null;
+      setHint("That isn't a room card. Point the camera at the QR card in your house.");
+      return false;
+    }
+    const last = lastReadRef.current;
+    lastReadRef.current = last && last.token === token ? { token, count: last.count + 1 } : { token, count: 1 };
+    if (lastReadRef.current.count < 2) return false; // wait for a second identical read
+
+    navigatingRef.current = true;
+    setHint('Opening your house…');
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
-
-    if (onNavigateToToken) {
-      onNavigateToToken(tokenMatch);
-    } else {
-      window.location.href = `/r/${tokenMatch}`;
-    }
+    // Full page load so the guest screen always starts clean
+    window.location.assign(`/r/${token}`);
+    return true;
   };
 
   useEffect(() => {
@@ -96,7 +124,9 @@ export const ScanPage: React.FC<ScanPageProps> = ({ onClose, onNavigateToToken }
             try {
               const barcodes = await barcodeDetector.detect(video);
               if (barcodes.length > 0 && barcodes[0].rawValue) {
-                handleDetectedUrl(barcodes[0].rawValue);
+                if (handleDetectedText(barcodes[0].rawValue)) return;
+                // One read per frame: don't let jsQR count the same frame a second time
+                animationFrameRef.current = requestAnimationFrame(scanFrame);
                 return;
               }
             } catch {
@@ -115,8 +145,7 @@ export const ScanPage: React.FC<ScanPageProps> = ({ onClose, onNavigateToToken }
                 inversionAttempts: 'dontInvert',
               });
               if (code && code.data) {
-                handleDetectedUrl(code.data);
-                return;
+                if (handleDetectedText(code.data)) return;
               }
             }
           }
@@ -214,7 +243,7 @@ export const ScanPage: React.FC<ScanPageProps> = ({ onClose, onNavigateToToken }
       {/* Footer Instructions */}
       <div className="w-full p-6 text-center z-10 bg-gradient-to-t from-black/90 to-transparent">
         <p className="text-xs text-stone-300 max-w-xs mx-auto">
-          Point your camera at the QR code card on the desk or bedside table in your room.
+          {hint || 'Point your camera at the QR code card on the desk or bedside table in your room.'}
         </p>
       </div>
     </div>

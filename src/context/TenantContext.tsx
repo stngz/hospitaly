@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useSyncExternalStore } from 'react';
 import { Property, Room } from '../types';
-import { dbService, subscribeToStore, subscribeGuestStayRequests, subscribeGuestRoom } from '../lib/store';
+import { dbService, subscribeToStore, subscribeGuestStayRequests, subscribeGuestRoom, ensureGuestAccess } from '../lib/store';
 
 export type GuestStayStatus = 'loading' | 'active' | 'unoccupied' | 'invalid_token' | 'checked_out' | 'rescan_required' | 'no_session';
 
@@ -194,12 +194,46 @@ export const TenantProvider: React.FC<{
           return;
         }
 
+        const liveRoom = rooms.find((r) => r.id === qr.roomId);
+
+        // HOTFIX (guest access): guests can't read houses until they have a guest session.
+        // If the house isn't loaded yet, get access once, keep the loading screen up, and
+        // let this effect run again when the house document arrives.
+        if (!liveRoom && !(window as any).__HOSPITALLY_INITIAL_DATA__) {
+          const accessKey = `guest_${qr.roomId}`;
+          if (!inFlightFetchRef.current.has(accessKey)) {
+            inFlightFetchRef.current.add(accessKey);
+            ensureGuestAccess(urlToken, qr.roomId, qr.propertyId).catch((err) => {
+              console.warn('Guest access failed:', err);
+              inFlightFetchRef.current.delete(accessKey);
+              updateStayState({
+                status: 'invalid_token',
+                errorMessage:
+                  "We couldn't open your house right now. Check your internet connection and scan the card again.",
+              });
+            });
+            // Safety net: never leave the guest on an endless loading screen
+            window.setTimeout(() => {
+              setStayState((prev) =>
+                prev.status === 'loading'
+                  ? {
+                      status: 'invalid_token',
+                      errorMessage:
+                        "We couldn't open your house right now. Check your internet connection and scan the card again.",
+                    }
+                  : prev
+              );
+            }, 12000);
+          }
+          return;
+        }
+
         const matchingRoom: Room =
-          rooms.find((r) => r.id === qr.roomId) || {
+          liveRoom || {
             id: qr.roomId,
             propertyId: qr.propertyId,
-            name: qr.houseName || qr.roomId,
-            roomNumber: qr.houseName || qr.roomId,
+            name: qr.houseName || 'your house',
+            roomNumber: qr.houseName || 'your house',
             houseType: qr.houseType || 'Apartment',
             roomType: qr.houseType || 'Apartment',
             status: qr.activeStayId ? 'occupied' : 'available',
@@ -420,8 +454,8 @@ export const TenantProvider: React.FC<{
         room = {
           id: activeQR.roomId,
           propertyId: activeQR.propertyId,
-          name: activeQR.houseName || activeQR.roomId,
-          roomNumber: activeQR.houseName || activeQR.roomId,
+          name: activeQR.houseName || 'your house',
+          roomNumber: activeQR.houseName || 'your house',
           houseType: activeQR.houseType || 'Apartment',
           roomType: activeQR.houseType || 'Apartment',
           status: activeQR.activeStayId ? 'occupied' : 'available',

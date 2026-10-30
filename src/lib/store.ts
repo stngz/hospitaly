@@ -23,6 +23,7 @@ import {
 import { DEFAULT_SUSPEND_MESSAGE, PUSH_ENABLED } from './config';
 import { notificationService } from './notifications';
 import { db, auth } from './firebase';
+import { signInAnonymously } from 'firebase/auth';
 import {
   collection,
   doc,
@@ -147,7 +148,22 @@ function refreshDerivedCaches() {
   cachedActivityLog = cachedDb.activity.slice(0, 50);
 }
 
-if (typeof window !== 'undefined') {
+// HOTFIX (guest access): the app used to save the whole database in localStorage on every
+// device and load it back on start. Phones then showed old rooms/stays (e.g. "Thanks for
+// staying with us" after a new check-in) until refreshed several times, and staff phones kept
+// guest data after sign-out. The local copy is now ONLY used when automated tests inject
+// seed data (window.__HOSPITALLY_INITIAL_DATA__). Real devices always read live Firestore,
+// and any old copy is deleted.
+const USE_LOCAL_TEST_CACHE =
+  typeof window !== 'undefined' && Boolean((window as any).__HOSPITALLY_INITIAL_DATA__);
+
+if (typeof window !== 'undefined' && !USE_LOCAL_TEST_CACHE) {
+  try {
+    localStorage.removeItem('hospitally_seed_data');
+  } catch {}
+}
+
+if (typeof window !== 'undefined' && USE_LOCAL_TEST_CACHE) {
   try {
     const raw =
       localStorage.getItem('hospitally_seed_data') ||
@@ -210,7 +226,7 @@ const activeUnsubscribers: Array<() => void> = [];
 
 function notifyListeners() {
   refreshDerivedCaches();
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && USE_LOCAL_TEST_CACHE) {
     try {
       localStorage.setItem('hospitally_seed_data', JSON.stringify(cachedDb));
     } catch {}
@@ -285,7 +301,17 @@ export function subscribeGuestStayRequests(stayId: string | null | undefined): v
     guestRequestsUnsub = null;
   }
   activeGuestStayListenerId = cleanStayId;
-  const q = query(collection(db, 'requests'), where('stayId', '==', cleanStayId), limit(50));
+  // Anonymous guests may only list their own requests (rule: guestUid == auth.uid),
+  // so the query must filter on guestUid. Staff/founder previews use stayId only.
+  const currentUser = auth.currentUser;
+  const q = currentUser.isAnonymous
+    ? query(
+        collection(db, 'requests'),
+        where('guestUid', '==', currentUser.uid),
+        where('stayId', '==', cleanStayId),
+        limit(50)
+      )
+    : query(collection(db, 'requests'), where('stayId', '==', cleanStayId), limit(50));
   guestRequestsUnsub = onSnapshot(
     q,
     (snapshot) => {
@@ -400,6 +426,34 @@ export function subscribeGuestRoom(roomId: string | null | undefined): void {
 }
 
 /**
+ * HOTFIX (guest access): give a guest who scanned a QR card permission to read their house.
+ * - Nobody signed in  -> sign in anonymously (Anonymous sign-in is enabled in Firebase).
+ * - Anonymous guest   -> write guestSessions/{uid} = { token, roomId, propertyId }.
+ *                        Firestore rules check the token is a real active card for that room.
+ * - Staff / founder   -> do nothing; never sign them out or replace their session.
+ * Then start listening to the house document so the guest screen gets live data.
+ */
+export async function ensureGuestAccess(
+  token: string,
+  roomId: string,
+  propertyId: string
+): Promise<void> {
+  if (!auth.currentUser) {
+    await signInAnonymously(auth);
+  }
+  const user = auth.currentUser;
+  if (user && user.isAnonymous) {
+    await setDoc(doc(db, 'guestSessions', user.uid), {
+      token,
+      roomId,
+      propertyId,
+      createdAt: new Date().toISOString(),
+    });
+  }
+  subscribeGuestRoom(roomId);
+}
+
+/**
  * Session setters called exclusively by DataSession manager.
  */
 export function setSessionProperties(properties: Property[]): void {
@@ -477,7 +531,7 @@ export function clearStoreCache(): void {
 }
 
 export function resetToSeedDataIfAvailable(): void {
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && USE_LOCAL_TEST_CACHE) {
     try {
       const raw =
         localStorage.getItem('hospitally_seed_data') ||
@@ -1436,6 +1490,8 @@ export const dbService = {
       stayId: activeStayId,
       guestName: guestFullName,
       guestPhone,
+      // Required by Firestore rules for anonymous guest requests
+      ...(auth.currentUser?.isAnonymous ? { guestUid: auth.currentUser.uid } : {}),
       id: `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       status: 'pending',
       archived: false,

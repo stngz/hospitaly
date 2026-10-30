@@ -1,0 +1,482 @@
+diff --git a/firestore.rules b/firestore.rules
+index 1aa4462..24a24c7 100644
+--- a/firestore.rules
++++ b/firestore.rules
+@@ -1,4 +1,4 @@
+-// Version: 3.0.0-p0-data-session
++// Version: 3.0.1-hotfix-guest-access
+ // Date: 2026-10-30
+ // Single Source of Truth: Never paste rules into the console by hand. Always deploy via repository script.
+ 
+@@ -183,10 +183,30 @@ service cloud.firestore {
+         get(/databases/$(database)/documents/properties/$(propId)).data.status == 'active';
+     }
+ 
++    // HOTFIX (guest access): a guest session only stores which house (roomId) the
++    // scanned card belongs to. The CURRENT stay is always read from rooms/{roomId},
++    // so check-out immediately ends what an old phone can do.
+     function hasActiveGuestSession(uid, roomId, stayId) {
+       return exists(/databases/$(database)/documents/guestSessions/$(uid)) &&
+         get(/databases/$(database)/documents/guestSessions/$(uid)).data.roomId == roomId &&
+-        get(/databases/$(database)/documents/guestSessions/$(uid)).data.stayId == stayId;
++        get(/databases/$(database)/documents/rooms/$(roomId)).data.get('activeStayId', '') == stayId;
++    }
++
++    function isGuestOfRoom(roomId) {
++      return isAuthenticated() &&
++        exists(/databases/$(database)/documents/guestSessions/$(request.auth.uid)) &&
++        get(/databases/$(database)/documents/guestSessions/$(request.auth.uid)).data.roomId == roomId;
++    }
++
++    // A guest may only write a session for a real, active QR card of that exact house.
++    function isValidGuestSessionWrite(uid) {
++      return isAuthenticated() &&
++        request.auth.uid == uid &&
++        request.resource.data.token is string &&
++        request.resource.data.roomId is string &&
++        exists(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)) &&
++        get(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)).data.status == 'active' &&
++        get(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)).data.roomId == request.resource.data.roomId;
+     }
+ 
+     // ===============================================================
+@@ -222,7 +242,7 @@ service cloud.firestore {
+     // - Update: Founder, or property manager (if active), or staff member for operational fields.
+     // - Delete: Founder only.
+     match /rooms/{roomId} {
+-      allow get: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
++      allow get: if isPlatformFounder() || isStaffMember(resource.data.propertyId) || isGuestOfRoom(roomId);
+       allow list: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
+ 
+       allow create: if isPlatformFounder();
+@@ -251,7 +271,9 @@ service cloud.firestore {
+     // - Create / Update: staff member / manager / founder when property active.
+     // - Delete: Founder only.
+     match /stays/{stayId} {
+-      allow get: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
++      allow get: if isPlatformFounder() || isStaffMember(resource.data.propertyId) ||
++                    (isGuestOfRoom(resource.data.roomId) &&
++                     get(/databases/$(database)/documents/rooms/$(resource.data.roomId)).data.get('activeStayId', '') == stayId);
+       allow list: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
+ 
+       allow create: if isPlatformFounder() || (
+@@ -298,13 +320,7 @@ service cloud.firestore {
+     // - List: staff or founder only.
+     // - Update, delete: owner or founder.
+     match /guestSessions/{uid} {
+-      allow create: if isAuthenticated() &&
+-        request.auth.uid == uid &&
+-        request.resource.data.token is string &&
+-        exists(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)) &&
+-        get(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)).data.status == 'active' &&
+-        get(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)).data.roomId == request.resource.data.roomId &&
+-        get(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)).data.activeStayId == request.resource.data.stayId;
++      allow create, update: if isValidGuestSessionWrite(uid);
+ 
+       allow get: if (isAuthenticated() && request.auth.uid == uid) ||
+                     isPlatformFounder() ||
+@@ -313,7 +329,7 @@ service cloud.firestore {
+       allow list: if isPlatformFounder() ||
+                      (isUserActive() && getUserData().role in ['staff', 'manager', 'admin']);
+ 
+-      allow update, delete: if (isAuthenticated() && request.auth.uid == uid) || isPlatformFounder();
++      allow delete: if (isAuthenticated() && request.auth.uid == uid) || isPlatformFounder();
+     }
+ 
+     // Requests:
+@@ -333,11 +349,7 @@ service cloud.firestore {
+                     isStaffMember(resource.data.propertyId) ||
+                     (
+                       isAuthenticated() && (
+-                        resource.data.get('guestUid', '') == request.auth.uid ||
+-                        (
+-                          exists(/databases/$(database)/documents/guestSessions/$(request.auth.uid)) &&
+-                          get(/databases/$(database)/documents/guestSessions/$(request.auth.uid)).data.stayId == resource.data.stayId
+-                        )
++                        resource.data.get('guestUid', '') == request.auth.uid
+                       )
+                     );
+ 
+@@ -348,11 +360,7 @@ service cloud.firestore {
+                        request.query.limit != null &&
+                        request.query.limit <= 50 &&
+                        (
+-                         resource.data.get('guestUid', '') == request.auth.uid ||
+-                         (
+-                           exists(/databases/$(database)/documents/guestSessions/$(request.auth.uid)) &&
+-                           get(/databases/$(database)/documents/guestSessions/$(request.auth.uid)).data.stayId == resource.data.stayId
+-                         )
++                         resource.data.get('guestUid', '') == request.auth.uid
+                        )
+                      );
+ 
+diff --git a/src/components/guest/GuestHome.tsx b/src/components/guest/GuestHome.tsx
+index 661d826..796b087 100644
+--- a/src/components/guest/GuestHome.tsx
++++ b/src/components/guest/GuestHome.tsx
+@@ -321,7 +321,7 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
+             <div className="space-y-1.5">
+               <h1 className="text-2xl font-serif font-bold text-stone-900 leading-tight">
+                 {isInvalid
+-                  ? 'This QR code is no longer active. Please contact reception.'
++                  ? stayState.errorMessage || 'This QR code is no longer active. Please contact reception.'
+                   : isCheckedOut
+                   ? 'Thanks for staying with us'
+                   : isRescanRequired
+diff --git a/src/components/sales/ScanPage.tsx b/src/components/sales/ScanPage.tsx
+index 57bf6fb..fb51445 100644
+--- a/src/components/sales/ScanPage.tsx
++++ b/src/components/sales/ScanPage.tsx
+@@ -16,23 +16,51 @@ export const ScanPage: React.FC<ScanPageProps> = ({ onClose, onNavigateToToken }
+   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+ 
+-  const handleDetectedUrl = (scannedText: string) => {
+-    const trimmed = scannedText.trim();
+-    // Match /r/{token} pattern or bare token
+-    const pathMatch = trimmed.match(/\/r\/([a-zA-Z0-9_-]+)/);
+-    const tokenMatch = pathMatch ? pathMatch[1] : trimmed;
++  // HOTFIX (scanner): only open real Shekin room cards, and only after the same code is
++  // read twice in a row. Before, any half-read or foreign QR jumped straight to a broken page.
++  const [hint, setHint] = useState<string | null>(null);
++  const lastReadRef = useRef<{ token: string; count: number } | null>(null);
++  const navigatingRef = useRef(false);
++
++  const extractRoomToken = (scannedText: string): string | null => {
++    try {
++      const url = new URL(scannedText.trim());
++      const host = url.hostname.toLowerCase();
++      const allowedHost =
++        host === window.location.hostname.toLowerCase() ||
++        host === 'hospitaly.vercel.app' ||
++        host === 'shekin.app' ||
++        host.endsWith('.shekin.app');
++      const match = url.pathname.match(/^\/r\/([a-zA-Z0-9_-]{6,})\/?$/);
++      if (!allowedHost || !match) return null;
++      return match[1];
++    } catch {
++      return null; // not a full URL -> not one of our cards (or a partial read)
++    }
++  };
++
++  // Returns true when the scanner should stop (we are opening the house).
++  const handleDetectedText = (scannedText: string): boolean => {
++    if (navigatingRef.current) return true;
++    const token = extractRoomToken(scannedText);
++    if (!token) {
++      lastReadRef.current = null;
++      setHint("That isn't a room card. Point the camera at the QR card in your house.");
++      return false;
++    }
++    const last = lastReadRef.current;
++    lastReadRef.current = last && last.token === token ? { token, count: last.count + 1 } : { token, count: 1 };
++    if (lastReadRef.current.count < 2) return false; // wait for a second identical read
+ 
+-    // Stop camera stream immediately
++    navigatingRef.current = true;
++    setHint('Opening your house…');
+     if (streamRef.current) {
+       streamRef.current.getTracks().forEach((track) => track.stop());
+       streamRef.current = null;
+     }
+-
+-    if (onNavigateToToken) {
+-      onNavigateToToken(tokenMatch);
+-    } else {
+-      window.location.href = `/r/${tokenMatch}`;
+-    }
++    // Full page load so the guest screen always starts clean
++    window.location.assign(`/r/${token}`);
++    return true;
+   };
+ 
+   useEffect(() => {
+@@ -96,7 +124,9 @@ export const ScanPage: React.FC<ScanPageProps> = ({ onClose, onNavigateToToken }
+             try {
+               const barcodes = await barcodeDetector.detect(video);
+               if (barcodes.length > 0 && barcodes[0].rawValue) {
+-                handleDetectedUrl(barcodes[0].rawValue);
++                if (handleDetectedText(barcodes[0].rawValue)) return;
++                // One read per frame: don't let jsQR count the same frame a second time
++                animationFrameRef.current = requestAnimationFrame(scanFrame);
+                 return;
+               }
+             } catch {
+@@ -115,8 +145,7 @@ export const ScanPage: React.FC<ScanPageProps> = ({ onClose, onNavigateToToken }
+                 inversionAttempts: 'dontInvert',
+               });
+               if (code && code.data) {
+-                handleDetectedUrl(code.data);
+-                return;
++                if (handleDetectedText(code.data)) return;
+               }
+             }
+           }
+@@ -214,7 +243,7 @@ export const ScanPage: React.FC<ScanPageProps> = ({ onClose, onNavigateToToken }
+       {/* Footer Instructions */}
+       <div className="w-full p-6 text-center z-10 bg-gradient-to-t from-black/90 to-transparent">
+         <p className="text-xs text-stone-300 max-w-xs mx-auto">
+-          Point your camera at the QR code card on the desk or bedside table in your room.
++          {hint || 'Point your camera at the QR code card on the desk or bedside table in your room.'}
+         </p>
+       </div>
+     </div>
+diff --git a/src/context/AuthContext.tsx b/src/context/AuthContext.tsx
+index b6346b8..0faa34a 100644
+--- a/src/context/AuthContext.tsx
++++ b/src/context/AuthContext.tsx
+@@ -191,6 +191,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
+ 
+   useEffect(() => {
+     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
++      // HOTFIX (guest access): anonymous users are guests who scanned a QR card.
++      // They have no staff profile. Do NOT look one up (that path signs them out)
++      // and do NOT start a staff data session. Staff screens treat them as signed out.
++      if (fbUser && fbUser.isAnonymous) {
++        setFirebaseUser(null);
++        stopSession();
++        setResolvedProfile(null);
++        setIdleWarningRemainingMs(null);
++        setLoading(false);
++        return;
++      }
+       setFirebaseUser(fbUser);
+       if (!fbUser) {
+         stopSession();
+diff --git a/src/context/TenantContext.tsx b/src/context/TenantContext.tsx
+index 4849e04..805b777 100644
+--- a/src/context/TenantContext.tsx
++++ b/src/context/TenantContext.tsx
+@@ -1,6 +1,6 @@
+ import React, { createContext, useContext, useEffect, useState, useSyncExternalStore } from 'react';
+ import { Property, Room } from '../types';
+-import { dbService, subscribeToStore, subscribeGuestStayRequests, subscribeGuestRoom } from '../lib/store';
++import { dbService, subscribeToStore, subscribeGuestStayRequests, subscribeGuestRoom, ensureGuestAccess } from '../lib/store';
+ 
+ export type GuestStayStatus = 'loading' | 'active' | 'unoccupied' | 'invalid_token' | 'checked_out' | 'rescan_required' | 'no_session';
+ 
+@@ -194,12 +194,46 @@ export const TenantProvider: React.FC<{
+           return;
+         }
+ 
++        const liveRoom = rooms.find((r) => r.id === qr.roomId);
++
++        // HOTFIX (guest access): guests can't read houses until they have a guest session.
++        // If the house isn't loaded yet, get access once, keep the loading screen up, and
++        // let this effect run again when the house document arrives.
++        if (!liveRoom && !(window as any).__HOSPITALLY_INITIAL_DATA__) {
++          const accessKey = `guest_${qr.roomId}`;
++          if (!inFlightFetchRef.current.has(accessKey)) {
++            inFlightFetchRef.current.add(accessKey);
++            ensureGuestAccess(urlToken, qr.roomId, qr.propertyId).catch((err) => {
++              console.warn('Guest access failed:', err);
++              inFlightFetchRef.current.delete(accessKey);
++              updateStayState({
++                status: 'invalid_token',
++                errorMessage:
++                  "We couldn't open your house right now. Check your internet connection and scan the card again.",
++              });
++            });
++            // Safety net: never leave the guest on an endless loading screen
++            window.setTimeout(() => {
++              setStayState((prev) =>
++                prev.status === 'loading'
++                  ? {
++                      status: 'invalid_token',
++                      errorMessage:
++                        "We couldn't open your house right now. Check your internet connection and scan the card again.",
++                    }
++                  : prev
++              );
++            }, 12000);
++          }
++          return;
++        }
++
+         const matchingRoom: Room =
+-          rooms.find((r) => r.id === qr.roomId) || {
++          liveRoom || {
+             id: qr.roomId,
+             propertyId: qr.propertyId,
+-            name: qr.houseName || qr.roomId,
+-            roomNumber: qr.houseName || qr.roomId,
++            name: qr.houseName || 'your house',
++            roomNumber: qr.houseName || 'your house',
+             houseType: qr.houseType || 'Apartment',
+             roomType: qr.houseType || 'Apartment',
+             status: qr.activeStayId ? 'occupied' : 'available',
+@@ -420,8 +454,8 @@ export const TenantProvider: React.FC<{
+         room = {
+           id: activeQR.roomId,
+           propertyId: activeQR.propertyId,
+-          name: activeQR.houseName || activeQR.roomId,
+-          roomNumber: activeQR.houseName || activeQR.roomId,
++          name: activeQR.houseName || 'your house',
++          roomNumber: activeQR.houseName || 'your house',
+           houseType: activeQR.houseType || 'Apartment',
+           roomType: activeQR.houseType || 'Apartment',
+           status: activeQR.activeStayId ? 'occupied' : 'available',
+diff --git a/src/lib/store.ts b/src/lib/store.ts
+index 830641f..1bdd089 100644
+--- a/src/lib/store.ts
++++ b/src/lib/store.ts
+@@ -23,6 +23,7 @@ import {
+ import { DEFAULT_SUSPEND_MESSAGE, PUSH_ENABLED } from './config';
+ import { notificationService } from './notifications';
+ import { db, auth } from './firebase';
++import { signInAnonymously } from 'firebase/auth';
+ import {
+   collection,
+   doc,
+@@ -147,7 +148,22 @@ function refreshDerivedCaches() {
+   cachedActivityLog = cachedDb.activity.slice(0, 50);
+ }
+ 
+-if (typeof window !== 'undefined') {
++// HOTFIX (guest access): the app used to save the whole database in localStorage on every
++// device and load it back on start. Phones then showed old rooms/stays (e.g. "Thanks for
++// staying with us" after a new check-in) until refreshed several times, and staff phones kept
++// guest data after sign-out. The local copy is now ONLY used when automated tests inject
++// seed data (window.__HOSPITALLY_INITIAL_DATA__). Real devices always read live Firestore,
++// and any old copy is deleted.
++const USE_LOCAL_TEST_CACHE =
++  typeof window !== 'undefined' && Boolean((window as any).__HOSPITALLY_INITIAL_DATA__);
++
++if (typeof window !== 'undefined' && !USE_LOCAL_TEST_CACHE) {
++  try {
++    localStorage.removeItem('hospitally_seed_data');
++  } catch {}
++}
++
++if (typeof window !== 'undefined' && USE_LOCAL_TEST_CACHE) {
+   try {
+     const raw =
+       localStorage.getItem('hospitally_seed_data') ||
+@@ -210,7 +226,7 @@ const activeUnsubscribers: Array<() => void> = [];
+ 
+ function notifyListeners() {
+   refreshDerivedCaches();
+-  if (typeof window !== 'undefined') {
++  if (typeof window !== 'undefined' && USE_LOCAL_TEST_CACHE) {
+     try {
+       localStorage.setItem('hospitally_seed_data', JSON.stringify(cachedDb));
+     } catch {}
+@@ -285,7 +301,17 @@ export function subscribeGuestStayRequests(stayId: string | null | undefined): v
+     guestRequestsUnsub = null;
+   }
+   activeGuestStayListenerId = cleanStayId;
+-  const q = query(collection(db, 'requests'), where('stayId', '==', cleanStayId), limit(50));
++  // Anonymous guests may only list their own requests (rule: guestUid == auth.uid),
++  // so the query must filter on guestUid. Staff/founder previews use stayId only.
++  const currentUser = auth.currentUser;
++  const q = currentUser.isAnonymous
++    ? query(
++        collection(db, 'requests'),
++        where('guestUid', '==', currentUser.uid),
++        where('stayId', '==', cleanStayId),
++        limit(50)
++      )
++    : query(collection(db, 'requests'), where('stayId', '==', cleanStayId), limit(50));
+   guestRequestsUnsub = onSnapshot(
+     q,
+     (snapshot) => {
+@@ -399,6 +425,34 @@ export function subscribeGuestRoom(roomId: string | null | undefined): void {
+   );
+ }
+ 
++/**
++ * HOTFIX (guest access): give a guest who scanned a QR card permission to read their house.
++ * - Nobody signed in  -> sign in anonymously (Anonymous sign-in is enabled in Firebase).
++ * - Anonymous guest   -> write guestSessions/{uid} = { token, roomId, propertyId }.
++ *                        Firestore rules check the token is a real active card for that room.
++ * - Staff / founder   -> do nothing; never sign them out or replace their session.
++ * Then start listening to the house document so the guest screen gets live data.
++ */
++export async function ensureGuestAccess(
++  token: string,
++  roomId: string,
++  propertyId: string
++): Promise<void> {
++  if (!auth.currentUser) {
++    await signInAnonymously(auth);
++  }
++  const user = auth.currentUser;
++  if (user && user.isAnonymous) {
++    await setDoc(doc(db, 'guestSessions', user.uid), {
++      token,
++      roomId,
++      propertyId,
++      createdAt: new Date().toISOString(),
++    });
++  }
++  subscribeGuestRoom(roomId);
++}
++
+ /**
+  * Session setters called exclusively by DataSession manager.
+  */
+@@ -477,7 +531,7 @@ export function clearStoreCache(): void {
+ }
+ 
+ export function resetToSeedDataIfAvailable(): void {
+-  if (typeof window !== 'undefined') {
++  if (typeof window !== 'undefined' && USE_LOCAL_TEST_CACHE) {
+     try {
+       const raw =
+         localStorage.getItem('hospitally_seed_data') ||
+@@ -1436,6 +1490,8 @@ export const dbService = {
+       stayId: activeStayId,
+       guestName: guestFullName,
+       guestPhone,
++      // Required by Firestore rules for anonymous guest requests
++      ...(auth.currentUser?.isAnonymous ? { guestUid: auth.currentUser.uid } : {}),
+       id: `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+       status: 'pending',
+       archived: false,
+diff --git a/tests/rules/guest-access.rules.test.mjs b/tests/rules/guest-access.rules.test.mjs
+new file mode 100644
+index 0000000..0c17edb
+--- /dev/null
++++ b/tests/rules/guest-access.rules.test.mjs
+@@ -0,0 +1,41 @@
++import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
++import { doc, getDoc, setDoc, updateDoc, collection, query, where, limit, getDocs } from 'firebase/firestore';
++import fs from 'fs';
++const env = await initializeTestEnvironment({ projectId: 'demo-hotfix', firestore: { rules: fs.readFileSync('firestore.rules','utf8'), host:(process.env.FIRESTORE_EMULATOR_HOST||'127.0.0.1:8080').split(':')[0], port:Number((process.env.FIRESTORE_EMULATOR_HOST||'127.0.0.1:8080').split(':')[1]) } });
++await env.withSecurityRulesDisabled(async (ctx) => {
++  const db = ctx.firestore();
++  await setDoc(doc(db,'properties/p1'),{id:'p1',status:'active',name:'Rock'});
++  await setDoc(doc(db,'rooms/room1'),{id:'room1',propertyId:'p1',status:'occupied',activeStayId:'stay1',name:'Chisenga'});
++  await setDoc(doc(db,'rooms/room2'),{id:'room2',propertyId:'p1',status:'occupied',activeStayId:'stay9',name:'Bobo'});
++  await setDoc(doc(db,'stays/stay1'),{id:'stay1',roomId:'room1',propertyId:'p1',status:'active'});
++  await setDoc(doc(db,'stays/stay9'),{id:'stay9',roomId:'room2',propertyId:'p1',status:'active'});
++  await setDoc(doc(db,'qrCodes/TOKEN1'),{id:'TOKEN1',token:'TOKEN1',roomId:'room1',propertyId:'p1',status:'active'});
++  await setDoc(doc(db,'qrCodes/TOKEN2'),{id:'TOKEN2',token:'TOKEN2',roomId:'room2',propertyId:'p1',status:'active'});
++});
++const results=[]; const t=async(name,p)=>{try{await p;results.push('PASS '+name)}catch(e){results.push('FAIL '+name+' :: '+e.message.split('\n')[0])}};
++const g = env.authenticatedContext('guestA', { firebase: { sign_in_provider: 'anonymous' } }).firestore();
++const out = env.unauthenticatedContext().firestore();
++await t('outsider cannot read room', assertFails(getDoc(doc(out,'rooms/room1'))));
++await t('guest cannot read room before session', assertFails(getDoc(doc(g,'rooms/room1'))));
++await t('session with wrong room rejected', assertFails(setDoc(doc(g,'guestSessions/guestA'),{token:'TOKEN1',roomId:'room2',propertyId:'p1'})));
++await t('session with fake token rejected', assertFails(setDoc(doc(g,'guestSessions/guestA'),{token:'NOPE',roomId:'room1',propertyId:'p1'})));
++await t('valid session created', assertSucceeds(setDoc(doc(g,'guestSessions/guestA'),{token:'TOKEN1',roomId:'room1',propertyId:'p1',createdAt:'x'})));
++await t('cannot switch session to other room with same token', assertFails(setDoc(doc(g,'guestSessions/guestA'),{token:'TOKEN1',roomId:'room2',propertyId:'p1'})));
++await t('guest reads own room', assertSucceeds(getDoc(doc(g,'rooms/room1'))));
++await t('guest cannot read other room', assertFails(getDoc(doc(g,'rooms/room2'))));
++await t('guest reads current stay', assertSucceeds(getDoc(doc(g,'stays/stay1'))));
++await t('guest cannot read other stay', assertFails(getDoc(doc(g,'stays/stay9'))));
++const req={id:'r1',propertyId:'p1',roomId:'room1',stayId:'stay1',guestUid:'guestA',status:'pending',archived:false,title:'Fresh towels',createdAt:'x'};
++await t('guest creates request', assertSucceeds(setDoc(doc(g,'requests/r1'),req,{merge:true})));
++await t('guest cannot create for wrong stay', assertFails(setDoc(doc(g,'requests/r2'),{...req,id:'r2',stayId:'stay9'})));
++await t('guest cannot create for other room', assertFails(setDoc(doc(g,'requests/r3'),{...req,id:'r3',roomId:'room2',stayId:'stay9'})));
++await t('guest lists own requests', assertSucceeds(getDocs(query(collection(g,'requests'),where('guestUid','==','guestA'),where('stayId','==','stay1'),limit(50)))));
++await t('guest cannot list all stay requests', assertFails(getDocs(query(collection(g,'requests'),where('stayId','==','stay1'),limit(50)))));
++await t('guest reads own request', assertSucceeds(getDoc(doc(g,'requests/r1'))));
++await t('guest cancels own pending request', assertSucceeds(updateDoc(doc(g,'requests/r1'),{status:'cancelled'})));
++// check-out + new guest
++await env.withSecurityRulesDisabled(async (ctx)=>{ await updateDoc(doc(ctx.firestore(),'rooms/room1'),{activeStayId:'stay2'}); await setDoc(doc(ctx.firestore(),'stays/stay2'),{id:'stay2',roomId:'room1',propertyId:'p1',status:'active'}); });
++await t('after checkout: old stay unreadable', assertFails(getDoc(doc(g,'stays/stay1'))));
++await t('after checkout: request on old stay blocked', assertFails(setDoc(doc(g,'requests/r4'),{...req,id:'r4'})));
++console.log(results.join('\n')); if (results.some(r=>r.startsWith('FAIL'))) process.exitCode = 1;
++await env.cleanup();

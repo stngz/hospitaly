@@ -1,4 +1,4 @@
-// Version: 3.0.0-p0-data-session
+// Version: 3.0.1-hotfix-guest-access
 // Date: 2026-10-30
 // Single Source of Truth: Never paste rules into the console by hand. Always deploy via repository script.
 
@@ -183,10 +183,30 @@ service cloud.firestore {
         get(/databases/$(database)/documents/properties/$(propId)).data.status == 'active';
     }
 
+    // HOTFIX (guest access): a guest session only stores which house (roomId) the
+    // scanned card belongs to. The CURRENT stay is always read from rooms/{roomId},
+    // so check-out immediately ends what an old phone can do.
     function hasActiveGuestSession(uid, roomId, stayId) {
       return exists(/databases/$(database)/documents/guestSessions/$(uid)) &&
         get(/databases/$(database)/documents/guestSessions/$(uid)).data.roomId == roomId &&
-        get(/databases/$(database)/documents/guestSessions/$(uid)).data.stayId == stayId;
+        get(/databases/$(database)/documents/rooms/$(roomId)).data.get('activeStayId', '') == stayId;
+    }
+
+    function isGuestOfRoom(roomId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/guestSessions/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/guestSessions/$(request.auth.uid)).data.roomId == roomId;
+    }
+
+    // A guest may only write a session for a real, active QR card of that exact house.
+    function isValidGuestSessionWrite(uid) {
+      return isAuthenticated() &&
+        request.auth.uid == uid &&
+        request.resource.data.token is string &&
+        request.resource.data.roomId is string &&
+        exists(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)) &&
+        get(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)).data.status == 'active' &&
+        get(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)).data.roomId == request.resource.data.roomId;
     }
 
     // ===============================================================
@@ -222,7 +242,7 @@ service cloud.firestore {
     // - Update: Founder, or property manager (if active), or staff member for operational fields.
     // - Delete: Founder only.
     match /rooms/{roomId} {
-      allow get: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
+      allow get: if isPlatformFounder() || isStaffMember(resource.data.propertyId) || isGuestOfRoom(roomId);
       allow list: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
 
       allow create: if isPlatformFounder();
@@ -251,7 +271,9 @@ service cloud.firestore {
     // - Create / Update: staff member / manager / founder when property active.
     // - Delete: Founder only.
     match /stays/{stayId} {
-      allow get: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
+      allow get: if isPlatformFounder() || isStaffMember(resource.data.propertyId) ||
+                    (isGuestOfRoom(resource.data.roomId) &&
+                     get(/databases/$(database)/documents/rooms/$(resource.data.roomId)).data.get('activeStayId', '') == stayId);
       allow list: if isPlatformFounder() || isStaffMember(resource.data.propertyId);
 
       allow create: if isPlatformFounder() || (
@@ -298,13 +320,7 @@ service cloud.firestore {
     // - List: staff or founder only.
     // - Update, delete: owner or founder.
     match /guestSessions/{uid} {
-      allow create: if isAuthenticated() &&
-        request.auth.uid == uid &&
-        request.resource.data.token is string &&
-        exists(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)) &&
-        get(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)).data.status == 'active' &&
-        get(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)).data.roomId == request.resource.data.roomId &&
-        get(/databases/$(database)/documents/qrCodes/$(request.resource.data.token)).data.activeStayId == request.resource.data.stayId;
+      allow create, update: if isValidGuestSessionWrite(uid);
 
       allow get: if (isAuthenticated() && request.auth.uid == uid) ||
                     isPlatformFounder() ||
@@ -313,7 +329,7 @@ service cloud.firestore {
       allow list: if isPlatformFounder() ||
                      (isUserActive() && getUserData().role in ['staff', 'manager', 'admin']);
 
-      allow update, delete: if (isAuthenticated() && request.auth.uid == uid) || isPlatformFounder();
+      allow delete: if (isAuthenticated() && request.auth.uid == uid) || isPlatformFounder();
     }
 
     // Requests:
@@ -333,11 +349,7 @@ service cloud.firestore {
                     isStaffMember(resource.data.propertyId) ||
                     (
                       isAuthenticated() && (
-                        resource.data.get('guestUid', '') == request.auth.uid ||
-                        (
-                          exists(/databases/$(database)/documents/guestSessions/$(request.auth.uid)) &&
-                          get(/databases/$(database)/documents/guestSessions/$(request.auth.uid)).data.stayId == resource.data.stayId
-                        )
+                        resource.data.get('guestUid', '') == request.auth.uid
                       )
                     );
 
@@ -348,11 +360,7 @@ service cloud.firestore {
                        request.query.limit != null &&
                        request.query.limit <= 50 &&
                        (
-                         resource.data.get('guestUid', '') == request.auth.uid ||
-                         (
-                           exists(/databases/$(database)/documents/guestSessions/$(request.auth.uid)) &&
-                           get(/databases/$(database)/documents/guestSessions/$(request.auth.uid)).data.stayId == resource.data.stayId
-                         )
+                         resource.data.get('guestUid', '') == request.auth.uid
                        )
                      );
 

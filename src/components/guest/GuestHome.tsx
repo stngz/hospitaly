@@ -321,7 +321,7 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
             <div className="space-y-1.5">
               <h1 className="text-2xl font-serif font-bold text-stone-900 leading-tight">
                 {isInvalid
-                  ? 'This QR code is no longer active. Please contact reception.'
+                  ? stayState.errorMessage || 'This QR code is no longer active. Please contact reception.'
                   : isCheckedOut
                   ? 'Thanks for staying with us'
                   : isRescanRequired

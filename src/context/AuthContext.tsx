@@ -191,6 +191,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      // HOTFIX (guest access): anonymous users are guests who scanned a QR card.
+      // They have no staff profile. Do NOT look one up (that path signs them out)
+      // and do NOT start a staff data session. Staff screens treat them as signed out.
+      if (fbUser && fbUser.isAnonymous) {
+        setFirebaseUser(null);
+        stopSession();
+        setResolvedProfile(null);
+        setIdleWarningRemainingMs(null);
+        setLoading(false);
+        return;
+      }
       setFirebaseUser(fbUser);
       if (!fbUser) {
         stopSession();
