@@ -451,6 +451,7 @@ export async function ensureGuestAccess(
     });
   }
   subscribeGuestRoom(roomId);
+  void dbService.getOrFetchPropertyById(propertyId);
 }
 
 /**

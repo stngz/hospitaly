@@ -203,6 +203,12 @@ export const TenantProvider: React.FC<{
           const accessKey = `guest_${qr.roomId}`;
           if (!inFlightFetchRef.current.has(accessKey)) {
             inFlightFetchRef.current.add(accessKey);
+            if (qr.propertyId && !inFlightFetchRef.current.has('prop_' + qr.propertyId)) {
+              inFlightFetchRef.current.add('prop_' + qr.propertyId);
+              void dbService.getOrFetchPropertyById(qr.propertyId).then((p) => {
+                if (p) updatePropertySlug(p.slug);
+              });
+            }
             ensureGuestAccess(urlToken, qr.roomId, qr.propertyId).catch((err) => {
               console.warn('Guest access failed:', err);
               inFlightFetchRef.current.delete(accessKey);

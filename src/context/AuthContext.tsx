@@ -5,7 +5,7 @@ import {
   normalizeUserProfile,
   subscribeToStore,
 } from '../lib/store';
-import { startSession, stopSession } from '../lib/dataSession';
+import { startSession, stopSession, isSessionActive } from '../lib/dataSession';
 import {
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
@@ -196,7 +196,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // and do NOT start a staff data session. Staff screens treat them as signed out.
       if (fbUser && fbUser.isAnonymous) {
         setFirebaseUser(null);
-        stopSession();
+        if (isSessionActive()) {
+          stopSession();
+        }
         setResolvedProfile(null);
         setIdleWarningRemainingMs(null);
         setLoading(false);
