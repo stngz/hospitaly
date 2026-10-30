@@ -17,19 +17,31 @@ import { LoginGate } from './components/auth/LoginGate';
 import { InAppNotificationBanner } from './components/common/InAppNotificationBanner';
 import { GuestLoadingScreen } from './components/guest/GuestLoadingScreen';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { SalesPage } from './components/sales/SalesPage';
+import { ScanPage } from './components/sales/ScanPage';
+import { DemoGuestPage } from './components/sales/DemoGuestPage';
 import { Loader2 } from 'lucide-react';
 
-type RoutePortal = 'hq' | 'staff' | 'guest';
+export type RoutePortal = 'hq' | 'staff' | 'guest' | 'landing' | 'scan' | 'demo';
 
-function resolvePortalFromPath(pathname: string): RoutePortal {
+export function resolvePortalFromPath(pathname: string): RoutePortal {
   const clean = pathname.toLowerCase().replace(/\/+$/, '') || '/';
-  if (clean === '/hq' || clean === '/admin') {
+  if (clean === '/hq' || clean === '/admin' || clean.startsWith('/hq/')) {
     return 'hq';
   }
   if (clean === '/staff' || clean.startsWith('/staff/')) {
     return 'staff';
   }
-  return 'guest';
+  if (clean === '/scan') {
+    return 'scan';
+  }
+  if (clean === '/demo') {
+    return 'demo';
+  }
+  if (clean.startsWith('/r/') || clean.startsWith('/guest')) {
+    return 'guest';
+  }
+  return 'landing';
 }
 
 function AppContent() {
@@ -37,7 +49,7 @@ function AppContent() {
   const { user, loading } = useAuth();
 
   const [portal, setPortal] = useState<RoutePortal>(() =>
-    typeof window !== 'undefined' ? resolvePortalFromPath(window.location.pathname) : 'guest'
+    typeof window !== 'undefined' ? resolvePortalFromPath(window.location.pathname) : 'landing'
   );
 
   // Keep portal synchronized with browser history navigation
@@ -51,7 +63,18 @@ function AppContent() {
 
   const navigateToPortal = (nextPortal: RoutePortal, nextPath?: string) => {
     const targetPath =
-      nextPath || (nextPortal === 'hq' ? '/hq' : nextPortal === 'staff' ? '/staff' : '/');
+      nextPath ||
+      (nextPortal === 'hq'
+        ? '/hq'
+        : nextPortal === 'staff'
+        ? '/staff'
+        : nextPortal === 'scan'
+        ? '/scan'
+        : nextPortal === 'demo'
+        ? '/demo'
+        : nextPortal === 'guest'
+        ? '/r/'
+        : '/');
     if (typeof window !== 'undefined' && window.location.pathname !== targetPath) {
       window.history.pushState({}, '', targetPath);
     }
@@ -201,7 +224,53 @@ function AppContent() {
     );
   }
 
-  // 3. PUBLIC GUEST EXPERIENCE (/)
+  // 3. SALES LANDING PAGE (/)
+  if (portal === 'landing') {
+    return (
+      <ErrorBoundary sectionName="landing page">
+        <SalesPage
+          onNavigateToDemo={() => navigateToPortal('demo', '/demo')}
+          onNavigateToScan={() => navigateToPortal('scan', '/scan')}
+          onNavigateToStaff={() => navigateToPortal('staff', '/staff')}
+        />
+      </ErrorBoundary>
+    );
+  }
+
+  // 4. IN-PAGE QR SCANNER (/scan)
+  if (portal === 'scan') {
+    return (
+      <ErrorBoundary sectionName="QR scanner">
+        <ScanPage
+          onClose={() => navigateToPortal('landing', '/')}
+          onNavigateToToken={(token) => {
+            navigateToPortal('guest', `/r/${token}`);
+          }}
+        />
+      </ErrorBoundary>
+    );
+  }
+
+  // 5. INTERACTIVE GUEST DEMO (/demo)
+  if (portal === 'demo') {
+    return (
+      <ErrorBoundary sectionName="guest demo">
+        <DemoGuestPage
+          onGetQuote={() => {
+            navigateToPortal('landing', '/#quote');
+            setTimeout(() => {
+              if (typeof document !== 'undefined') {
+                document.getElementById('quote')?.scrollIntoView({ behavior: 'smooth' });
+              }
+            }, 100);
+          }}
+          onBackToHome={() => navigateToPortal('landing', '/')}
+        />
+      </ErrorBoundary>
+    );
+  }
+
+  // 6. PUBLIC GUEST EXPERIENCE (/r/*)
   if (stayState.status === 'loading') {
     return (
       <GuestLoadingScreen

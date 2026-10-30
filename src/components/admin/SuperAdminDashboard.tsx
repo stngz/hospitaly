@@ -2,7 +2,8 @@ import React, { useState, useSyncExternalStore } from 'react';
 import { ErrorBoundary } from '../common/ErrorBoundary';
 import { dbService, subscribeToStore } from '../../lib/store';
 import { useAuth } from '../../context/AuthContext';
-import { Property, StaffDepartment, UserProfile } from '../../types';
+import { Property, StaffDepartment, UserProfile, Lead } from '../../types';
+import { APP_NAME } from '../../lib/config';
 import {
   Building2,
   Plus,
@@ -28,6 +29,8 @@ import {
   Camera,
   History,
   FileText,
+  Sparkles,
+  Phone,
 } from 'lucide-react';
 import { compressImageFileToJpeg } from '../../lib/imageCompression';
 import { formatPropertyDate } from '../../lib/time';
@@ -50,7 +53,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
     sendPasswordReset,
   } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'properties' | 'accounts' | 'activity'>('properties');
+  const [activeTab, setActiveTab] = useState<'properties' | 'accounts' | 'activity' | 'leads'>('properties');
   const [isOnboardModalOpen, setIsOnboardModalOpen] = useState(false);
   const [isProvisionModalOpen, setIsProvisionModalOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -138,6 +141,14 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
     () => dbService.getActivityLog(),
     () => dbService.getActivityLog()
   );
+
+  const leads = useSyncExternalStore(
+    subscribeToStore,
+    dbService.getLeads,
+    dbService.getLeads
+  );
+
+  const newLeadsCount = leads.filter((l) => l.status === 'new').length;
 
   if (!user || user.role !== 'founder') {
     return null;
@@ -640,6 +651,22 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
           >
             <History className="w-3.5 h-3.5" />
             Activity Log ({activityLogs.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('leads')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+              activeTab === 'leads'
+                ? 'bg-amber-500 text-stone-950 font-semibold'
+                : 'bg-stone-900 text-stone-400 hover:text-white border border-stone-800'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Leads ({leads.length})</span>
+            {newLeadsCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-red-500 text-white font-bold text-[10px]">
+                {newLeadsCount}
+              </span>
+            )}
           </button>
         </div>
 
@@ -1204,6 +1231,94 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                 </table>
               </div>
             </div>
+          </div>
+        </ErrorBoundary>
+      ) : activeTab === 'leads' ? (
+        <ErrorBoundary sectionName="HQ leads">
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-stone-900/60 border border-stone-800 rounded-xl p-4">
+              <div>
+                <h2 className="font-serif text-lg text-white font-medium">Prospective Property Leads</h2>
+                <p className="text-xs text-stone-400">Quotes requested via the sales landing page</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-full font-medium">
+                  {leads.length} Total {leads.length === 1 ? 'Lead' : 'Leads'}
+                </span>
+              </div>
+            </div>
+
+            {leads.length === 0 ? (
+              <div className="p-8 text-center bg-stone-900/40 border border-stone-800 rounded-2xl text-stone-400 text-xs">
+                No leads submitted yet. Quotes requested at / will appear here instantly.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {leads.map((lead) => (
+                  <div
+                    key={lead.id}
+                    className="p-4 bg-stone-900 border border-stone-800 rounded-2xl space-y-3 hover:border-stone-700 transition-colors"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-800 pb-2.5">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-serif text-base font-bold text-white">{lead.propertyName}</h3>
+                          <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-stone-800 text-stone-300">
+                            {lead.propertyType} · {lead.roomCount || lead.rooms || 0} rooms
+                          </span>
+                        </div>
+                        <p className="text-xs text-stone-400">
+                          {lead.name} · {lead.city} · {new Date(lead.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Lusaka' })}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={lead.status}
+                          onChange={(e) => dbService.updateLeadStatus(lead.id, e.target.value as any, lead.notes)}
+                          className="text-xs px-2.5 py-1 rounded-lg bg-stone-950 border border-stone-700 text-white focus:outline-none focus:border-amber-500 cursor-pointer"
+                        >
+                          <option value="new">New</option>
+                          <option value="contacted">Contacted</option>
+                          <option value="won">Won</option>
+                          <option value="lost">Lost</option>
+                        </select>
+                        <a
+                          href={`https://wa.me/${(lead.whatsappPhone || lead.whatsapp || '').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                            `Hi ${lead.name}, this is Nathaniel from ${APP_NAME}. Following up on your quote for ${lead.propertyName}.`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors cursor-pointer"
+                        >
+                          <Phone className="w-3.5 h-3.5" /> WhatsApp
+                        </a>
+                      </div>
+                    </div>
+
+                    {lead.message && (
+                      <p className="text-xs text-stone-300 italic bg-stone-950/60 p-2.5 rounded-xl border border-stone-800/80">
+                        "{lead.message}"
+                      </p>
+                    )}
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+                      <input
+                        type="text"
+                        defaultValue={lead.notes || ''}
+                        placeholder="Add internal notes (e.g. quote sent ZMW 4,500, scheduled call Tuesday)..."
+                        onBlur={(e) => {
+                          if (e.target.value !== (lead.notes || '')) {
+                            dbService.updateLeadStatus(lead.id, lead.status, e.target.value);
+                          }
+                        }}
+                        className="flex-1 px-3 py-1.5 rounded-lg bg-stone-950 border border-stone-800 text-xs text-stone-200 placeholder:text-stone-500 focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </ErrorBoundary>
       ) : (

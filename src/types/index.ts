@@ -278,9 +278,11 @@ export interface Lead {
   name: string;
   propertyName: string;
   propertyType: string;
-  rooms: number;
+  rooms?: number;
+  roomCount?: number;
   city: string;
-  whatsapp: string;
+  whatsapp?: string;
+  whatsappPhone?: string;
   email?: string;
   message?: string;
   source: 'landing';

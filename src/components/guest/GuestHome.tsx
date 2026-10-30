@@ -22,6 +22,7 @@ import {
   BellRing,
   Moon,
   BookOpen,
+  Camera,
 } from 'lucide-react';
 import { GuestBottomNav } from './GuestBottomNav';
 
@@ -241,6 +242,7 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
     const isInvalid = stayState.status === 'invalid_token';
     const isUnoccupied = stayState.status === 'unoccupied';
     const isCheckedOut = stayState.status === 'checked_out';
+    const isRescanRequired = stayState.status === 'rescan_required';
     const houseLabel = room?.name || room?.roomNumber || stayState.houseName || property.name;
 
     if (isUnoccupied && room) {
@@ -280,6 +282,13 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
                   <span>WhatsApp reception</span>
                 </a>
               </div>
+              <a
+                href="/scan"
+                className="w-full min-h-11 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-bold inline-flex items-center justify-center gap-2 transition-colors"
+              >
+                <Camera className="w-4 h-4" />
+                <span>Scan your room QR</span>
+              </a>
             </div>
           </main>
         </div>
@@ -315,6 +324,8 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
                   ? 'This QR code is no longer active. Please contact reception.'
                   : isCheckedOut
                   ? 'Thanks for staying with us'
+                  : isRescanRequired
+                  ? 'Please scan your room QR'
                   : 'Scan your house QR code'}
               </h1>
               <p className="text-xs text-stone-600 leading-relaxed pt-1">
@@ -322,11 +333,21 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
                   ? `Please contact reception at ${receptionPhone} for assistance.`
                   : isCheckedOut
                   ? `Your stay in ${houseLabel} has ended. We hope you enjoyed your time at ${property.name}.`
+                  : isRescanRequired
+                  ? 'For your security, in-room guest sessions expire after 6 hours of inactivity. Please scan the QR card in your room to continue.'
                   : `Scan the QR card inside your house to view Wi-Fi, the house guide, and send requests.`}
               </p>
             </div>
 
             <div className="pt-2 space-y-2">
+              <a
+                href="/scan"
+                className="w-full min-h-11 py-3 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-xs transition-colors"
+              >
+                <Camera className="w-4 h-4" />
+                <span>Scan your room QR</span>
+              </a>
+
               <a
                 href={`tel:${cleanPhone}`}
                 className="w-full min-h-11 py-3 bg-[#1C3A31] text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-2"
@@ -335,7 +356,7 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
                 <span>Call reception ({receptionPhone})</span>
               </a>
 
-              {(isInvalid || isCheckedOut) && (
+              {(isInvalid || isCheckedOut || isRescanRequired) && (
                 <button
                   type="button"
                   onClick={clearGuestSession}

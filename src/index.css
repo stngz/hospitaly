@@ -37,6 +37,15 @@ body {
   overscroll-behavior-y: none;
 }
 
+/* Prevent auto-zoom on mobile inputs (< 16px triggers iOS zoom) */
+@media screen and (max-width: 768px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 @keyframes modalBackdropIn {
   from {
     opacity: 0;

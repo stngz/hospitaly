@@ -16,16 +16,64 @@ export const GuestLoadingScreen: React.FC<GuestLoadingScreenProps> = ({
   onRetry,
   isReady = false,
 }) => {
-  const [minTimeElapsed, setMinTimeElapsed] = useState(false);
+  const [imagesLoaded, setImagesLoaded] = useState(false);
+  const [imageTimeout, setImageTimeout] = useState(false);
+  const [doorOpen, setDoorOpen] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
 
   useEffect(() => {
-    // Enforce minimum 600ms display so there is no flicker
-    const timer = setTimeout(() => {
-      setMinTimeElapsed(true);
-    }, 600);
-    return () => clearTimeout(timer);
+    // 300ms timeout for door image loading before falling back to shimmer skeleton
+    const timeoutTimer = setTimeout(() => {
+      setImageTimeout(true);
+    }, 300);
+
+    const closedImg = new Image();
+    const openImg = new Image();
+    let closedReady = false;
+    let openReady = false;
+
+    const checkBoth = () => {
+      if (closedReady && openReady) {
+        clearTimeout(timeoutTimer);
+        setImagesLoaded(true);
+      }
+    };
+
+    closedImg.onload = () => {
+      closedReady = true;
+      checkBoth();
+    };
+    closedImg.onerror = () => {
+      clearTimeout(timeoutTimer);
+      setImageTimeout(true);
+    };
+
+    openImg.onload = () => {
+      openReady = true;
+      checkBoth();
+    };
+    openImg.onerror = () => {
+      clearTimeout(timeoutTimer);
+      setImageTimeout(true);
+    };
+
+    closedImg.src = '/brand/door-closed.png';
+    openImg.src = '/brand/door-open.png';
+
+    return () => {
+      clearTimeout(timeoutTimer);
+    };
   }, []);
+
+  useEffect(() => {
+    if (imagesLoaded) {
+      // Trigger smooth 0.5s ease opening transition
+      const openTimer = setTimeout(() => {
+        setDoorOpen(true);
+      }, 150);
+      return () => clearTimeout(openTimer);
+    }
+  }, [imagesLoaded]);
 
   useEffect(() => {
     // 10s maximum wait before showing friendly retry
@@ -51,42 +99,40 @@ export const GuestLoadingScreen: React.FC<GuestLoadingScreenProps> = ({
 
       {/* Center Animated Element */}
       <div className="flex flex-col items-center justify-center space-y-6 max-w-xs text-center">
-        {/* Lightweight SVG House & Key Looping Animation */}
-        <div className="relative w-24 h-24 flex items-center justify-center">
-          <svg
-            className="w-20 h-20 text-[#E0B973] transition-all motion-safe:animate-pulse"
-            viewBox="0 0 64 64"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            {/* House Outline */}
-            <path
-              d="M32 8 L8 28 L14 28 L14 54 L50 54 L50 28 L56 28 Z"
-              className="stroke-[#E0B973] opacity-80"
-              style={{
-                strokeDasharray: 200,
-                strokeDashoffset: 0,
-              }}
-            />
-            {/* Door Arch */}
-            <path
-              d="M26 54 L26 36 Q32 30 38 36 L38 54"
-              className="stroke-[#E0B973]"
-            />
-            {/* Keyhole */}
-            <circle cx="32" cy="42" r="2" fill="#E0B973" />
-            <line x1="32" y1="44" x2="32" y2="48" stroke="#E0B973" strokeWidth="1.5" />
-          </svg>
-
-          {/* Gentle rotating gold orbit */}
-          <div
-            className="absolute inset-0 rounded-full border border-[#E0B973]/20 border-t-[#E0B973] motion-safe:animate-spin"
-            style={{ animationDuration: '2.5s' }}
-          />
+        {/* Door Opening Animation / Fallback Shimmer */}
+        <div className="relative w-32 h-44 flex items-center justify-center">
+          {imagesLoaded && !imageTimeout ? (
+            <div className="relative w-full h-full flex items-center justify-center">
+              {/* Soft warm glow behind door when opening */}
+              <div
+                className={`absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(224,185,115,0.6)_0%,transparent_70%)] transition-opacity duration-500 ease-out ${
+                  doorOpen ? 'opacity-100 scale-110' : 'opacity-0 scale-95'
+                }`}
+              />
+              {/* Closed Door */}
+              <img
+                src="/brand/door-closed.png"
+                alt="Door Closed"
+                className={`absolute inset-0 w-full h-full object-contain transition-all duration-500 ease-out ${
+                  doorOpen ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'
+                }`}
+              />
+              {/* Open Door */}
+              <img
+                src="/brand/door-open.png"
+                alt="Door Open"
+                className={`absolute inset-0 w-full h-full object-contain transition-all duration-500 ease-out ${
+                  doorOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
+                }`}
+              />
+            </div>
+          ) : (
+            /* Warm Shimmer Skeleton Fallback */
+            <div className="relative w-28 h-40 rounded-2xl bg-white/5 border border-[#E0B973]/30 overflow-hidden flex items-center justify-center">
+              <div className="absolute inset-0 bg-gradient-to-t from-[#E0B973]/20 via-[#E0B973]/5 to-transparent animate-pulse" />
+              <div className="w-8 h-8 rounded-full border border-[#E0B973]/40 border-t-[#E0B973] animate-spin" />
+            </div>
+          )}
         </div>
 
         <div className="space-y-2">
@@ -100,7 +146,7 @@ export const GuestLoadingScreen: React.FC<GuestLoadingScreenProps> = ({
             </h2>
           )}
           <p className="text-xs uppercase tracking-[0.14em] text-white/80 font-medium">
-            Preparing your stay…
+            Opening your door…
           </p>
         </div>
 
@@ -136,7 +182,7 @@ export const GuestLoadingScreen: React.FC<GuestLoadingScreenProps> = ({
       {/* Bottom Quiet Pill */}
       <div className="pb-4">
         <span className="text-xs text-white/50 tracking-wider">
-          Hospitaly &middot; Private Guest Portal
+          Private Guest Stay
         </span>
       </div>
     </div>

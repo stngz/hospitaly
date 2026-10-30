@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useSyncExternalS
 import { Property, Room } from '../types';
 import { dbService, subscribeToStore, subscribeGuestStayRequests, subscribeGuestRoom } from '../lib/store';
 
-export type GuestStayStatus = 'loading' | 'active' | 'unoccupied' | 'invalid_token' | 'checked_out' | 'no_session';
+export type GuestStayStatus = 'loading' | 'active' | 'unoccupied' | 'invalid_token' | 'checked_out' | 'rescan_required' | 'no_session';
 
 export interface GuestStayState {
   status: GuestStayStatus;
@@ -43,6 +43,7 @@ interface StoredGuestSession {
   propertyId: string;
   roomNumber: string;
   token?: string;
+  lastActiveAt?: number;
 }
 
 export const TenantProvider: React.FC<{
@@ -105,11 +106,14 @@ export const TenantProvider: React.FC<{
             : undefined;
         return { status: 'loading', houseName: tentativeHouse };
       }
-      try {
-        if (localStorage.getItem(GUEST_SESSION_STORAGE_KEY)) {
-          return { status: 'loading' };
-        }
-      } catch {}
+      const isGuestRoute = window.location.pathname.startsWith('/r/') || window.location.pathname.startsWith('/guest');
+      if (isGuestRoute) {
+        try {
+          if (localStorage.getItem(GUEST_SESSION_STORAGE_KEY)) {
+            return { status: 'loading' };
+          }
+        } catch {}
+      }
     }
     return { status: 'no_session' };
   });
@@ -271,6 +275,7 @@ export const TenantProvider: React.FC<{
               propertyId: matchingRoom.propertyId,
               roomNumber: matchingRoom.roomNumber,
               token: urlToken,
+              lastActiveAt: Date.now(),
             } satisfies StoredGuestSession)
           );
         } catch {
@@ -298,7 +303,34 @@ export const TenantProvider: React.FC<{
     }
 
     // CASE 2: No URL token present -> Check if browser has a valid stored active stay session
-    if (savedSession && rooms.length > 0) {
+    // Strictly apply stored guest sessions ONLY under guest routes (/r/... or /guest...)
+    const isGuestRoute = window.location.pathname.startsWith('/r/') || window.location.pathname.startsWith('/guest');
+    if (isGuestRoute && savedSession && rooms.length > 0) {
+      const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+      const now = Date.now();
+      const lastActive = savedSession.lastActiveAt || now;
+
+      // Guest inactivity: 6 hours without activity -> re-scan required (GO 2.1 section B)
+      if (now - lastActive > SIX_HOURS_MS) {
+        updateRoomId(savedSession.roomId);
+        updateStayState({
+          status: 'rescan_required',
+          houseName: savedSession.roomNumber,
+          stayId: savedSession.stayId,
+          errorMessage: 'For your security, in-room guest sessions expire after 6 hours of inactivity. Please re-scan your room QR.',
+        });
+        subscribeGuestStayRequests(null);
+        return;
+      }
+
+      // Keep lastActiveAt fresh
+      try {
+        savedSession.lastActiveAt = now;
+        localStorage.setItem(GUEST_SESSION_STORAGE_KEY, JSON.stringify(savedSession));
+      } catch {
+        // ignore
+      }
+
       const matchingRoom = rooms.find((r) => r.id === savedSession.roomId);
 
       if (
@@ -329,10 +361,38 @@ export const TenantProvider: React.FC<{
       return;
     }
 
-    // CASE 3: No token and no saved session
+    // CASE 3: No token or not a guest route -> no session
     updateStayState({ status: 'no_session' });
     subscribeGuestStayRequests(null);
   }, [qrCodes, rooms, properties, stays]);
+
+  // Keep guest session fresh on user activity
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let lastTouch = Date.now();
+    const handleTouchActivity = () => {
+      const now = Date.now();
+      if (now - lastTouch < 30_000) return; // throttle to 30s
+      lastTouch = now;
+      try {
+        const raw = localStorage.getItem(GUEST_SESSION_STORAGE_KEY);
+        if (!raw) return;
+        const session: StoredGuestSession = JSON.parse(raw);
+        session.lastActiveAt = now;
+        localStorage.setItem(GUEST_SESSION_STORAGE_KEY, JSON.stringify(session));
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener('pointerdown', handleTouchActivity, { passive: true });
+    window.addEventListener('keydown', handleTouchActivity, { passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', handleTouchActivity);
+      window.removeEventListener('keydown', handleTouchActivity);
+    };
+  }, []);
 
   const clearGuestSession = () => {
     try {
