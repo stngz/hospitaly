@@ -13,7 +13,7 @@ import {
 } from '../../lib/time';
 import { compressImageFileToJpeg } from '../../lib/imageCompression';
 import { DEFAULT_HOUSE_GUIDE } from '../../lib/seeds/rocksApartments';
-import { FOUNDER_CONTACT_PHONE, FOUNDER_WHATSAPP_NUMBER } from '../../lib/config';
+import { APP_NAME, FOUNDER_CONTACT_PHONE, FOUNDER_WHATSAPP_NUMBER } from '../../lib/config';
 import {
   RequestStatus,
   Room,
@@ -324,13 +324,13 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
     return () => window.removeEventListener('hospitally-write-error', handler);
   }, []);
 
-  // Tab Title alert count: (2) Hospitaly Staff
+  // Tab Title alert count: (2) Shekin Staff
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const activeTotal = pendingCount + inProgressCount;
-    document.title = activeTotal > 0 ? `(${activeTotal}) Hospitaly Staff` : 'Hospitaly Staff';
+    document.title = activeTotal > 0 ? `(${activeTotal}) ${APP_NAME} Staff` : `${APP_NAME} Staff`;
     return () => {
-      document.title = 'Hospitaly';
+      document.title = APP_NAME;
     };
   }, [pendingCount, inProgressCount]);
 
@@ -955,17 +955,17 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
           <div className="flex items-center gap-2 min-w-0">
             <AlertTriangle className="w-4 h-4 shrink-0 text-amber-800" />
             <span className="truncate">
-              Hospitaly is paused for {currentProperty?.name || 'Rock Apartments'}. You can view
+              {APP_NAME} is paused for {currentProperty?.name || 'Rock Apartments'}. You can view
               past requests.
             </span>
           </div>
           <a
-            href={`https://wa.me/${FOUNDER_WHATSAPP_NUMBER}?text=Hello%20Hospitaly%2C%20please%20resume%20our%20property%20account.`}
+            href={`https://wa.me/${FOUNDER_WHATSAPP_NUMBER}?text=${encodeURIComponent(`Hello ${APP_NAME}, please resume our property account.`)}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs font-bold text-[#1C3A31] underline shrink-0"
           >
-            Contact Hospitaly to resume
+            Contact {APP_NAME} to resume
           </a>
         </div>
       )}
@@ -1852,7 +1852,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               <div>
                 <h2 className="text-lg font-serif font-bold text-white">Property team</h2>
                 <p className="text-xs text-stone-300 mt-0.5">
-                  Staff accounts and roles are managed by the founder in Hospitaly HQ.
+                  Staff accounts and roles are managed by the founder in {APP_NAME} HQ.
                 </p>
               </div>
 

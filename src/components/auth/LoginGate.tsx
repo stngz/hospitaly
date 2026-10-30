@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { consumeSessionExpiredBanner } from '../../lib/sessionPolicy';
 import { UserProfile } from '../../types';
+import { APP_NAME } from '../../lib/config';
 import {
   ShieldAlert,
   Loader2,
@@ -126,7 +127,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
       <div className="flex items-center justify-between max-w-sm mx-auto w-full pt-2">
         <div className="flex items-center gap-2 text-xs text-stone-400">
           <Lock className="w-3.5 h-3.5 text-amber-400" />
-          <span>{isHq ? 'Hospitally HQ (/hq)' : 'Property Operations (/staff)'}</span>
+          <span>{isHq ? `${APP_NAME} HQ (/hq)` : 'Property Operations (/staff)'}</span>
         </div>
         <span className="px-2.5 py-0.5 rounded-full bg-stone-900 border border-white/10 text-xs uppercase tracking-wider text-stone-400">
           Authorised Access
@@ -272,14 +273,14 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
         {!isHq && (
           <div className="p-3 rounded-xl bg-stone-900/80 border border-white/[0.06] text-xs text-stone-400 leading-relaxed text-left">
             <span className="font-semibold text-stone-300 block mb-0.5">Account Provisioning Policy</span>
-            Staff and Manager accounts are provisioned exclusively by the Founder. Managers should contact Hospitally HQ when additional team access is needed.
+            Staff and Manager accounts are provisioned exclusively by the Founder. Managers should contact {APP_NAME} HQ when additional team access is needed.
           </div>
         )}
       </div>
 
       {/* Footer Branding */}
       <div className="text-center text-xs text-stone-500 pb-1">
-        <span>Hospitally Security &bull; Authorised Access Only</span>
+        <span>{APP_NAME} Security &bull; Authorised Access Only</span>
       </div>
     </div>
   );

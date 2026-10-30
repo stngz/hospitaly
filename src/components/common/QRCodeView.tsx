@@ -3,7 +3,10 @@ import QRCode from 'qrcode';
 import jsQR from 'jsqr';
 import { QRCodeRecord } from '../../types';
 
-export const QR_BASE_URL = 'https://hospitaly.vercel.app/r';
+export const QR_BASE_URL =
+  typeof window !== 'undefined' && window.location?.origin
+    ? `${window.location.origin}/r`
+    : 'https://hospitaly.vercel.app/r';
 
 export function buildHouseQRUrl(token: string): string {
   const clean = token.trim();

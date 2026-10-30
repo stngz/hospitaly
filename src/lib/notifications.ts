@@ -5,6 +5,7 @@
  */
 
 import app from './firebase';
+import { APP_NAME } from './config';
 
 export type HapticStyle = 'light' | 'medium' | 'success' | 'warning' | 'dispatch' | 'staff_alert';
 
@@ -342,7 +343,7 @@ class SoundAndNotificationService {
             const title =
               payload.notification?.title ||
               payload.data?.title ||
-              'New request · Hospitaly';
+              `New request · ${APP_NAME}`;
             const subtitle =
               payload.notification?.body ||
               payload.data?.body ||

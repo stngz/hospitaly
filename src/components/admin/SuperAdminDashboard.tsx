@@ -452,7 +452,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             H
           </div>
           <div className="flex items-center gap-2 min-w-0">
-            <h1 className="font-serif text-lg text-white leading-none truncate">Hospitally HQ</h1>
+            <h1 className="font-serif text-lg text-white leading-none truncate">{APP_NAME} HQ</h1>
             <span className="hidden sm:inline-flex text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 font-medium">
               Founder
             </span>

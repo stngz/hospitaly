@@ -1,7 +1,7 @@
 {
-  "name": "Hospitaly Staff",
-  "short_name": "Hospitaly",
-  "description": "Hospitaly Staff & Operations Portal — Real-time house requests & dispatch.",
+  "name": "Shekin Staff",
+  "short_name": "Shekin",
+  "description": "Shekin Staff & Operations Portal — Real-time house requests & dispatch.",
   "start_url": "/staff",
   "scope": "/",
   "display": "standalone",

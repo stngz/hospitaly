@@ -3,7 +3,7 @@
  */
 
 export const APP_NAME =
-  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_APP_NAME) || 'Hospitaly';
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_APP_NAME) || 'Shekin';
 
 export const PUSH_ENABLED =
   typeof import.meta !== 'undefined' && import.meta.env?.VITE_PUSH_ENABLED === 'true';
