@@ -24,6 +24,7 @@ import {
   StaffDepartment,
 } from '../../types';
 import { QRPlaqueModal, renderPrintableQRCardCanvas } from '../common/QRCodeView';
+import { ErrorBoundary } from '../common/ErrorBoundary';
 import {
   Check,
   Clock,
@@ -797,11 +798,11 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
       if (filterStatus !== 'all' && r.status !== filterStatus) return false;
     }
 
-    if (filterDepartment !== 'all' && r.category !== filterDepartment) return false;
+    if (filterDepartment !== 'all' && (r.category || 'general') !== filterDepartment) return false;
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      const matchTitle = r.title.toLowerCase().includes(q);
+      const matchTitle = (r.title || '').toLowerCase().includes(q);
       const matchRoom = (r.roomNumber || '').toLowerCase().includes(q);
       const matchGuest = (r.guestName || '').toLowerCase().includes(q);
       const matchDesc = (r.description || '').toLowerCase().includes(q);
@@ -815,10 +816,11 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   const renderCheckOutStrip = () => {
     if (!canViewCheckOuts) return null;
     return (
-      <div
-        data-testid="live-checkout-strip"
-        className="bg-white rounded-2xl border border-stone-200/90 p-4 shadow-2xs space-y-3"
-      >
+      <ErrorBoundary sectionName="check-outs">
+        <div
+          data-testid="live-checkout-strip"
+          className="bg-white rounded-2xl border border-stone-200/90 p-4 shadow-2xs space-y-3"
+        >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold uppercase tracking-wider text-stone-500">
@@ -935,8 +937,9 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
           </div>
         )}
       </div>
-    );
-  };
+    </ErrorBoundary>
+  );
+};
 
   return (
     <div
@@ -1349,97 +1352,104 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
             </div>
 
             {/* Request Cards Feed */}
-            <div data-testid="requests-feed" className="space-y-3">
-              {filteredRequests.length === 0 ? (
-                <div className="text-center py-12 bg-white rounded-2xl border border-stone-200 text-stone-500 text-xs">
-                  No requests matching this filter.
-                </div>
-              ) : (
-                filteredRequests.map((req) => {
-                  const reqTimeMs = new Date(req.createdAt).getTime();
-                  const waitMinutes = Math.floor((now - reqTimeMs) / (60 * 1000));
-                  const isUnassignedLong =
-                    !req.archived && req.status === 'pending' && !req.assignedTo?.uid && waitMinutes >= 5;
+            <ErrorBoundary sectionName="requests board">
+              <div data-testid="requests-feed" className="space-y-3">
+                {filteredRequests.length === 0 ? (
+                  <div className="text-center py-12 bg-white rounded-2xl border border-stone-200 text-stone-500 text-xs">
+                    No requests matching this filter.
+                  </div>
+                ) : (
+                  filteredRequests.map((req) => {
+                    const reqTimeMs = new Date(req.createdAt || 0).getTime();
+                    const waitMinutes = isNaN(reqTimeMs) || reqTimeMs === 0 ? 0 : Math.floor((now - reqTimeMs) / (60 * 1000));
+                    const isUnassignedLong =
+                      !req.archived && req.status === 'pending' && !req.assignedTo?.uid && waitMinutes >= 5;
 
-                  const plainWhatsAppText =
-                    `House: ${req.roomNumber}\n` +
-                    `Guest: ${req.guestName || 'Guest'}${req.guestPhone ? ` (${req.guestPhone})` : ''}\n` +
-                    `Request: ${req.title}\n` +
-                    (req.description ? `Details: ${req.description}\n` : '') +
-                    `Ref: ${req.refCode || req.id.slice(-4).toUpperCase()}`;
+                    const safeCategory = (req.category || 'general').replace(/_/g, ' ');
+                    const safeRoom = req.roomNumber || 'House';
+                    const safeTitle = req.title || 'Service request';
+                    const safeGuest = req.guestName || 'Guest';
+                    const safeRef = req.refCode || (req.id ? req.id.slice(-4).toUpperCase() : 'REQ');
 
-                  return (
-                    <div
-                      key={req.id}
-                      data-testid={`staff-request-card-${req.id}`}
-                      className="bg-white rounded-2xl border border-stone-200/90 p-4 shadow-2xs space-y-3"
-                    >
-                      {/* Top Row: House chip, category, live waiting timer or relative ago */}
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-xs font-bold px-2.5 py-1 bg-[#1C3A31] text-[#E0B973] rounded-md">
-                            {req.roomNumber}
-                          </span>
-                          <span className="text-xs font-semibold capitalize text-stone-600 bg-stone-100 px-2 py-0.5 rounded-md">
-                            {req.category.replace('_', ' ')}
-                          </span>
-                          {req.priority === 'urgent' && (
-                            <span className="text-xs font-bold px-2 py-0.5 bg-red-100 text-red-700 rounded-md">
-                              Urgent
+                    const plainWhatsAppText =
+                      `House: ${safeRoom}\n` +
+                      `Guest: ${safeGuest}${req.guestPhone ? ` (${req.guestPhone})` : ''}\n` +
+                      `Request: ${safeTitle}\n` +
+                      (req.description ? `Details: ${req.description}\n` : '') +
+                      `Ref: ${safeRef}`;
+
+                    return (
+                      <div
+                        key={req.id}
+                        data-testid={`staff-request-card-${req.id}`}
+                        className="bg-white rounded-2xl border border-stone-200/90 p-4 shadow-2xs space-y-3"
+                      >
+                        {/* Top Row: House chip, category, live waiting timer or relative ago */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs font-bold px-2.5 py-1 bg-[#1C3A31] text-[#E0B973] rounded-md">
+                              {safeRoom}
                             </span>
-                          )}
-                          {isUnassignedLong && (
-                            <span
-                              data-testid={`waiting-timer-${req.id}`}
-                              className="text-xs font-bold px-2.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded-md"
-                            >
-                              Waiting {waitMinutes} min
+                            <span className="text-xs font-semibold capitalize text-stone-600 bg-stone-100 px-2 py-0.5 rounded-md">
+                              {safeCategory}
                             </span>
-                          )}
-                        </div>
-
-                        <span className="text-xs text-stone-500">
-                          {formatRelativeAgo(req.createdAt, now)}
-                        </span>
-                      </div>
-
-                      {/* Request Title & Note */}
-                      <div>
-                        <h3 className="text-base font-bold text-stone-900 leading-snug">
-                          {req.title}
-                        </h3>
-                        {req.description && (
-                          <p className="text-xs text-stone-700 bg-stone-50 p-2.5 rounded-xl border border-stone-100 mt-1.5">
-                            &ldquo;{req.description}&rdquo;
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Guest Details (staff-only visibility) */}
-                      <div className="flex items-center justify-between gap-2 text-xs text-stone-600 flex-wrap">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="font-semibold text-stone-800 truncate">
-                            {req.guestName || 'Guest'}
-                          </span>
-                          {req.guestPhone && (
-                            <>
-                              <span>&middot;</span>
-                              <span className="whitespace-nowrap font-medium text-stone-700">
-                                {req.guestPhone}
+                            {req.priority === 'urgent' && (
+                              <span className="text-xs font-bold px-2 py-0.5 bg-red-100 text-red-700 rounded-md">
+                                Urgent
                               </span>
-                            </>
+                            )}
+                            {isUnassignedLong && (
+                              <span
+                                data-testid={`waiting-timer-${req.id}`}
+                                className="text-xs font-bold px-2.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded-md"
+                              >
+                                Waiting {waitMinutes} min
+                              </span>
+                            )}
+                          </div>
+
+                          <span className="text-xs text-stone-500">
+                            {formatRelativeAgo(req.createdAt, now)}
+                          </span>
+                        </div>
+
+                        {/* Request Title & Note */}
+                        <div>
+                          <h3 className="text-base font-bold text-stone-900 leading-snug">
+                            {safeTitle}
+                          </h3>
+                          {req.description && (
+                            <p className="text-xs text-stone-700 bg-stone-50 p-2.5 rounded-xl border border-stone-100 mt-1.5">
+                              &ldquo;{req.description}&rdquo;
+                            </p>
                           )}
                         </div>
 
-                        {req.deliveryPreference && (
-                          <span className="text-stone-500">
-                            Pref:{' '}
-                            {req.deliveryPreference === 'leave_at_door'
-                              ? 'Leave at door'
-                              : 'Knock'}
-                          </span>
-                        )}
-                      </div>
+                        {/* Guest Details (staff-only visibility) */}
+                        <div className="flex items-center justify-between gap-2 text-xs text-stone-600 flex-wrap">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-semibold text-stone-800 truncate">
+                              {safeGuest}
+                            </span>
+                            {req.guestPhone && (
+                              <>
+                                <span>&middot;</span>
+                                <span className="whitespace-nowrap font-medium text-stone-700">
+                                  {req.guestPhone}
+                                </span>
+                              </>
+                            )}
+                          </div>
+
+                          {req.deliveryPreference && (
+                            <span className="text-stone-500">
+                              Pref:{' '}
+                              {req.deliveryPreference === 'leave_at_door'
+                                ? 'Leave at door'
+                                : 'Knock'}
+                            </span>
+                          )}
+                        </div>
 
                       {/* Assignee Dropdown (GM/Admin, strictly excludes founder) */}
                       {isManagerOrAdmin && !req.archived && (
@@ -1602,8 +1612,9 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                 })
               )}
             </div>
-          </div>
-        )}
+          </ErrorBoundary>
+        </div>
+      )}
 
         {/* =========================================================================
             TAB 2: HOUSES, CHECK-IN & QR CODES
@@ -1675,7 +1686,8 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
             </div>
 
             {/* Houses Grid */}
-            <div data-testid="houses-grid" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <ErrorBoundary sectionName="houses">
+              <div data-testid="houses-grid" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {propertyRooms.map((room) => {
                 const isOccupied = room.status === 'occupied';
                 const formattedGuest = [room.guestTitle, room.currentGuestName]
@@ -1826,14 +1838,16 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                 );
               })}
             </div>
-          </div>
-        )}
+          </ErrorBoundary>
+        </div>
+      )}
 
         {/* =========================================================================
             TAB 3: TEAM TAB
            ========================================================================= */}
         {dashboardTab === 'team' && isManagerOrAdmin && (
-          <div data-testid="team-tab" className="space-y-4">
+          <ErrorBoundary sectionName="team">
+            <div data-testid="team-tab" className="space-y-4">
             <div className="bg-[#1C3A31] text-stone-100 p-5 rounded-2xl shadow-2xs border border-stone-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-serif font-bold text-white">Property team</h2>
@@ -1918,7 +1932,8 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               })}
             </div>
           </div>
-        )}
+        </ErrorBoundary>
+      )}
       </main>
 
       {/* =========================================================================

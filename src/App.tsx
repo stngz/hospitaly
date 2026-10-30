@@ -17,6 +17,7 @@ import { SuperAdminDashboard } from './components/admin/SuperAdminDashboard';
 import { LoginGate } from './components/auth/LoginGate';
 import { InAppNotificationBanner } from './components/common/InAppNotificationBanner';
 import { GuestLoadingScreen } from './components/guest/GuestLoadingScreen';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { Loader2 } from 'lucide-react';
 
 type RoutePortal = 'hq' | 'staff' | 'guest';
@@ -130,13 +131,15 @@ function AppContent() {
 
     return (
       <div className="min-h-screen bg-stone-100 font-sans antialiased text-stone-900 relative">
-        <SuperAdminDashboard
-          onManageProperty={(selectedProp) => {
-            setPropertySlug(selectedProp.slug);
-            navigateToPortal('staff', '/staff');
-          }}
-          onSwitchToStaff={() => navigateToPortal('staff', '/staff')}
-        />
+        <ErrorBoundary sectionName="HQ portal">
+          <SuperAdminDashboard
+            onManageProperty={(selectedProp) => {
+              setPropertySlug(selectedProp.slug);
+              navigateToPortal('staff', '/staff');
+            }}
+            onSwitchToStaff={() => navigateToPortal('staff', '/staff')}
+          />
+        </ErrorBoundary>
       </div>
     );
   }
@@ -191,13 +194,15 @@ function AppContent() {
     return (
       <div className="min-h-screen bg-stone-100 font-sans antialiased text-stone-900 relative">
         <InAppNotificationBanner />
-        <StaffDashboard
-          onSelectRoomForGuest={(propSlug, rId) => {
-            handleRoomResolved(propSlug, rId);
-            navigateToPortal('guest', '/');
-          }}
-          onSwitchToAdmin={user.role === 'founder' ? () => navigateToPortal('hq', '/hq') : undefined}
-        />
+        <ErrorBoundary sectionName="staff desk">
+          <StaffDashboard
+            onSelectRoomForGuest={(propSlug, rId) => {
+              handleRoomResolved(propSlug, rId);
+              navigateToPortal('guest', '/');
+            }}
+            onSwitchToAdmin={user.role === 'founder' ? () => navigateToPortal('hq', '/hq') : undefined}
+          />
+        </ErrorBoundary>
       </div>
     );
   }
@@ -226,47 +231,59 @@ function AppContent() {
       )}
 
       <div className="max-w-md mx-auto shadow-modal min-h-dvh bg-[#FDFBF7] relative border-x border-stone-900/[0.08]">
-        {guestView === 'home' && <GuestHome onNavigate={handleGuestNavigate} />}
+        {guestView === 'home' && (
+          <ErrorBoundary sectionName="guest home">
+            <GuestHome onNavigate={handleGuestNavigate} />
+          </ErrorBoundary>
+        )}
 
         {guestView === 'request' && (
-          <ServiceRequestFlow
-            initialCategory={requestPrefill.category}
-            initialItem={requestPrefill.item}
-            onBack={() => setGuestView('home')}
-            onSubmitted={handleRequestCreated}
-            onNavigateTab={handleGuestNavigate}
-          />
+          <ErrorBoundary sectionName="service request">
+            <ServiceRequestFlow
+              initialCategory={requestPrefill.category}
+              initialItem={requestPrefill.item}
+              onBack={() => setGuestView('home')}
+              onSubmitted={handleRequestCreated}
+              onNavigateTab={handleGuestNavigate}
+            />
+          </ErrorBoundary>
         )}
 
         {guestView === 'status' && (
-          <RequestStatusTimeline
-            requestId={activeRequestId}
-            onBack={() => setGuestView('home')}
-            onNavigateTab={handleGuestNavigate}
-          />
+          <ErrorBoundary sectionName="request status">
+            <RequestStatusTimeline
+              requestId={activeRequestId}
+              onBack={() => setGuestView('home')}
+              onNavigateTab={handleGuestNavigate}
+            />
+          </ErrorBoundary>
         )}
 
         {guestView === 'my-requests' && (
-          <GuestRequestsList
-            onBack={() => setGuestView('home')}
-            onSelectRequest={(id) => {
-              setActiveRequestId(id);
-              setGuestView('status');
-            }}
-            onNewRequest={() => {
-              setRequestPrefill({});
-              setGuestView('request');
-            }}
-            onNavigateTab={handleGuestNavigate}
-          />
+          <ErrorBoundary sectionName="my requests">
+            <GuestRequestsList
+              onBack={() => setGuestView('home')}
+              onSelectRequest={(id) => {
+                setActiveRequestId(id);
+                setGuestView('status');
+              }}
+              onNewRequest={() => {
+                setRequestPrefill({});
+                setGuestView('request');
+              }}
+              onNavigateTab={handleGuestNavigate}
+            />
+          </ErrorBoundary>
         )}
 
         {guestView === 'dining' && (
-          <GuestDiningMenu
-            onBack={() => setGuestView('home')}
-            onRequestSubmitted={handleRequestCreated}
-            onNavigateTab={handleGuestNavigate}
-          />
+          <ErrorBoundary sectionName="dining">
+            <GuestDiningMenu
+              onBack={() => setGuestView('home')}
+              onRequestSubmitted={handleRequestCreated}
+              onNavigateTab={handleGuestNavigate}
+            />
+          </ErrorBoundary>
         )}
       </div>
     </div>
@@ -275,10 +292,12 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <TenantProvider initialSlug="rocks-apartments">
-        <AppContent />
-      </TenantProvider>
-    </AuthProvider>
+    <ErrorBoundary sectionName="application">
+      <AuthProvider>
+        <TenantProvider initialSlug="rocks-apartments">
+          <AppContent />
+        </TenantProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

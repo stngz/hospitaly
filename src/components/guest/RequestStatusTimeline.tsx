@@ -282,12 +282,13 @@ export const RequestStatusTimeline: React.FC<RequestStatusTimelineProps> = ({
 
         {/* 4. DELIVERY PREFERENCE (Editable while not completed/cancelled) */}
         {!isCancelled && !isCompleted && (() => {
+          const safeTitleLower = (req.title || '').toLowerCase();
           const isHouseService =
             req.category === 'maintenance' ||
-            req.title.toLowerCase().includes('cleaning') ||
-            req.title.toLowerCase().includes('gas') ||
-            req.title.toLowerCase().includes('kitchen') ||
-            req.title.toLowerCase().includes('broken');
+            safeTitleLower.includes('cleaning') ||
+            safeTitleLower.includes('gas') ||
+            safeTitleLower.includes('kitchen') ||
+            safeTitleLower.includes('broken');
 
           if (isHouseService) {
             return (

@@ -181,12 +181,12 @@ export const GuestRequestsList: React.FC<GuestRequestsListProps> = ({
                   <div className="flex items-center gap-2 flex-wrap">
                     {getStatusBadge(req.status)}
                   </div>
-                  <h3 className="text-sm font-bold text-stone-900 line-clamp-2">{req.title}</h3>
+                  <h3 className="text-sm font-bold text-stone-900 line-clamp-2">{req.title || 'Service request'}</h3>
                   {req.description && (
                     <p className="text-xs text-stone-500 line-clamp-1">{req.description}</p>
                   )}
                   <p className="text-xs text-stone-500">
-                    {formatCategoryLabel(req.category)} &middot;{' '}
+                    {formatCategoryLabel(req.category || '')} &middot;{' '}
                     {formatPropertyTime(req.createdAt, timezone)}
                   </p>
                 </div>

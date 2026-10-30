@@ -156,7 +156,14 @@ if (typeof window !== 'undefined') {
       if (parsed.stays) cachedDb.stays = parsed.stays;
       if (parsed.qrCodes) cachedDb.qrCodes = parsed.qrCodes;
       if (parsed.users) cachedDb.users = parsed.users;
-      if (parsed.requests) cachedDb.requests = parsed.requests;
+      if (parsed.requests) {
+        cachedDb.requests = parsed.requests.map((r: any) => ({
+          ...r,
+          category: r.category || r.department || 'general',
+          title: r.title || 'Service request',
+          roomNumber: r.roomNumber || 'House',
+        }));
+      }
       refreshDerivedCaches();
     }
   } catch {}
@@ -171,7 +178,14 @@ if (typeof window !== 'undefined') {
         if (parsed.stays) cachedDb.stays = parsed.stays;
         if (parsed.qrCodes) cachedDb.qrCodes = parsed.qrCodes;
         if (parsed.users) cachedDb.users = parsed.users;
-        if (parsed.requests) cachedDb.requests = parsed.requests;
+        if (parsed.requests) {
+          cachedDb.requests = parsed.requests.map((r: any) => ({
+            ...r,
+            category: r.category || r.department || 'general',
+            title: r.title || 'Service request',
+            roomNumber: r.roomNumber || 'House',
+          }));
+        }
         refreshDerivedCaches();
         listeners.forEach((listener) => listener());
       } catch {}
@@ -483,6 +497,8 @@ export function initFirestoreListeners(): void {
   activeUnsubscribers.push(unsubProps, unsubRooms, unsubStays, unsubQRs, unsubMedia);
 }
 
+const loggedMissingCategoryIds = new Set<string>();
+
 /**
  * Staff / Manager / Founder listeners (`requests`, `users`, `activity`, `dining`).
  */
@@ -494,9 +510,33 @@ export function startAuthenticatedListeners(): void {
     collection(db, 'requests'),
     (snapshot) => {
       const requests = snapshot.docs
-        .map((d) => ({ ...(d.data() as ServiceRequest), id: d.id }))
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        .map((d) => {
+          const raw = d.data() as Partial<ServiceRequest>;
+          if (!raw.category && !loggedMissingCategoryIds.has(d.id)) {
+            loggedMissingCategoryIds.add(d.id);
+            console.warn(`[Hospitaly] Legacy request missing category: ID ${d.id} (title="${raw.title || 'Untitled'}")`);
+          }
+          return {
+            ...raw,
+            id: d.id,
+            propertyId: raw.propertyId || 'prop_rocks_lusaka',
+            roomId: raw.roomId || 'room_general',
+            roomNumber: raw.roomNumber || 'House',
+            title: raw.title || 'Service request',
+            category: raw.category || (raw as any).department || 'general',
+            status: raw.status || 'pending',
+            history: Array.isArray(raw.history) && raw.history.length > 0
+              ? raw.history
+              : [{ status: raw.status || 'pending', timestamp: raw.createdAt || new Date().toISOString() }],
+            archived: typeof raw.archived === 'boolean' ? raw.archived : false,
+            priority: raw.priority || 'normal',
+            createdAt: raw.createdAt || new Date().toISOString(),
+            updatedAt: raw.updatedAt || raw.createdAt || new Date().toISOString(),
+          } as ServiceRequest;
+        })
+        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       cachedDb = { ...cachedDb, requests };
+      refreshDerivedCaches();
       notifyListeners();
     },
     (err) => console.warn('Firestore requests listener error:', err)
@@ -1364,6 +1404,9 @@ export const dbService = {
     const now = new Date().toISOString();
     const newRequest: ServiceRequest = {
       ...requestData,
+      category: requestData.category || (requestData as any).department || 'housekeeping',
+      title: requestData.title || 'Service request',
+      roomNumber: requestData.roomNumber || matchingRoom?.roomNumber || matchingRoom?.name || 'House',
       stayId: activeStayId,
       guestName: guestFullName,
       guestPhone,

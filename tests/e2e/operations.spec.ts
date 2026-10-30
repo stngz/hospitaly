@@ -64,4 +64,45 @@ test.describe('Operations & Front Desk (S1 - S2, M1 - M2)', () => {
     const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
     expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
   });
+
+  test('S3: Malformed requests with missing category, title, or roomNumber render safely with fallbacks', async ({ page }) => {
+    page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+    page.on('pageerror', err => console.log('PAGE ERROR STACK:', err.stack || err.message));
+
+    // Inject a completely malformed request into seed data
+    await page.addInitScript(() => {
+      try {
+        const stored = localStorage.getItem('hospitally_seed_data');
+        if (stored) {
+          const data = JSON.parse(stored);
+          data.requests = data.requests || [];
+          data.requests.push({
+            id: 'req_malformed_test',
+            propertyId: 'prop_rocks_lusaka',
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+            // category, title, roomNumber intentionally omitted
+          });
+          localStorage.setItem('hospitally_seed_data', JSON.stringify(data));
+        }
+      } catch {}
+    });
+
+    await page.goto('/staff', { waitUntil: 'domcontentloaded' });
+    const emailInput = page.locator('#login-email');
+    await emailInput.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+    if (await emailInput.isVisible()) {
+      await emailInput.fill('manager.pilot@example.com');
+      await page.locator('#login-password').fill('Welcome2026!');
+      await page.locator('button[type="submit"]').click();
+    }
+
+    // Verify Staff Header and requests board load without unmounting
+    await expect(page.locator('header').first()).toBeVisible({ timeout: 12000 });
+    const requestsTab = page.locator('button:has-text("Requests")').first();
+    await expect(requestsTab).toBeVisible({ timeout: 10000 });
+
+    // The malformed card renders safe fallback text ('Service request' and 'House')
+    await expect(page.locator('text=Service request').first()).toBeVisible({ timeout: 10000 });
+  });
 });

@@ -1,4 +1,5 @@
 import React, { useState, useSyncExternalStore } from 'react';
+import { ErrorBoundary } from '../common/ErrorBoundary';
 import { dbService, subscribeToStore } from '../../lib/store';
 import { useAuth } from '../../context/AuthContext';
 import { Property, StaffDepartment, UserProfile } from '../../types';
@@ -146,8 +147,8 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
     if (filterStatus !== 'all' && p.status !== filterStatus) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      const matchName = p.name.toLowerCase().includes(q);
-      const matchCity = p.city.toLowerCase().includes(q);
+      const matchName = (p.name || '').toLowerCase().includes(q);
+      const matchCity = (p.city || '').toLowerCase().includes(q);
       if (!matchName && !matchCity) return false;
     }
     return true;
@@ -596,7 +597,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               <Users className="w-3.5 h-3.5 text-amber-400" />
             </div>
             <div className="text-xl sm:text-2xl font-serif text-white">
-              {users.filter((u) => u.active !== false && u.email.toLowerCase() !== 'founder.test@example.com').length}
+              {users.filter((u) => u.active !== false && (u.email || '').toLowerCase() !== 'founder.test@example.com').length}
             </div>
             <div className="text-xs text-stone-400 mt-0.5">
               {users.filter((u) => u.role === 'manager' && u.active !== false).length} GM ·{' '}
@@ -664,7 +665,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
         )}
 
         {activeTab === 'properties' ? (
-          <>
+          <ErrorBoundary sectionName="HQ properties">
             {/* Filter & Search Bar */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-stone-900/60 border border-stone-800 rounded-xl p-3.5">
               <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
@@ -701,7 +702,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                   (u) => u.propertyId === prop.id && u.role === 'manager' && u.active !== false
                 );
                 const primaryManager =
-                  activeManagers.find((m) => m.email.toLowerCase() === 'manager.pilot@rocks.co.zm') ||
+                  activeManagers.find((m) => (m.email || '').toLowerCase() === 'manager.pilot@rocks.co.zm') ||
                   activeManagers[0];
                 const isActive = prop.status === 'active';
 
@@ -846,10 +847,11 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                 );
               })}
             </div>
-          </>
+          </ErrorBoundary>
         ) : activeTab === 'accounts' ? (
           /* Account Administration Tab */
-          <div className="space-y-4">
+          <ErrorBoundary sectionName="HQ accounts">
+            <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-stone-900/60 border border-stone-800 rounded-xl p-4">
               <div>
                 <h2 className="font-serif text-lg text-white">Staff & Manager Accounts</h2>
@@ -1203,9 +1205,11 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               </div>
             </div>
           </div>
-        ) : (
+        </ErrorBoundary>
+      ) : (
           /* Activity Log Tab */
-          <div className="space-y-4">
+          <ErrorBoundary sectionName="HQ activity logs">
+            <div className="space-y-4">
             <div className="bg-stone-900/60 border border-stone-800 rounded-xl p-4 flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-white">Platform Activity Log</h3>
@@ -1232,14 +1236,14 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                     <div className="flex-1 min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center justify-between gap-1.5">
                         <span className="font-semibold text-stone-200 capitalize">
-                          {act.type.replace(/_/g, ' ')}
+                          {(act.type || (act as any).action || 'activity').replace(/_/g, ' ')}
                         </span>
                         <span className="text-stone-400 font-mono text-[11px]">
-                          {formatPropertyDate(act.createdAt, 'Africa/Lusaka')}
+                          {formatPropertyDate(act.createdAt || new Date().toISOString(), 'Africa/Lusaka')}
                         </span>
                       </div>
                       <div className="text-stone-400">
-                        By <span className="text-stone-300 font-medium">{act.actorName}</span>
+                        By <span className="text-stone-300 font-medium">{act.actorName || 'System'}</span>
                         {act.actorEmail && <span className="text-stone-500"> ({act.actorEmail})</span>}
                       </div>
                       {act.summary && (
@@ -1253,6 +1257,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               )}
             </div>
           </div>
+          </ErrorBoundary>
         )}
       </main>
 

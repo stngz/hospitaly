@@ -120,10 +120,18 @@ async function main() {
       updates.priority = 'normal';
     }
 
-    // 7. Check category
+    // 7. Check category (sets category from department or 'general')
     if (!req.category) {
       missing.push('category');
-      updates.category = req.title?.toLowerCase().includes('clean') ? 'housekeeping' : 'maintenance';
+      const resolvedCategory = req.department || (
+        req.title?.toLowerCase().includes('clean') || req.title?.toLowerCase().includes('towel') || req.title?.toLowerCase().includes('pillow')
+          ? 'housekeeping'
+          : req.title?.toLowerCase().includes('broken') || req.title?.toLowerCase().includes('gas') || req.title?.toLowerCase().includes('kitchen') || req.title?.toLowerCase().includes('stove')
+          ? 'maintenance'
+          : 'general'
+      );
+      updates.category = resolvedCategory;
+      console.log(`[LEGACY REQUEST FOUND] Request ID: ${d.id} has no category. Setting category -> "${resolvedCategory}"`);
     }
 
     // 8. Check verification for completed items

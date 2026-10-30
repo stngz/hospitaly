@@ -139,7 +139,7 @@ export const ServiceRequestFlow: React.FC<ServiceRequestFlowProps> = ({
         roomNumber: room.name || room.roomNumber,
         stayId: room.activeStayId,
         guestSessionId: room.activeStayId,
-        category: selectedCategory as any,
+        category: (selectedCategory as any) || 'housekeeping',
         title: selectedItem || description.trim().slice(0, 80) || 'Guest request',
         description: description.trim(),
         priority,

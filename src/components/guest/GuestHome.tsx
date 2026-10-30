@@ -382,7 +382,7 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
       roomNumber: room.name || room.roomNumber,
       stayId: room.activeStayId,
       guestSessionId: room.activeStayId,
-      category: confirmItem.category,
+      category: confirmItem.category || 'housekeeping',
       title: confirmItem.label,
       description: quickNote.trim() || confirmItem.desc,
       priority: 'normal',
