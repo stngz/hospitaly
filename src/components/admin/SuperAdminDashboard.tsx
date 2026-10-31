@@ -1359,11 +1359,21 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                       </div>
                       <div className="text-stone-400">
                         By <span className="text-stone-300 font-medium">{act.actorName || 'System'}</span>
-                        {act.actorEmail && <span className="text-stone-500"> ({act.actorEmail})</span>}
+                        {act.actorEmail && act.actorEmail !== act.actorName && (
+                          <span className="text-stone-500"> ({act.actorEmail})</span>
+                        )}
                       </div>
                       {act.summary && (
                         <div className="text-stone-300 text-[11px] bg-stone-950/50 rounded-lg p-2 border border-stone-800/60 font-mono">
-                          {act.summary}
+                          {(() => {
+                            let s = act.summary;
+                            for (const prop of properties) {
+                              if (prop.id && s.includes(prop.id)) {
+                                s = s.replaceAll(prop.id, prop.name || prop.id);
+                              }
+                            }
+                            return s;
+                          })()}
                         </div>
                       )}
                     </div>

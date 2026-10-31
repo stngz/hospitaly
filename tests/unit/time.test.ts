@@ -5,6 +5,7 @@ import {
   formatRelativeAgo,
   computeCheckOutCountdown,
   parseCheckOutTimestamp,
+  formatWaitDuration,
 } from '../../src/lib/time';
 
 describe('Time and Lusaka Timezone Utilities', () => {
@@ -73,6 +74,15 @@ describe('Time and Lusaka Timezone Utilities', () => {
       expect(res?.state).toBe('red');
       expect(res?.isOverdue).toBe(true);
       expect(res?.text).toBe('Overdue 25 min');
+    });
+  });
+
+  describe('formatWaitDuration (B3)', () => {
+    it('formats wait times correctly', () => {
+      expect(formatWaitDuration(0)).toBe('< 1 min');
+      expect(formatWaitDuration(12)).toBe('12 min');
+      expect(formatWaitDuration(200)).toBe('3 h 20 min');
+      expect(formatWaitDuration(2111)).toBe('1 d 11 h');
     });
   });
 });

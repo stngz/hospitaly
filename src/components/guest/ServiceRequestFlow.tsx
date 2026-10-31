@@ -20,7 +20,7 @@ interface ServiceRequestFlowProps {
   initialCategory?: string;
   initialItem?: string;
   onBack: () => void;
-  onSubmitted: (requestId: string) => void;
+  onSubmitted: (requestId: string, notice?: string) => void;
   onNavigateTab?: (view: string, data?: any) => void;
 }
 
@@ -148,7 +148,11 @@ export const ServiceRequestFlow: React.FC<ServiceRequestFlowProps> = ({
         guestPhone: room.guestPhone || '',
       });
 
-      onSubmitted(newRequest.id);
+      if (newRequest.isDuplicate) {
+        onSubmitted(newRequest.id, 'Already on its way');
+      } else {
+        onSubmitted(newRequest.id);
+      }
     } catch (err: any) {
       setErrorMsg(err.message || 'Could not send request.');
       setSubmitting(false);

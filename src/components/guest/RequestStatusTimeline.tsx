@@ -18,6 +18,7 @@ import { GuestBottomNav } from './GuestBottomNav';
 
 interface RequestStatusTimelineProps {
   requestId: string;
+  notice?: string;
   onBack: () => void;
   onNavigateTab?: (view: string, data?: any) => void;
 }
@@ -45,6 +46,7 @@ const getDepartmentTeamCopy = (category: string) => {
 
 export const RequestStatusTimeline: React.FC<RequestStatusTimelineProps> = ({
   requestId,
+  notice,
   onBack,
   onNavigateTab,
 }) => {
@@ -169,6 +171,16 @@ export const RequestStatusTimeline: React.FC<RequestStatusTimelineProps> = ({
       </header>
 
       <div className="max-w-md mx-auto p-4 space-y-4">
+        {notice && (
+          <div
+            data-testid="request-duplicate-notice"
+            className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2.5"
+          >
+            <Clock className="w-4 h-4 text-amber-700 shrink-0" />
+            <span>{notice}</span>
+          </div>
+        )}
+
         {/* 2. HERO STATUS CARD + SINGLE 4-STEP PROGRESS COMPONENT */}
         <div className="bg-[#1C3A31] text-white rounded-3xl p-5 shadow-modal border border-white/[0.08] relative overflow-hidden">
           <div className="relative z-10 space-y-3">

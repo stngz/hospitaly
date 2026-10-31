@@ -414,7 +414,10 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
 
     setSendingQuick(false);
     setConfirmItem(null);
-    onNavigate('status', { requestId: created.id });
+    onNavigate('status', {
+      requestId: created.id,
+      notice: created.isDuplicate ? 'Already on its way' : undefined,
+    });
   };
 
   const getOpenRequestStatusCopy = (status: string) => {

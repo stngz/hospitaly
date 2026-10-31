@@ -251,3 +251,23 @@ export function useNow(intervalMs: number = 30_000): number {
 
   return now;
 }
+
+/**
+ * Formats wait duration in minutes into a clean human string:
+ * - < 1 min
+ * - 12 min
+ * - 3 h 20 min
+ * - 1 d 11 h
+ */
+export function formatWaitDuration(minutes: number): string {
+  if (minutes < 1) return '< 1 min';
+  if (minutes < 60) return `${minutes} min`;
+  const days = Math.floor(minutes / (24 * 60));
+  const remainingMinutes = minutes % (24 * 60);
+  const hours = Math.floor(remainingMinutes / 60);
+  const mins = remainingMinutes % 60;
+  if (days > 0) {
+    return hours > 0 ? `${days} d ${hours} h` : `${days} d`;
+  }
+  return mins > 0 ? `${hours} h ${mins} min` : `${hours} h`;
+}

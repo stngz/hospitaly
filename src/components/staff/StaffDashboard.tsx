@@ -10,6 +10,7 @@ import {
   computeCheckOutCountdown,
   CheckOutCountdown,
   useNow,
+  formatWaitDuration,
 } from '../../lib/time';
 import { compressImageFileToJpeg } from '../../lib/imageCompression';
 import { DEFAULT_HOUSE_GUIDE } from '../../lib/seeds/rocksApartments';
@@ -79,6 +80,13 @@ const AVAILABLE_HOUSE_AMENITIES = [
   'Smart TV',
   'Washing Machine',
 ];
+
+/**
+ * B2: Shared predicate for "To verify":
+ * Request is completed, not archived, and not yet verified.
+ */
+export const isRequestToVerify = (r: ServiceRequest): boolean =>
+  r.status === 'completed' && !r.archived && r.verification !== 'verified';
 
 export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   onSelectRoomForGuest,
@@ -299,9 +307,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   ).length;
   const completedCount = visibleRequests.filter((r) => !r.archived && r.status === 'completed').length;
   const toVerifyCount = isManagerOrAdmin
-    ? visibleRequests.filter(
-        (r) => !r.archived && r.status === 'completed' && r.verification === 'pending'
-      ).length
+    ? visibleRequests.filter(isRequestToVerify).length
     : 0;
   const cancelledCount = visibleRequests.filter((r) => !r.archived && r.status === 'cancelled').length;
   const archivedCount = isManagerOrAdmin
@@ -310,6 +316,17 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   const unassignedCount = visibleRequests.filter(
     (r) => !r.archived && r.status === 'pending' && !r.assignedTo?.uid
   ).length;
+
+  // B1: Auto-archive old checked-out requests on desk mount
+  useEffect(() => {
+    if (user?.id) {
+      dbService.autoArchiveOldCheckedOutRequests({
+        uid: user.id,
+        name: user.name || 'Staff',
+        email: user.email,
+      });
+    }
+  }, [user]);
 
   // Listen for write failure events and show visible error toast banner (never silent)
   useEffect(() => {
@@ -631,7 +648,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
 
   const handleConfirmCheckOut = () => {
     if (!checkOutConfirmRoom || isPropertySuspended) return;
-    dbService.checkOutRoom(checkOutConfirmRoom.id);
+    dbService.checkOutRoom(checkOutConfirmRoom.id, { name: user?.name, email: user?.email });
     setCheckOutConfirmRoom(null);
   };
 
@@ -792,7 +809,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
     if (filterStatus === 'archived') {
       if (!r.archived) return false;
     } else if (filterStatus === 'to_verify') {
-      if (r.archived || r.status !== 'completed' || r.verification !== 'pending') return false;
+      if (!isRequestToVerify(r)) return false;
     } else {
       if (r.archived) return false;
       if (filterStatus !== 'all' && r.status !== filterStatus) return false;
@@ -990,18 +1007,18 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
         </div>
       )}
 
-      {/* 56px Mobile Header */}
-      <header className="bg-white border-b border-stone-900/[0.08] h-14 px-4 sm:px-6 flex items-center justify-between gap-3 sticky top-0 z-30 shadow-2xs">
+      {/* Mobile-responsive Header */}
+      <header className="bg-white border-b border-stone-900/[0.08] min-h-14 py-2 px-4 sm:px-6 flex items-center justify-between gap-3 sticky top-0 z-30 shadow-2xs">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-lg bg-[#1C3A31] text-amber-300 flex items-center justify-center font-serif font-bold text-sm shrink-0">
             RA
           </div>
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2 min-w-0">
             <h1 className="text-sm sm:text-base font-bold text-stone-900 truncate">
               {currentProperty?.name || 'Rock Apartments'}
             </h1>
             {isFounder && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-medium whitespace-nowrap">
+              <span className="text-[10px] sm:text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-medium whitespace-nowrap self-start sm:self-auto">
                 Viewing as founder
               </span>
             )}
@@ -1214,117 +1231,120 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
             {renderCheckOutStrip()}
 
             {/* Status Chips Row */}
-            <div data-testid="status-chips-row" className="flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap">
-              <button
-                type="button"
-                data-testid="chip-all"
-                onClick={() => setFilterStatus('all')}
-                className={`min-h-11 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border ${
-                  filterStatus === 'all'
-                    ? 'bg-[#1C3A31] text-white border-[#1C3A31]'
-                    : 'bg-white border-stone-200 text-stone-700'
-                }`}
-              >
-                All ({visibleRequests.filter((r) => !r.archived).length})
-              </button>
-              <button
-                type="button"
-                data-testid="chip-pending"
-                onClick={() => setFilterStatus('pending')}
-                className={`min-h-11 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border ${
-                  filterStatus === 'pending'
-                    ? 'bg-amber-600 text-white border-amber-600'
-                    : 'bg-white border-stone-200 text-stone-700'
-                }`}
-              >
-                Pending ({pendingCount})
-              </button>
-              <button
-                type="button"
-                data-testid="chip-acknowledged"
-                onClick={() => setFilterStatus('acknowledged')}
-                className={`min-h-11 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border ${
-                  filterStatus === 'acknowledged'
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white border-stone-200 text-stone-700'
-                }`}
-              >
-                Confirmed ({visibleRequests.filter((r) => !r.archived && r.status === 'acknowledged').length})
-              </button>
-              <button
-                type="button"
-                data-testid="chip-in_progress"
-                onClick={() => setFilterStatus('in_progress')}
-                className={`min-h-11 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border ${
-                  filterStatus === 'in_progress'
-                    ? 'bg-purple-600 text-white border-purple-600'
-                    : 'bg-white border-stone-200 text-stone-700'
-                }`}
-              >
-                In progress ({visibleRequests.filter((r) => !r.archived && r.status === 'in_progress').length})
-              </button>
-              <button
-                type="button"
-                data-testid="chip-completed"
-                onClick={() => setFilterStatus('completed')}
-                className={`min-h-11 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border ${
-                  filterStatus === 'completed'
-                    ? 'bg-emerald-700 text-white border-emerald-700'
-                    : 'bg-white border-stone-200 text-stone-700'
-                }`}
-              >
-                Done ({completedCount})
-              </button>
-
-              {/* GM-only "To verify" chip (Q2.2) */}
-              {isManagerOrAdmin && (
+            <div className="relative">
+              <div data-testid="status-chips-row" className="flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap pr-8">
                 <button
                   type="button"
-                  data-testid="chip-to_verify"
-                  onClick={() => setFilterStatus('to_verify')}
+                  data-testid="chip-all"
+                  onClick={() => setFilterStatus('all')}
                   className={`min-h-11 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border ${
-                    filterStatus === 'to_verify'
-                      ? 'bg-amber-700 text-white border-amber-700'
+                    filterStatus === 'all'
+                      ? 'bg-[#1C3A31] text-white border-[#1C3A31]'
                       : 'bg-white border-stone-200 text-stone-700'
                   }`}
                 >
-                  To verify ({toVerifyCount})
+                  All ({visibleRequests.filter((r) => !r.archived).length})
                 </button>
-              )}
-
-              <button
-                type="button"
-                data-testid="chip-cancelled"
-                onClick={() => setFilterStatus('cancelled')}
-                className={`min-h-11 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border ${
-                  filterStatus === 'cancelled'
-                    ? 'bg-stone-700 text-white border-stone-700'
-                    : 'bg-white border-stone-200 text-stone-700'
-                }`}
-              >
-                Cancelled ({cancelledCount})
-              </button>
-
-              {/* Archived chip (GM & Founder only) */}
-              {isManagerOrAdmin && (
                 <button
                   type="button"
-                  data-testid="chip-archived"
-                  onClick={() => setFilterStatus('archived')}
+                  data-testid="chip-pending"
+                  onClick={() => setFilterStatus('pending')}
                   className={`min-h-11 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border ${
-                    filterStatus === 'archived'
-                      ? 'bg-stone-900 text-amber-300 border-stone-900'
+                    filterStatus === 'pending'
+                      ? 'bg-amber-600 text-white border-amber-600'
                       : 'bg-white border-stone-200 text-stone-700'
                   }`}
                 >
-                  <Archive className="w-3.5 h-3.5 inline mr-1" />
-                  Archived ({archivedCount})
+                  Pending ({pendingCount})
                 </button>
-              )}
+                <button
+                  type="button"
+                  data-testid="chip-acknowledged"
+                  onClick={() => setFilterStatus('acknowledged')}
+                  className={`min-h-11 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border ${
+                    filterStatus === 'acknowledged'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white border-stone-200 text-stone-700'
+                  }`}
+                >
+                  Confirmed ({visibleRequests.filter((r) => !r.archived && r.status === 'acknowledged').length})
+                </button>
+                <button
+                  type="button"
+                  data-testid="chip-in_progress"
+                  onClick={() => setFilterStatus('in_progress')}
+                  className={`min-h-11 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border ${
+                    filterStatus === 'in_progress'
+                      ? 'bg-purple-600 text-white border-purple-600'
+                      : 'bg-white border-stone-200 text-stone-700'
+                  }`}
+                >
+                  In progress ({visibleRequests.filter((r) => !r.archived && r.status === 'in_progress').length})
+                </button>
+                <button
+                  type="button"
+                  data-testid="chip-completed"
+                  onClick={() => setFilterStatus('completed')}
+                  className={`min-h-11 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border ${
+                    filterStatus === 'completed'
+                      ? 'bg-emerald-700 text-white border-emerald-700'
+                      : 'bg-white border-stone-200 text-stone-700'
+                  }`}
+                >
+                  Done ({completedCount})
+                </button>
+
+                {/* GM-only "To verify" chip (Q2.2) */}
+                {isManagerOrAdmin && (
+                  <button
+                    type="button"
+                    data-testid="chip-to_verify"
+                    onClick={() => setFilterStatus('to_verify')}
+                    className={`min-h-11 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border ${
+                      filterStatus === 'to_verify'
+                        ? 'bg-[#1C3A31] text-white border-[#1C3A31]'
+                        : 'bg-white border-stone-200 text-stone-700'
+                    }`}
+                  >
+                    To verify ({toVerifyCount})
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  data-testid="chip-cancelled"
+                  onClick={() => setFilterStatus('cancelled')}
+                  className={`min-h-11 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border ${
+                    filterStatus === 'cancelled'
+                      ? 'bg-stone-700 text-white border-stone-700'
+                      : 'bg-white border-stone-200 text-stone-700'
+                  }`}
+                >
+                  Cancelled ({cancelledCount})
+                </button>
+
+                {/* Archived chip (GM & Founder only) */}
+                {isManagerOrAdmin && (
+                  <button
+                    type="button"
+                    data-testid="chip-archived"
+                    onClick={() => setFilterStatus('archived')}
+                    className={`min-h-11 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer border ${
+                      filterStatus === 'archived'
+                        ? 'bg-stone-900 text-amber-300 border-stone-900'
+                        : 'bg-white border-stone-200 text-stone-700'
+                    }`}
+                  >
+                    <Archive className="w-3.5 h-3.5 inline mr-1" />
+                    Archived ({archivedCount})
+                  </button>
+                )}
+              </div>
+              <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent sm:hidden" />
             </div>
 
             {/* Filter Bar: Search + Department */}
-            <div className="bg-white p-3 rounded-2xl border border-stone-200 shadow-2xs flex items-center gap-2">
+            <div className="bg-white p-3 rounded-2xl border border-stone-200 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <div className="relative flex-1 min-w-0">
                 <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -1340,7 +1360,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                 value={filterDepartment}
                 onChange={(e) => setFilterDepartment(e.target.value)}
                 aria-label="Filter by department"
-                className="min-h-11 px-3 py-2 text-xs rounded-xl border border-stone-200 bg-stone-50 text-stone-800 font-medium focus:outline-none shrink-0"
+                className="w-full sm:w-auto min-h-11 px-3 py-2 text-xs rounded-xl border border-stone-200 bg-stone-50 text-stone-800 font-medium focus:outline-none shrink-0"
               >
                 <option value="all">All departments</option>
                 <option value="housekeeping">Housekeeping</option>
@@ -1401,9 +1421,13 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                             {isUnassignedLong && (
                               <span
                                 data-testid={`waiting-timer-${req.id}`}
-                                className="text-xs font-bold px-2.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded-md"
+                                className={`text-xs font-bold px-2.5 py-0.5 rounded-md border ${
+                                  waitMinutes >= 30
+                                    ? 'bg-rose-100 text-rose-700 border-rose-300'
+                                    : 'bg-amber-100 text-amber-900 border-amber-300'
+                                }`}
                               >
-                                Waiting {waitMinutes} min
+                                Waiting {formatWaitDuration(waitMinutes)}
                               </span>
                             )}
                           </div>

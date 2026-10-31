@@ -84,6 +84,7 @@ function AppContent() {
   // Guest view router: 'home' | 'request' | 'status' | 'my-requests' | 'dining'
   const [guestView, setGuestView] = useState<'home' | 'request' | 'status' | 'my-requests' | 'dining'>('home');
   const [activeRequestId, setActiveRequestId] = useState<string>('');
+  const [activeRequestNotice, setActiveRequestNotice] = useState<string>('');
   const [requestPrefill, setRequestPrefill] = useState<{ category?: string; item?: string }>({});
 
   const handleGuestNavigate = (view: string, data?: any) => {
@@ -95,6 +96,7 @@ function AppContent() {
       setGuestView('request');
     } else if (view === 'status' && data?.requestId) {
       setActiveRequestId(data.requestId);
+      setActiveRequestNotice(data.notice || '');
       setGuestView('status');
     } else if (view === 'my-requests') {
       setGuestView('my-requests');
@@ -105,11 +107,12 @@ function AppContent() {
     }
   };
 
-  const handleRequestCreated = (newId: string) => {
+  const handleRequestCreated = (newId: string, notice?: string) => {
     if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, behavior: 'instant' });
     }
     setActiveRequestId(newId);
+    setActiveRequestNotice(notice || '');
     setGuestView('status');
   };
 
@@ -316,6 +319,7 @@ function AppContent() {
           <ErrorBoundary sectionName="request status">
             <RequestStatusTimeline
               requestId={activeRequestId}
+              notice={activeRequestNotice}
               onBack={() => setGuestView('home')}
               onNavigateTab={handleGuestNavigate}
             />

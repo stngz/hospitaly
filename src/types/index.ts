@@ -194,6 +194,7 @@ export interface ServiceRequest {
   archived?: boolean;
   archivedAt?: string;
   archivedBy?: string;
+  isDuplicate?: boolean;
   history: RequestHistoryEntry[];
 }
 

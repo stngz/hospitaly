@@ -265,8 +265,19 @@ async function persistDoc<T extends { id?: string }>(
 function recordActivityInternal(
   entry: Omit<ActivityLogEntry, 'id' | 'createdAt'>
 ): ActivityLogEntry {
+  // B6: Resolve raw property IDs to property names in summary
+  let resolvedSummary = entry.summary;
+  if (resolvedSummary && cachedDb.properties?.length) {
+    for (const p of cachedDb.properties) {
+      if (p.id && resolvedSummary.includes(p.id)) {
+        resolvedSummary = resolvedSummary.replaceAll(p.id, p.name || p.id);
+      }
+    }
+  }
+
   const newEntry: ActivityLogEntry = {
     ...entry,
+    summary: resolvedSummary,
     id: `act_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
     createdAt: new Date().toISOString(),
   };
@@ -1246,10 +1257,37 @@ export const dbService = {
       return updated;
     });
 
+    // B1: Open requests of that stay are closed at check-out with reason "Guest checked out"
+    const updatedRequests = cachedDb.requests.map((req) => {
+      const isStayMatch = activeStayId && req.stayId === activeStayId;
+      const isRoomMatch = req.roomId === roomId && !req.archived;
+      if ((isStayMatch || isRoomMatch) && ['pending', 'acknowledged', 'in_progress'].includes(req.status)) {
+        const closed: ServiceRequest = {
+          ...req,
+          status: 'cancelled',
+          cancelReason: 'Guest checked out',
+          updatedAt: nowIso,
+          history: [
+            ...(req.history || []),
+            {
+              status: 'cancelled',
+              timestamp: nowIso,
+              actorName: actor?.name || actor?.email || 'System (Check-out)',
+              note: 'Guest checked out',
+            },
+          ],
+        };
+        void persistDoc('requests', req.id, closed);
+        return closed;
+      }
+      return req;
+    });
+
     cachedDb = {
       ...cachedDb,
       rooms: updatedRooms,
       stays: updatedStays,
+      requests: updatedRequests,
     };
     notifyListeners();
 
@@ -1506,11 +1544,34 @@ export const dbService = {
     const guestPhone =
       requestData.guestPhone || activeStay?.guestPhone || matchingRoom?.guestPhone || '';
 
+    const effectiveCategory = requestData.category || (requestData as any).department || 'housekeeping';
+    const effectiveTitle = (requestData.title || 'Service request').trim();
+
+    // B4: Deduplication.
+    // If the same stay sends the same request type while an earlier one is still open,
+    // do not create a new ticket; return the existing request marked isDuplicate: true.
+    const existingOpen = cachedDb.requests.find(
+      (r) =>
+        r.stayId === activeStayId &&
+        !r.archived &&
+        ['pending', 'acknowledged', 'in_progress'].includes(r.status) &&
+        (
+          (r.title && r.title.trim().toLowerCase() === effectiveTitle.toLowerCase()) ||
+          (r.category === effectiveCategory && !requestData.description?.trim())
+        )
+    );
+    if (existingOpen) {
+      return {
+        ...existingOpen,
+        isDuplicate: true,
+      };
+    }
+
     const now = new Date().toISOString();
     const newRequest: ServiceRequest = {
       ...requestData,
-      category: requestData.category || (requestData as any).department || 'housekeeping',
-      title: requestData.title || 'Service request',
+      category: effectiveCategory,
+      title: effectiveTitle,
       roomNumber: requestData.roomNumber || matchingRoom?.roomNumber || matchingRoom?.name || 'House',
       stayId: activeStayId,
       guestName: guestFullName,
@@ -1795,6 +1856,77 @@ export const dbService = {
       });
     }
     return updatedItem;
+  },
+
+  /**
+   * B1: Auto-archives requests belonging to stays that checked out more than 24h ago.
+   * Runs on desk load and sweeps old requests.
+   */
+  autoArchiveOldCheckedOutRequests: (
+    actor?: { uid?: string; name?: string; email?: string }
+  ): number => {
+    const nowMs = Date.now();
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const nowIso = new Date().toISOString();
+
+    const checkedOutStayIds = new Set(
+      cachedDb.stays
+        .filter((s) => {
+          if (s.status !== 'checked_out') return false;
+          const checkoutTime = new Date(s.checkedOutAt || s.checkOutAt).getTime();
+          return !isNaN(checkoutTime) && nowMs - checkoutTime > ONE_DAY_MS;
+        })
+        .map((s) => s.id)
+    );
+
+    if (checkedOutStayIds.size === 0) return 0;
+
+    let archivedCount = 0;
+    const updatedRequests = cachedDb.requests.map((req) => {
+      if (req.stayId && checkedOutStayIds.has(req.stayId) && !req.archived) {
+        archivedCount++;
+        const nextStatus =
+          req.status !== 'cancelled' && req.status !== 'completed'
+            ? 'cancelled'
+            : req.status;
+        const nextVerification =
+          nextStatus === 'completed' && req.verification !== 'verified'
+            ? 'verified'
+            : req.verification;
+
+        const archivedReq: ServiceRequest = {
+          ...req,
+          status: nextStatus,
+          verification: nextVerification,
+          cancelReason:
+            nextStatus === 'cancelled'
+              ? req.cancelReason || 'Guest checked out'
+              : req.cancelReason,
+          archived: true,
+          archivedAt: nowIso,
+          archivedBy: actor?.name || actor?.email || 'System (24h Auto-archive)',
+          updatedAt: nowIso,
+          history: [
+            ...(req.history || []),
+            {
+              status: nextStatus,
+              timestamp: nowIso,
+              actorName: actor?.name || actor?.email || 'System',
+              note: 'Auto-archived 24h after check-out',
+            },
+          ],
+        };
+        void persistDoc('requests', req.id, archivedReq);
+        return archivedReq;
+      }
+      return req;
+    });
+
+    if (archivedCount > 0) {
+      cachedDb = { ...cachedDb, requests: updatedRequests };
+      notifyListeners();
+    }
+    return archivedCount;
   },
 
   updateDeliveryPreference: (
