@@ -389,7 +389,7 @@ class SoundAndNotificationService {
                 body,
                 icon: iconUrl || '/icons/icon-192.png',
                 badge: '/icons/icon-192.png',
-                tag: requestId ? `req-${requestId}` : 'hospitaly-alert',
+                tag: requestId ? `req-${requestId}` : 'shekin-alert',
                 data: { url: targetUrl, requestId },
               }).catch(() => {});
               return;

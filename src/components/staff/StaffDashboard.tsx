@@ -26,6 +26,7 @@ import {
 } from '../../types';
 import { QRPlaqueModal, renderPrintableQRCardCanvas } from '../common/QRCodeView';
 import { ErrorBoundary } from '../common/ErrorBoundary';
+import { Logo } from '../brand/Logo';
 import {
   Check,
   Clock,
@@ -1063,15 +1064,18 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setIsHeaderMenuOpen(false)} />
                 <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-white border border-stone-200 shadow-2xl py-2 z-50 text-xs">
-                  <div className="px-3.5 py-2 border-b border-stone-100">
-                    <div className="font-bold text-stone-900 truncate">{user.name}</div>
-                    <div className="text-stone-500 capitalize">
-                      {user.role === 'manager'
-                        ? 'General Manager'
-                        : user.role === 'founder'
-                        ? 'Platform Founder'
-                        : `Staff · ${user.department || 'Housekeeping'}`}
+                  <div className="px-3.5 py-2.5 border-b border-stone-100 flex items-center justify-between">
+                    <div>
+                      <div className="font-bold text-stone-900 truncate">{user.name}</div>
+                      <div className="text-stone-500 capitalize">
+                        {user.role === 'manager'
+                          ? 'General Manager'
+                          : user.role === 'founder'
+                          ? 'Platform Founder'
+                          : `Staff · ${user.department || 'Housekeeping'}`}
+                      </div>
                     </div>
+                    <Logo variant="mark" size="xs" tone="onLight" />
                   </div>
 
                   <button

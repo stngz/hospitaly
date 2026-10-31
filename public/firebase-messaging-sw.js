@@ -18,7 +18,7 @@ messaging.onBackgroundMessage((payload) => {
   const notificationTitle =
     (payload.notification && payload.notification.title) ||
     (payload.data && payload.data.title) ||
-    'New request · Hospitaly';
+    'New request · Shekin';
   const requestId = (payload.data && payload.data.requestId) || '';
   const targetUrl =
     (payload.data && payload.data.url) ||
@@ -28,10 +28,10 @@ messaging.onBackgroundMessage((payload) => {
     body:
       (payload.notification && payload.notification.body) ||
       (payload.data && payload.data.body) ||
-      'Tap to view request in Hospitaly Staff',
+      'Tap to view request in Shekin Staff',
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
-    tag: requestId ? `req-${requestId}` : 'hospitaly-staff-alert',
+    tag: requestId ? `req-${requestId}` : 'shekin-staff-alert',
     renotify: true,
     data: {
       url: targetUrl,

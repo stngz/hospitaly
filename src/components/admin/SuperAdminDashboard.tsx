@@ -4,6 +4,7 @@ import { dbService, subscribeToStore } from '../../lib/store';
 import { useAuth } from '../../context/AuthContext';
 import { Property, StaffDepartment, UserProfile, Lead } from '../../types';
 import { APP_NAME } from '../../lib/config';
+import { Logo } from '../brand/Logo';
 import {
   Building2,
   Plus,
@@ -444,19 +445,14 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-100 font-sans overflow-x-hidden">
-      {/* Compact 56px Top Navigation Bar (not sticky on mobile, sticky on desktop) */}
-      <header className="md:sticky md:top-0 z-30 h-14 bg-stone-900/95 backdrop-blur-md border-b border-stone-800 px-4 sm:px-6 flex items-center justify-between">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-amber-500 text-stone-950 flex items-center justify-center font-serif font-bold text-base shrink-0">
-            H
-          </div>
-          <div className="flex items-center gap-2 min-w-0">
-            <h1 className="font-serif text-lg text-white leading-none truncate">{APP_NAME} HQ</h1>
-            <span className="hidden sm:inline-flex text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 font-medium">
-              Founder
-            </span>
-          </div>
+    <div className="min-h-screen bg-[#0E1A2B] text-[#FAF7F0] font-sans overflow-x-hidden">
+      {/* Compact 56px Top Navigation Bar */}
+      <header className="md:sticky md:top-0 z-30 h-14 bg-[#13233A]/95 backdrop-blur-md border-b border-[#1C2F4A] px-4 sm:px-6 flex items-center justify-between">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <Logo variant="full" size="sm" tone="onDark" />
+          <span className="text-xs px-2 py-0.5 rounded-full bg-[#C9A55C]/15 text-[#C9A55C] border border-[#C9A55C]/30 font-medium">
+            HQ
+          </span>
         </div>
 
         {/* Desktop actions */}

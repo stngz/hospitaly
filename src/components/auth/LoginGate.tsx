@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { consumeSessionExpiredBanner } from '../../lib/sessionPolicy';
 import { UserProfile } from '../../types';
 import { APP_NAME } from '../../lib/config';
+import { Logo } from '../brand/Logo';
 import {
   ShieldAlert,
   Loader2,
@@ -122,14 +123,14 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
   const isHq = portal === 'hq';
 
   return (
-    <div className="fixed inset-0 overflow-y-auto w-full h-full min-h-[100dvh] bg-stone-950 flex flex-col justify-between px-6 pt-[calc(1.5rem+env(safe-area-inset-top))] pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-stone-100 overscroll-none selection:bg-amber-400 selection:text-stone-950 z-50">
+    <div className="fixed inset-0 overflow-y-auto w-full h-full min-h-[100dvh] bg-[#0E1A2B] flex flex-col justify-between px-6 pt-[calc(1.5rem+env(safe-area-inset-top))] pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-stone-100 overscroll-none selection:bg-[#C9A55C] selection:text-[#13233A] z-50">
       {/* Top Status Bar */}
       <div className="flex items-center justify-between max-w-sm mx-auto w-full pt-2">
         <div className="flex items-center gap-2 text-xs text-stone-400">
-          <Lock className="w-3.5 h-3.5 text-amber-400" />
+          <Lock className="w-3.5 h-3.5 text-[#C9A55C]" />
           <span>{isHq ? `${APP_NAME} HQ (/hq)` : 'Property Operations (/staff)'}</span>
         </div>
-        <span className="px-2.5 py-0.5 rounded-full bg-stone-900 border border-white/10 text-xs uppercase tracking-wider text-stone-400">
+        <span className="px-2.5 py-0.5 rounded-full bg-[#13233A] border border-white/10 text-xs uppercase tracking-wider text-stone-400">
           Authorised Access
         </span>
       </div>
@@ -137,17 +138,11 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
       {/* Main Authentication Container */}
       <div className="max-w-sm mx-auto w-full my-auto space-y-5 text-center">
         <div>
-          <div className="w-12 h-12 rounded-2xl bg-stone-900 border border-amber-400/30 flex items-center justify-center mx-auto mb-3 shadow-elevated">
-            {isHq ? (
-              <Crown className="w-6 h-6 text-amber-400" />
-            ) : (
-              <Building2 className="w-6 h-6 text-emerald-400" />
-            )}
-          </div>
+          <Logo variant="full" size="md" tone="onDark" className="justify-center mb-4" />
           <h1 className="text-xl font-serif font-bold text-white tracking-tight">
             {isHq ? 'Founder Executive Sign In' : 'Staff & Manager Sign In'}
           </h1>
-          <p className="text-xs text-stone-400 mt-1 max-w-xs mx-auto leading-relaxed">
+          <p className="text-xs text-stone-300 mt-1 max-w-xs mx-auto leading-relaxed">
             {isHq
               ? 'Platform-wide administrative gateway. Founder credentials required.'
               : 'Sign in with your authorised property email and password.'}
@@ -191,8 +186,8 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              placeholder={isHq ? 'founder@hospitaly.app' : 'manager@property.com'}
-              className="w-full text-base bg-stone-900 border border-white/[0.12] rounded-xl px-3.5 py-2.5 text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-1 focus:ring-amber-400"
+              placeholder={isHq ? 'founder@shekin.app' : 'manager@property.com'}
+              className="w-full text-base bg-[#13233A] border border-white/[0.12] rounded-xl px-3.5 py-2.5 text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-1 focus:ring-[#C9A55C]"
             />
           </div>
 
@@ -207,11 +202,11 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="text-xs text-stone-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer transition-colors select-none"
+                className="text-xs text-stone-400 hover:text-[#C9A55C] flex items-center gap-1 cursor-pointer transition-colors select-none"
               >
                 {showPassword ? (
                   <>
-                    <EyeOff className="w-3.5 h-3.5 text-amber-400" />
+                    <EyeOff className="w-3.5 h-3.5 text-[#C9A55C]" />
                     <span>Hide</span>
                   </>
                 ) : (
@@ -232,7 +227,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 placeholder="••••••••••••"
-                className="w-full text-base bg-stone-900 border border-white/[0.12] rounded-xl pl-3.5 pr-10 py-2.5 text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-1 focus:ring-amber-400 font-mono"
+                className="w-full text-base bg-[#13233A] border border-white/[0.12] rounded-xl pl-3.5 pr-10 py-2.5 text-stone-100 placeholder-stone-500 focus:outline-none focus:ring-1 focus:ring-[#C9A55C] font-mono"
               />
               <button
                 type="button"
@@ -241,7 +236,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-white cursor-pointer"
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
-                {showPassword ? <EyeOff className="w-4 h-4 text-amber-400" /> : <Eye className="w-4 h-4" />}
+                {showPassword ? <EyeOff className="w-4 h-4 text-[#C9A55C]" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
           </div>
@@ -249,10 +244,10 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full py-3 bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold text-sm rounded-xl shadow-diffused flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 select-none cursor-pointer"
+            className="w-full py-3 bg-[#C9A55C] hover:bg-[#d8b46b] text-[#13233A] font-bold text-sm rounded-xl shadow-diffused flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50 select-none cursor-pointer"
           >
             {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin text-stone-950" />
+              <Loader2 className="w-4 h-4 animate-spin text-[#13233A]" />
             ) : (
               <span>{isHq ? 'Sign In to HQ' : 'Sign In to Staff Portal'}</span>
             )}
@@ -263,7 +258,7 @@ export const LoginGate: React.FC<LoginGateProps> = ({ portal, onSuccess }) => {
               type="button"
               disabled={isResetting}
               onClick={handlePasswordReset}
-              className="text-stone-400 hover:text-amber-300 transition-colors cursor-pointer disabled:opacity-50"
+              className="text-stone-400 hover:text-[#C9A55C] transition-colors cursor-pointer disabled:opacity-50"
             >
               {isResetting ? 'Sending reset link...' : 'Forgot password? Reset via email'}
             </button>

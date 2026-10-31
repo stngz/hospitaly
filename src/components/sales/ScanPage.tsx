@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Camera, X, AlertCircle } from 'lucide-react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Camera, X, AlertCircle, RefreshCw, ArrowLeft } from 'lucide-react';
 import jsQR from 'jsqr';
+import { Logo } from '../brand/Logo';
 
 interface ScanPageProps {
   onClose: () => void;
@@ -15,6 +16,7 @@ export const ScanPage: React.FC<ScanPageProps> = ({ onClose, onNavigateToToken }
 
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   // HOTFIX (scanner): only open real Shekin room cards, and only after the same code is
   // read twice in a row. Before, any half-read or foreign QR jumped straight to a broken page.
@@ -169,7 +171,7 @@ export const ScanPage: React.FC<ScanPageProps> = ({ onClose, onNavigateToToken }
         streamRef.current = null;
       }
     };
-  }, []);
+  }, [retryCount]);
 
   const handleClose = () => {
     if (streamRef.current) {
@@ -180,13 +182,10 @@ export const ScanPage: React.FC<ScanPageProps> = ({ onClose, onNavigateToToken }
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-between text-white">
+    <div className="fixed inset-0 z-50 bg-[#13233A] flex flex-col items-center justify-between text-white">
       {/* Top Bar with Close */}
-      <div className="w-full flex items-center justify-between p-4 z-10 bg-gradient-to-b from-black/80 to-transparent">
-        <div className="flex items-center gap-2">
-          <Camera className="w-5 h-5 text-amber-400" />
-          <span className="font-serif text-lg tracking-wide">Scan Room QR</span>
-        </div>
+      <div className="w-full flex items-center justify-between p-4 z-10 bg-gradient-to-b from-[#13233A]/90 to-transparent">
+        <Logo variant="full" size="sm" tone="onDark" />
         <button
           onClick={handleClose}
           className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
@@ -199,20 +198,32 @@ export const ScanPage: React.FC<ScanPageProps> = ({ onClose, onNavigateToToken }
       {/* Main Viewport & Camera Video */}
       <div className="relative flex-1 w-full flex items-center justify-center overflow-hidden">
         {hasPermission === false ? (
-          <div className="max-w-xs mx-auto text-center p-6 bg-stone-900 border border-stone-800 rounded-2xl space-y-4 shadow-xl">
-            <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto">
-              <AlertCircle className="w-6 h-6" />
+          <div className="max-w-xs mx-auto text-center p-6 bg-[#0E1A2B] border border-[#FAF7F0]/15 rounded-3xl space-y-4 shadow-2xl">
+            <div className="w-12 h-12 rounded-2xl bg-[#C9A55C]/15 text-[#C9A55C] flex items-center justify-center mx-auto">
+              <Camera className="w-6 h-6" />
             </div>
-            <h3 className="font-serif text-lg text-white">Camera Access Needed</h3>
-            <p className="text-xs text-stone-300 leading-relaxed">
-              {errorMessage || 'Allow camera access in your browser, or open your phone’s Camera app and point it at the QR card in your room.'}
+            <h3 className="font-serif text-lg text-white">Camera blocked</h3>
+            <p className="text-xs text-[#FAF7F0]/80 leading-relaxed">
+              Camera blocked. Allow camera access, or open your phone's camera app and point it at the card.
             </p>
-            <button
-              onClick={handleClose}
-              className="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-semibold text-xs cursor-pointer"
-            >
-              Back to Home
-            </button>
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setRetryCount((c) => c + 1)}
+                className="w-full py-2.5 px-4 rounded-xl bg-[#FAF7F0] hover:bg-white text-[#13233A] font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition-all"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Try again</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleClose}
+                className="w-full py-2.5 px-4 rounded-xl border border-[#FAF7F0]/20 hover:bg-white/10 text-[#FAF7F0] font-medium text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back</span>
+              </button>
+            </div>
           </div>
         ) : (
           <>

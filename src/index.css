@@ -5,9 +5,15 @@
   --font-serif: 'Cormorant Garamond', serif;
   --font-mono: 'JetBrains Mono', monospace;
 
-  --color-brand-primary: var(--color-primary, #1B3B2B);
-  --color-brand-secondary: var(--color-secondary, #C29B38);
-  --color-brand-accent: var(--color-accent, #E07A5F);
+  /* Shekin Brand Tokens */
+  --color-shekin-navy: #13233A;
+  --color-shekin-gold: #C9A55C;
+  --color-shekin-cream: #FAF7F0;
+  --color-shekin-status: #1F4D3A;
+
+  --color-brand-primary: var(--color-primary, #13233A);
+  --color-brand-secondary: var(--color-secondary, #C9A55C);
+  --color-brand-accent: var(--color-accent, #C9A55C);
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
@@ -24,17 +30,18 @@
 
 html {
   -webkit-tap-highlight-color: transparent;
-  background-color: #0c0a09;
-  color: #f5f5f4;
+  background-color: #FAF7F0;
+  color: #13233A;
   height: 100%;
 }
 
 body {
   font-family: var(--font-sans);
-  background-color: #0c0a09;
-  color: #f5f5f4;
+  background-color: #FAF7F0;
+  color: #13233A;
   min-height: 100%;
   overscroll-behavior-y: none;
+  font-variant-numeric: lining-nums tabular-nums;
 }
 
 /* Prevent auto-zoom on mobile inputs (< 16px triggers iOS zoom) */

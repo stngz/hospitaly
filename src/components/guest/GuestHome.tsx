@@ -5,6 +5,7 @@ import { notificationService } from '../../lib/notifications';
 import { DeliveryPreference, Room } from '../../types';
 import { GuestHeroBanner } from './GuestHeroBanner';
 import { WifiCard } from './WifiCard';
+import { Logo } from '../brand/Logo';
 import {
   Phone,
   Sparkles,
@@ -369,8 +370,12 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
           </div>
         </div>
 
-        <div className="text-center text-xs text-stone-500">
-          {property.name} &middot; {property.city}
+        <div className="text-center text-xs text-stone-500 space-y-2">
+          <div>{property.name} &middot; {property.city}</div>
+          <div className="inline-flex items-center gap-1.5 text-[11px] text-stone-400">
+            <Logo variant="mark" size="xs" tone="onLight" />
+            <span>Powered by Shekin</span>
+          </div>
         </div>
       </div>
     );
@@ -568,6 +573,14 @@ export const GuestHome: React.FC<GuestHomeProps> = ({ onNavigate }) => {
             </div>
           </div>
         </section>
+
+        {/* C2: Powered by Shekin line at bottom */}
+        <div className="pt-4 pb-20 text-center">
+          <div className="inline-flex items-center gap-1.5 text-xs text-stone-400 select-none">
+            <Logo variant="mark" size="xs" tone="onLight" />
+            <span className="font-medium">Powered by Shekin</span>
+          </div>
+        </div>
       </main>
 
       {/* Quick Request Confirm Sheet */}

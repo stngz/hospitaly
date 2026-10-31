@@ -1,5 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, Copy, Check, Clock, Sparkles, ArrowRight, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import {
+  Wifi,
+  Copy,
+  Check,
+  Clock,
+  Sparkles,
+  ArrowRight,
+  ShieldCheck,
+  CheckCircle2,
+  Bath,
+  Droplets,
+  Brush,
+} from 'lucide-react';
+import { Logo } from '../brand/Logo';
 
 interface DemoGuestPageProps {
   onGetQuote: () => void;
@@ -54,16 +67,16 @@ export const DemoGuestPage: React.FC<DemoGuestPageProps> = ({ onGetQuote, onBack
   return (
     <div className="min-h-screen bg-stone-100 font-sans antialiased text-stone-900 pb-16">
       {/* Top Demo Banner */}
-      <div className="sticky top-0 z-40 bg-amber-500 text-stone-950 px-4 py-2 text-xs font-medium flex items-center justify-between shadow-xs">
-        <div className="flex items-center gap-1.5 truncate">
-          <Sparkles className="w-4 h-4 shrink-0" />
-          <span className="truncate">Demo — this is what your guests see in their room</span>
+      <div className="sticky top-0 z-40 bg-[#13233A] text-[#FAF7F0] px-4 py-2.5 text-xs font-medium flex items-center justify-between border-b border-[#FAF7F0]/10 shadow-sm">
+        <div className="flex items-center gap-2 truncate">
+          <Logo variant="mark" size="xs" tone="onDark" />
+          <span className="truncate text-stone-200">Demo — this is what your guests see in their room</span>
         </div>
         <button
           onClick={onGetQuote}
-          className="shrink-0 ml-3 px-3 py-1 rounded-full bg-stone-950 text-white font-semibold hover:bg-stone-800 transition-colors cursor-pointer text-xs flex items-center gap-1"
+          className="shrink-0 ml-3 px-3 py-1.5 rounded-full bg-[#FAF7F0] text-[#13233A] font-bold hover:bg-white transition-colors cursor-pointer text-xs flex items-center gap-1 shadow-xs"
         >
-          Get a quote <ArrowRight className="w-3 h-3" />
+          Get a quote <ArrowRight className="w-3 h-3 text-[#C9A55C]" />
         </button>
       </div>
 
@@ -144,18 +157,20 @@ export const DemoGuestPage: React.FC<DemoGuestPageProps> = ({ onGetQuote, onBack
               </div>
               <div className="grid grid-cols-2 gap-2.5">
                 {[
-                  { name: 'Fresh towels', icon: '🛁', desc: 'Extra bath or hand towels' },
-                  { name: 'Extra drinking water', icon: '💧', desc: 'Bottled water to room' },
-                  { name: 'Wi-Fi assistance', icon: '📶', desc: 'Signal or speed check' },
-                  { name: 'Room housekeeping', icon: '🧹', desc: 'Tidy & fresh linens' },
+                  { name: 'Fresh towels', Icon: Bath, desc: 'Extra bath or hand towels' },
+                  { name: 'Extra drinking water', Icon: Droplets, desc: 'Bottled water to room' },
+                  { name: 'Wi-Fi assistance', Icon: Wifi, desc: 'Signal or speed check' },
+                  { name: 'Room housekeeping', Icon: Brush, desc: 'Tidy & fresh linens' },
                 ].map((item) => (
                   <button
                     key={item.name}
                     onClick={() => handleSendRequest(item.name)}
-                    className="p-3.5 text-left bg-white rounded-2xl border border-stone-200/80 hover:border-amber-400/80 shadow-2xs hover:shadow-xs transition-all cursor-pointer space-y-1.5 group"
+                    className="p-3.5 text-left bg-white rounded-2xl border border-stone-200/80 hover:border-[#C9A55C]/80 shadow-2xs hover:shadow-xs transition-all cursor-pointer space-y-2 group"
                   >
-                    <span className="text-2xl block">{item.icon}</span>
-                    <h3 className="text-xs font-semibold text-stone-900 group-hover:text-amber-800 transition-colors">
+                    <div className="w-8 h-8 rounded-xl bg-[#FAF7F0] text-[#13233A] flex items-center justify-center">
+                      <item.Icon className="w-4 h-4 text-[#C9A55C]" />
+                    </div>
+                    <h3 className="text-xs font-semibold text-stone-900 group-hover:text-[#13233A] transition-colors">
                       {item.name}
                     </h3>
                     <p className="text-[11px] text-stone-400 leading-tight">
@@ -238,7 +253,7 @@ export const DemoGuestPage: React.FC<DemoGuestPageProps> = ({ onGetQuote, onBack
                         ? 'Staff heading to Sunset Villa 4 (12s)...'
                         : 'Staff on the way'}
                     </p>
-                    <p className="text-[11px] text-stone-400">Grace Phiri is delivering to your door</p>
+                    <p className="text-[11px] text-stone-400">A team member is on the way</p>
                   </div>
                 </div>
 
@@ -286,7 +301,7 @@ export const DemoGuestPage: React.FC<DemoGuestPageProps> = ({ onGetQuote, onBack
             <div className="flex items-center gap-2 pt-1">
               <button
                 onClick={onGetQuote}
-                className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs transition-colors cursor-pointer text-center"
+                className="flex-1 py-2.5 rounded-xl bg-[#C9A55C] hover:bg-[#d8b46b] text-[#13233A] font-bold text-xs transition-colors cursor-pointer text-center"
               >
                 Get a quote for your lodge
               </button>
@@ -296,6 +311,14 @@ export const DemoGuestPage: React.FC<DemoGuestPageProps> = ({ onGetQuote, onBack
               >
                 Home
               </button>
+            </div>
+          </div>
+
+          {/* C2: Powered by Shekin line */}
+          <div className="pt-2 pb-6 text-center">
+            <div className="inline-flex items-center gap-1.5 text-xs text-stone-400 select-none">
+              <Logo variant="mark" size="xs" tone="onLight" />
+              <span className="font-medium">Powered by Shekin</span>
             </div>
           </div>
         </main>

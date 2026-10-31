@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Phone, RefreshCw } from 'lucide-react';
+import { Logo } from '../brand/Logo';
 
 interface GuestLoadingScreenProps {
   propertyName?: string;
@@ -14,73 +15,25 @@ export const GuestLoadingScreen: React.FC<GuestLoadingScreenProps> = ({
   houseName,
   receptionPhone = '+260 97 405 6547',
   onRetry,
-  isReady = false,
 }) => {
-  const [imagesLoaded, setImagesLoaded] = useState(false);
-  const [imageTimeout, setImageTimeout] = useState(false);
   const [doorOpen, setDoorOpen] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
 
   useEffect(() => {
-    // 300ms timeout for door image loading before falling back to shimmer skeleton
+    // 900ms swing animation starts immediately after mount
+    const animTimer = setTimeout(() => {
+      setDoorOpen(true);
+    }, 100);
+
+    // 10s timeout fallback
     const timeoutTimer = setTimeout(() => {
-      setImageTimeout(true);
-    }, 300);
-
-    const closedImg = new Image();
-    const openImg = new Image();
-    let closedReady = false;
-    let openReady = false;
-
-    const checkBoth = () => {
-      if (closedReady && openReady) {
-        clearTimeout(timeoutTimer);
-        setImagesLoaded(true);
-      }
-    };
-
-    closedImg.onload = () => {
-      closedReady = true;
-      checkBoth();
-    };
-    closedImg.onerror = () => {
-      clearTimeout(timeoutTimer);
-      setImageTimeout(true);
-    };
-
-    openImg.onload = () => {
-      openReady = true;
-      checkBoth();
-    };
-    openImg.onerror = () => {
-      clearTimeout(timeoutTimer);
-      setImageTimeout(true);
-    };
-
-    closedImg.src = '/brand/door-closed.png';
-    openImg.src = '/brand/door-open.png';
-
-    return () => {
-      clearTimeout(timeoutTimer);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (imagesLoaded) {
-      // Trigger smooth 0.5s ease opening transition
-      const openTimer = setTimeout(() => {
-        setDoorOpen(true);
-      }, 150);
-      return () => clearTimeout(openTimer);
-    }
-  }, [imagesLoaded]);
-
-  useEffect(() => {
-    // 10s maximum wait before showing friendly retry
-    const timer = setTimeout(() => {
       setTimedOut(true);
     }, 10000);
-    return () => clearTimeout(timer);
+
+    return () => {
+      clearTimeout(animTimer);
+      clearTimeout(timeoutTimer);
+    };
   }, []);
 
   const cleanPhone = receptionPhone.replace(/[^0-9+]/g, '');
@@ -88,102 +41,98 @@ export const GuestLoadingScreen: React.FC<GuestLoadingScreenProps> = ({
   return (
     <div
       data-testid="guest-loading-screen"
-      className="fixed inset-0 z-50 flex flex-col items-center justify-between p-8 bg-[linear-gradient(165deg,#102620_0%,#1C3A31_55%,#2A4A3E_100%)] text-[#F7F3EC] select-none transition-opacity duration-300"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-between p-6 sm:p-8 bg-[#13233A] text-[#FAF7F0] select-none transition-opacity duration-300"
     >
-      {/* Top Branding */}
+      {/* Top Property Title */}
       <div className="pt-6 text-center">
-        <span className="text-xs uppercase tracking-[0.2em] font-semibold text-[#E0B973] block">
+        <span className="text-xs uppercase tracking-[0.2em] font-semibold text-[#C9A55C] block">
           {propertyName}
         </span>
       </div>
 
-      {/* Center Animated Element */}
-      <div className="flex flex-col items-center justify-center space-y-6 max-w-xs text-center">
-        {/* Door Opening Animation / Fallback Shimmer */}
-        <div className="relative w-32 h-44 flex items-center justify-center">
-          {imagesLoaded && !imageTimeout ? (
-            <div className="relative w-full h-full flex items-center justify-center">
-              {/* Soft warm glow behind door when opening */}
-              <div
-                className={`absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(224,185,115,0.6)_0%,transparent_70%)] transition-opacity duration-500 ease-out ${
-                  doorOpen ? 'opacity-100 scale-110' : 'opacity-0 scale-95'
-                }`}
-              />
-              {/* Closed Door */}
-              <img
-                src="/brand/door-closed.png"
-                alt="Door Closed"
-                className={`absolute inset-0 w-full h-full object-contain transition-all duration-500 ease-out ${
-                  doorOpen ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'
-                }`}
-              />
-              {/* Open Door */}
-              <img
-                src="/brand/door-open.png"
-                alt="Door Open"
-                className={`absolute inset-0 w-full h-full object-contain transition-all duration-500 ease-out ${
-                  doorOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
-                }`}
-              />
-            </div>
-          ) : (
-            /* Warm Shimmer Skeleton Fallback */
-            <div className="relative w-28 h-40 rounded-2xl bg-white/5 border border-[#E0B973]/30 overflow-hidden flex items-center justify-center">
-              <div className="absolute inset-0 bg-gradient-to-t from-[#E0B973]/20 via-[#E0B973]/5 to-transparent animate-pulse" />
-              <div className="w-8 h-8 rounded-full border border-[#E0B973]/40 border-t-[#E0B973] animate-spin" />
-            </div>
-          )}
+      {/* Center Animated SVG Door (C6: 0 KB images, 3D perspective swing) */}
+      <div className="flex flex-col items-center justify-center space-y-6 max-w-xs text-center my-auto">
+        <div
+          className="relative w-32 h-36 flex items-center justify-center"
+          style={{ perspective: '400px' }}
+        >
+          {/* Subtle warm glow behind door */}
+          <div
+            className={`absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(201,165,92,0.35)_0%,transparent_70%)] transition-opacity duration-700 ease-out ${
+              doorOpen ? 'opacity-100 scale-125' : 'opacity-0 scale-95'
+            }`}
+          />
+
+          <svg
+            viewBox="0 0 100 100"
+            className="w-28 h-28 relative z-10 overflow-visible"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            {/* Arch */}
+            <path
+              d="M28 90 L28 46 A22 22 0 0 1 72 46 L72 90"
+              stroke="#FAF7F0"
+              strokeWidth="7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            {/* Gold Door swinging open with CSS perspective */}
+            <path
+              d="M50 26 L66 34 L66 88 L50 90 Z"
+              fill="#C9A55C"
+              className="origin-[50px_58px] transition-transform duration-[900ms] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none"
+              style={{
+                transform: doorOpen ? 'rotateY(-70deg)' : 'rotateY(0deg)',
+              }}
+            />
+          </svg>
         </div>
 
-        <div className="space-y-2">
+        {/* House Name or Loading indicator */}
+        <div className="space-y-1.5">
           {houseName ? (
-            <h2 className="text-2xl font-serif font-medium text-white tracking-tight">
-              Welcome to <span className="italic text-[#E0B973]">{houseName}</span>
+            <h2 className="text-xl font-serif font-bold text-white tracking-tight">
+              Welcome to {houseName}
             </h2>
           ) : (
-            <h2 className="text-2xl font-serif font-medium text-white tracking-tight">
-              Welcome
+            <h2 className="text-lg font-serif font-medium text-stone-200">
+              Opening your house…
             </h2>
           )}
-          <p className="text-xs uppercase tracking-[0.14em] text-white/80 font-medium">
-            Opening your door…
+          <p className="text-xs text-stone-300">
+            {timedOut ? 'Taking longer than expected' : 'Connecting to house services'}
           </p>
         </div>
 
-        {/* Retry / Reception contact after 10s wait */}
-        {timedOut && !isReady && (
-          <div className="pt-4 space-y-3 animate-fade-in">
-            <p className="text-xs text-stone-300 leading-relaxed">
-              Taking longer than usual to connect.
-            </p>
-            <div className="flex flex-col gap-2 w-full">
-              {onRetry && (
-                <button
-                  type="button"
-                  onClick={onRetry}
-                  className="min-h-11 px-4 py-2 rounded-xl bg-[#E0B973] text-[#102620] text-xs font-bold flex items-center justify-center gap-2 hover:bg-[#edd097] active:scale-95 transition-all cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Try again</span>
-                </button>
-              )}
+        {/* Fallback Retry UI if > 10s */}
+        {timedOut && (
+          <div className="w-full space-y-3 pt-2">
+            <button
+              type="button"
+              onClick={onRetry || (() => window.location.reload())}
+              className="w-full min-h-11 py-2.5 px-4 rounded-xl bg-[#FAF7F0] hover:bg-white text-[#13233A] text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-95 transition-all"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Retry connection</span>
+            </button>
+            {cleanPhone && (
               <a
                 href={`tel:${cleanPhone}`}
-                className="min-h-11 px-4 py-2 rounded-xl border border-white/20 text-white text-xs font-semibold flex items-center justify-center gap-2 hover:bg-white/10 transition-colors"
+                className="inline-flex items-center gap-1.5 text-xs text-[#C9A55C] hover:underline"
               >
-                <Phone className="w-3.5 h-3.5 text-[#E0B973]" />
-                <span>Call reception ({receptionPhone})</span>
+                <Phone className="w-3.5 h-3.5" />
+                <span>Call reception: {receptionPhone}</span>
               </a>
-            </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Bottom Quiet Pill */}
-      <div className="pb-4">
-        <span className="text-xs text-white/50 tracking-wider">
-          Private Guest Stay
-        </span>
+      {/* C2: Powered by Shekin line at bottom */}
+      <div className="pb-4 flex items-center justify-center gap-2 text-xs text-stone-400 select-none">
+        <Logo variant="mark" size="xs" tone="onDark" />
+        <span className="tracking-wide">Powered by Shekin</span>
       </div>
     </div>
   );
