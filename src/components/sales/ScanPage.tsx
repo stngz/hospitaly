@@ -236,15 +236,15 @@ export const ScanPage: React.FC<ScanPageProps> = ({ onClose, onNavigateToToken }
             <canvas ref={canvasRef} className="hidden" />
 
             {/* Target Framing Reticle */}
-            <div className="relative z-10 w-64 h-64 sm:w-72 sm:h-72 border-2 border-amber-400/80 rounded-3xl shadow-[0_0_0_9999px_rgba(0,0,0,0.6)] flex items-center justify-center">
+            <div className="relative z-10 w-64 h-64 sm:w-72 sm:h-72 border-2 border-[#C9A55C]/80 rounded-3xl shadow-[0_0_0_9999px_rgba(19,35,58,0.6)] flex items-center justify-center">
               <div className="w-full h-full rounded-3xl relative">
                 {/* Corner Accents */}
-                <span className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-amber-400 rounded-tl-xl" />
-                <span className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-amber-400 rounded-tr-xl" />
-                <span className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-amber-400 rounded-bl-xl" />
-                <span className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-amber-400 rounded-br-xl" />
+                <span className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-[#C9A55C] rounded-tl-xl" />
+                <span className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-[#C9A55C] rounded-tr-xl" />
+                <span className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-[#C9A55C] rounded-bl-xl" />
+                <span className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-[#C9A55C] rounded-br-xl" />
                 {/* Subtle scanning laser line */}
-                <div className="absolute inset-x-2 top-0 h-0.5 bg-gradient-to-r from-transparent via-amber-400 to-transparent animate-pulse" />
+                <div className="absolute inset-x-2 top-0 h-0.5 bg-gradient-to-r from-transparent via-[#C9A55C] to-transparent animate-pulse" />
               </div>
             </div>
           </>
@@ -252,8 +252,8 @@ export const ScanPage: React.FC<ScanPageProps> = ({ onClose, onNavigateToToken }
       </div>
 
       {/* Footer Instructions */}
-      <div className="w-full p-6 text-center z-10 bg-gradient-to-t from-black/90 to-transparent">
-        <p className="text-xs text-stone-300 max-w-xs mx-auto">
+      <div className="w-full p-6 text-center z-10 bg-gradient-to-t from-[#13233A]/90 to-transparent">
+        <p className="text-xs text-[#FAF7F0]/80 max-w-xs mx-auto">
           {hint || 'Point your camera at the QR code card on the desk or bedside table in your room.'}
         </p>
       </div>

@@ -1,0 +1,7 @@
+User-agent: *
+Disallow: /staff
+Disallow: /hq
+Disallow: /r/
+Allow: /
+
+Sitemap: https://hospitaly.vercel.app/sitemap.xml
