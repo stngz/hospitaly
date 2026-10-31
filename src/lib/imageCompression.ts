@@ -1,6 +1,6 @@
 /**
  * Client-side JPEG compression utility for Firestore `media` documents (Spec §1 & §3).
- * Resizes images to at most 1600px wide/tall and steps down JPEG quality until <= 300 KB.
+ * Resizes images to at most 1600px wide/tall and steps down JPEG quality until <= 300 KB / 380,000 characters.
  */
 
 export interface CompressedImageResult {
@@ -11,7 +11,8 @@ export interface CompressedImageResult {
 }
 
 const MAX_DIMENSION = 1600;
-const MAX_BYTES = 300 * 1024; // 300 KB
+const MAX_BYTES = 260 * 1024; // 260 KB
+const MAX_DATA_URL_LENGTH = 380000; // Well below 409600 char limit in firestore.rules
 
 function estimateBase64Bytes(dataUrl: string): number {
   const base64 = dataUrl.split(',')[1] || '';
@@ -60,13 +61,38 @@ export async function compressImageFileToJpeg(file: File): Promise<CompressedIma
     for (const q of qualities) {
       const encoded = canvas.toDataURL('image/jpeg', q);
       const sizeBytes = estimateBase64Bytes(encoded);
-      if (sizeBytes <= MAX_BYTES) {
+      if (sizeBytes <= MAX_BYTES && encoded.length <= MAX_DATA_URL_LENGTH) {
         return { dataUrl: encoded, width: w, height: h, sizeBytes };
       }
     }
   }
 
-  const fallback = canvas.toDataURL('image/jpeg', 0.25);
+  // Fallback: iteratively scale down until strictly under MAX_DATA_URL_LENGTH
+  let currentScale = 0.45;
+  while (currentScale > 0.05) {
+    const w = Math.max(1, Math.round(targetW * currentScale));
+    const h = Math.max(1, Math.round(targetH * currentScale));
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      const encoded = canvas.toDataURL('image/jpeg', 0.5);
+      if (encoded.length <= MAX_DATA_URL_LENGTH) {
+        return {
+          dataUrl: encoded,
+          width: w,
+          height: h,
+          sizeBytes: estimateBase64Bytes(encoded),
+        };
+      }
+    }
+    currentScale *= 0.75;
+  }
+
+  const fallback = canvas.toDataURL('image/jpeg', 0.2);
   return {
     dataUrl: fallback,
     width: canvas.width,

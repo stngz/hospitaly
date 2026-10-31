@@ -1302,16 +1302,38 @@ export const dbService = {
     return cachedDb.media.find((m) => m.id === mediaId);
   },
 
+  getOrFetchMediaById: async (mediaId?: string | null): Promise<MediaItem | undefined> => {
+    if (!mediaId) return undefined;
+    const cleanId = mediaId.trim();
+    const local = cachedDb.media.find((m) => m.id === cleanId);
+    if (local) return local;
+    try {
+      const snap = await getDoc(doc(db, 'media', cleanId));
+      if (snap.exists()) {
+        const item = { ...(snap.data() as MediaItem), id: snap.id };
+        const other = cachedDb.media.filter((m) => m.id !== cleanId);
+        cachedDb = { ...cachedDb, media: [item, ...other] };
+        notifyListeners();
+        return item;
+      }
+    } catch (err) {
+      console.warn('Failed to fetch media:', err);
+    }
+    return undefined;
+  },
+
   resolveRoomPhotoUrl: (room?: Room | null, property?: Property | null): string | undefined => {
     if (!room) return property?.coverImageUrl;
     if (room.imageId) {
       const media = cachedDb.media.find((m) => m.id === room.imageId);
       if (media?.dataUrl) return media.dataUrl;
+      void dbService.getOrFetchMediaById(room.imageId);
     }
     if (room.imageUrl) return room.imageUrl;
     if (property?.coverImageId) {
       const media = cachedDb.media.find((m) => m.id === property.coverImageId);
       if (media?.dataUrl) return media.dataUrl;
+      void dbService.getOrFetchMediaById(property.coverImageId);
     }
     return property?.coverImageUrl;
   },
@@ -1321,6 +1343,7 @@ export const dbService = {
     ownerId: string;
     propertyId?: string;
     dataUrl: string;
+    mimeType?: string;
     width: number;
     height: number;
     uploadedBy: string;
@@ -1332,6 +1355,7 @@ export const dbService = {
       ownerType: input.ownerType,
       ownerId: input.ownerId,
       dataUrl: input.dataUrl,
+      mimeType: input.mimeType || 'image/jpeg',
       width: input.width,
       height: input.height,
       uploadedBy: input.uploadedBy,

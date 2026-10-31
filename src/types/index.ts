@@ -203,6 +203,7 @@ export interface MediaItem {
   ownerType: 'house' | 'property' | 'user';
   ownerId: string;
   dataUrl: string;
+  mimeType?: string;
   width: number;
   height: number;
   uploadedBy: string;
